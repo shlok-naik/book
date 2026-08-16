@@ -1,10 +1,13 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/widgets/date_pill.dart';
 import '../../domain/log_command_parser.dart';
+import '../widgets/completed_command.dart';
 import '../widgets/confirmation_pill.dart';
 
 class HomePage extends StatefulWidget {
@@ -14,22 +17,78 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
+  /// Locked height for the input row so swapping between the text field,
+  /// the completed state, and the shake never nudges the layout size.
+  static const _inputAreaHeight = 48.0;
+
+  /// How long the confirmation/error pill stays up before it fades out.
+  static const _messageLifetime = Duration(seconds: 3);
+  static const _messageFadeIn = Duration(milliseconds: 150);
+  static const _messageFadeOut = Duration(milliseconds: 400);
+
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   ParsedLogCommand? _lastResult;
+  String? _completedText;
+  Timer? _messageTimer;
+
+  late final _strikeController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 500),
+  );
+  late final _shakeController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 400),
+  );
+  // Quick to fade in, slower to fade out — set via duration/reverseDuration
+  // since AnimatedOpacity only takes one duration for both directions.
+  late final _messageOpacity = AnimationController(
+    vsync: this,
+    duration: _messageFadeIn,
+    reverseDuration: _messageFadeOut,
+  );
 
   @override
   void dispose() {
     _controller.dispose();
     _focusNode.dispose();
+    _strikeController.dispose();
+    _shakeController.dispose();
+    _messageOpacity.dispose();
+    _messageTimer?.cancel();
     super.dispose();
   }
 
-  void _confirm(String value) {
-    if (value.trim().isEmpty) return;
-    setState(() => _lastResult = LogCommandParser.parse(value));
+  Future<void> _confirm(String value) async {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+
+    final result = LogCommandParser.parse(trimmed);
+    setState(() => _lastResult = result);
+    _messageOpacity.forward(from: 0);
+    _messageTimer?.cancel();
+    _messageTimer = Timer(_messageLifetime, () async {
+      if (!mounted) return;
+      await _messageOpacity.reverse();
+      // Only clear if nothing new arrived during the fade.
+      if (mounted && _messageOpacity.isDismissed) {
+        setState(() => _lastResult = null);
+      }
+    });
+
+    if (!result.recognized) {
+      _shakeController.forward(from: 0);
+      return;
+    }
+
+    setState(() => _completedText = trimmed);
     _controller.clear();
+    _strikeController.forward(from: 0);
+
+    await Future.delayed(const Duration(milliseconds: 1300));
+    if (!mounted) return;
+    setState(() => _completedText = null);
     _focusNode.requestFocus();
   }
 
@@ -41,6 +100,7 @@ class _HomePageState extends State<HomePage> {
       height: 1.5,
       color: colors.primaryText,
     );
+    final completedText = _completedText;
 
     return Scaffold(
       body: SafeArea(
@@ -50,41 +110,67 @@ class _HomePageState extends State<HomePage> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.xl,
-              AppSpacing.md,
+              AppSpacing.xxl,
               AppSpacing.xl,
-              AppSpacing.lg,
+              130,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Center(child: DatePill()),
-                const SizedBox(height: AppSpacing.lg),
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: TextField(
-                      controller: _controller,
-                      focusNode: _focusNode,
-                      autofocus: true,
-                      maxLines: null,
-                      minLines: 1,
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: _confirm,
-                      style: inputStyle,
-                      cursorColor: colors.accent,
-                      decoration: InputDecoration(
-                        hintText: 'start Dune',
-                        hintStyle: inputStyle.copyWith(color: colors.secondaryText),
-                        border: InputBorder.none,
-                        isDense: true,
-                      ),
+                Align(
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(
+                    height: _inputAreaHeight,
+                    child: AnimatedBuilder(
+                      animation: _shakeController,
+                      builder: (context, child) {
+                        final t = _shakeController.value;
+                        final dx = t == 0 ? 0.0 : sin(t * pi * 6) * 10 * (1 - t);
+                        return Transform.translate(offset: Offset(dx, 0), child: child);
+                      },
+                      child: completedText != null
+                          ? CompletedCommand(
+                              text: completedText,
+                              animation: _strikeController,
+                              style: inputStyle,
+                            )
+                          : TextField(
+                              controller: _controller,
+                              focusNode: _focusNode,
+                              autofocus: true,
+                              maxLines: null,
+                              minLines: 1,
+                              keyboardType: TextInputType.text,
+                              textInputAction: TextInputAction.done,
+                              textAlignVertical: TextAlignVertical.center,
+                              onSubmitted: _confirm,
+                              style: inputStyle,
+                              cursorColor: colors.accent,
+                              decoration: InputDecoration(
+                                hintText: '...',
+                                hintStyle: inputStyle.copyWith(color: colors.secondaryText),
+                                border: InputBorder.none,
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
                     ),
                   ),
                 ),
-                if (_lastResult != null) ...[
-                  ConfirmationPill(result: _lastResult!),
-                  const SizedBox(height: AppSpacing.xs),
-                ],
+                const Spacer(),
+                FadeTransition(
+                  opacity: _messageOpacity,
+                  child: _lastResult != null
+                      ? Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ConfirmationPill(result: _lastResult!),
+                            const SizedBox(height: AppSpacing.xs),
+                          ],
+                        )
+                      : const SizedBox.shrink(),
+                ),
               ],
             ),
           ),

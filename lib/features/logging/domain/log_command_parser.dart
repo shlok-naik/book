@@ -18,6 +18,15 @@ abstract final class LogCommandParser {
     caseSensitive: false,
   );
 
+  static const _firstWordPattern = r'^(\S+)';
+  static const _keywords = ['start', 'update', 'finish', 'rate'];
+  static const _usage = {
+    'start': 'start <book>',
+    'update': 'update <book> <page>',
+    'finish': 'finish <book>',
+    'rate': 'rate <book> <star value> stars',
+  };
+
   static ParsedLogCommand parse(String input) {
     final text = input.trim();
     if (text.isEmpty) {
@@ -62,10 +71,62 @@ abstract final class LogCommandParser {
       );
     }
 
-    return const ParsedLogCommand(
-      message: 'Not recognized. Try "start Dune", "update Dune 120", '
-          '"finish Dune", or "rate Dune 5 stars".',
-      recognized: false,
-    );
+    return ParsedLogCommand(message: _suggestionFor(text), recognized: false);
+  }
+
+  /// Finds the closest known keyword to the input's first word (by edit
+  /// distance) and suggests its usage — falls back to a generic hint.
+  static String _suggestionFor(String text) {
+    final firstWord = RegExp(_firstWordPattern).firstMatch(text)?.group(1);
+    if (firstWord != null) {
+      final closest = _closestKeyword(firstWord.toLowerCase());
+      if (closest != null) {
+        return 'Not recognized. Did you mean "${_usage[closest]}"?';
+      }
+    }
+    return 'Not recognized. Try "start Dune", "update Dune 120", '
+        '"finish Dune", or "rate Dune 5 stars".';
+  }
+
+  /// A word only needs to be "close enough" relative to its own length —
+  /// a fixed edit-distance cap was too strict for longer typos/variants
+  /// like "finsiher" for "finish".
+  static const _similarityThreshold = 0.5;
+
+  static String? _closestKeyword(String word) {
+    String? best;
+    var bestSimilarity = 0.0;
+    for (final keyword in _keywords) {
+      final distance = _levenshtein(word, keyword);
+      final maxLength = word.length > keyword.length ? word.length : keyword.length;
+      final similarity = maxLength == 0 ? 0.0 : 1 - (distance / maxLength);
+      if (similarity > bestSimilarity) {
+        bestSimilarity = similarity;
+        best = keyword;
+      }
+    }
+    return (best != null && bestSimilarity >= _similarityThreshold) ? best : null;
+  }
+
+  static int _levenshtein(String a, String b) {
+    final rows = a.length + 1;
+    final cols = b.length + 1;
+    final dp = List.generate(rows, (_) => List<int>.filled(cols, 0));
+    for (var i = 0; i < rows; i++) {
+      dp[i][0] = i;
+    }
+    for (var j = 0; j < cols; j++) {
+      dp[0][j] = j;
+    }
+    for (var i = 1; i < rows; i++) {
+      for (var j = 1; j < cols; j++) {
+        final cost = a[i - 1] == b[j - 1] ? 0 : 1;
+        final deletion = dp[i - 1][j] + 1;
+        final insertion = dp[i][j - 1] + 1;
+        final substitution = dp[i - 1][j - 1] + cost;
+        dp[i][j] = [deletion, insertion, substitution].reduce((x, y) => x < y ? x : y);
+      }
+    }
+    return dp[rows - 1][cols - 1];
   }
 }

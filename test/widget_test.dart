@@ -22,6 +22,9 @@ void main() {
     await tester.enterText(find.byType(TextField), text);
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
+    // Let the strike-through/checkmark animation finish and the field
+    // reset, so the next submit() can find the TextField again.
+    await tester.pump(const Duration(milliseconds: 1400));
   }
 
   testWidgets('Log page is the default view, with a text box that confirms on submit',
@@ -48,6 +51,61 @@ void main() {
 
     await submit(tester, 'rate Dune 5 stars');
     expect(find.text('"Dune" — 5★'), findsOneWidget);
+  });
+
+  testWidgets(
+      'shows a strikethrough + checkmark in place of the field right after '
+      'a valid command, then resets it', (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(const BookApp());
+
+    await tester.enterText(find.byType(TextField), 'start Dune');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('start Dune'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 1400));
+    expect(find.byType(TextField), findsOneWidget);
+  });
+
+  testWidgets('keeps the field and shakes for an unrecognized command',
+      (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(const BookApp());
+
+    await tester.enterText(find.byType(TextField), 'gibberish');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.textContaining('Not recognized'), findsOneWidget);
+  });
+
+  testWidgets(
+      'clears the confirmation pill on its own after a few seconds, for '
+      'both success and error', (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(const BookApp());
+
+    await submit(tester, 'start Dune');
+    expect(find.text('Started "Dune"'), findsOneWidget);
+    // Let the lifetime timer fire, then pump incrementally so the
+    // fade-out animation it kicks off actually ticks to completion.
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('Started "Dune"'), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'gibberish');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(find.textContaining('Not recognized'), findsOneWidget);
+    // Let the lifetime timer fire, then pump incrementally so the
+    // fade-out animation it kicks off actually ticks to completion.
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Not recognized'), findsNothing);
   });
 
   testWidgets('Streaks page is reachable and grouped by month',

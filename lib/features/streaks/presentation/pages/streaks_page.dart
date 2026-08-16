@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/widgets/date_pill.dart';
+import '../widgets/day_detail_sheet.dart';
 import '../widgets/month_dot_grid.dart';
 
 /// The year, broken into months, each a grid of day-dots — a structured
 /// take on the inspiration's single 365-dot grid, for reading streaks.
+/// Tapping a day opens a smaller sheet for that date.
 class StreaksPage extends StatelessWidget {
   const StreaksPage({super.key});
 
@@ -22,30 +23,25 @@ class StreaksPage extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.xl,
-            AppSpacing.md,
+            AppSpacing.xxl,
             AppSpacing.xl,
             0,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Center(child: DatePill()),
-              const SizedBox(height: AppSpacing.md),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 140),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (var i = 1; i <= 12; i++) ...[
-                        if (i > 1) const SizedBox(height: _rowGap),
-                        MonthDotGrid(month: i, year: year, labelGap: _rowGap),
-                      ],
-                    ],
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 130),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                for (var i = 1; i <= 12; i++)
+                  MonthDotGrid(
+                    month: i,
+                    year: year,
+                    labelGap: _rowGap,
+                    onDayTap: (date) => showDayDetailSheet(context, date),
                   ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

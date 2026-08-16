@@ -39,7 +39,7 @@ class _RootShellState extends State<RootShell> {
         Positioned(
           left: AppSpacing.lg,
           right: AppSpacing.lg,
-          bottom: AppSpacing.xxl,
+          bottom: AppSpacing.md,
           child: Material(
             type: MaterialType.transparency,
             child: Column(

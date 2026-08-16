@@ -18,12 +18,17 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color secondaryText;
   final Color accent;
 
+  /// The app's single accent color — every button, highlight, pill, and
+  /// dot reads from here (light and dark alike). Change this one line to
+  /// reskin the whole app.
+  static const mainColor = Color(0xFFE8720F);
+
   static const light = AppColors(
     background: Color(0xFFFAF7F2),
     surface: Color(0xFFF3EEE6),
     primaryText: Color(0xFF1A1C20),
     secondaryText: Color(0xFF6E737D),
-    accent: Color(0xFFC1752E),
+    accent: mainColor,
   );
 
   static const dark = AppColors(
@@ -31,7 +36,7 @@ class AppColors extends ThemeExtension<AppColors> {
     surface: Color(0xFF1E2B49),
     primaryText: Color(0xFFF9F9F6),
     secondaryText: Color(0xFF8B94A3),
-    accent: Color(0xFFC1752E),
+    accent: mainColor,
   );
 
   @override

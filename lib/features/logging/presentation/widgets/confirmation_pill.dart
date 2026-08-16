@@ -6,8 +6,8 @@ import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../domain/log_command_parser.dart';
 
-/// A small rounded status chip echoing the app's pill buttons —
-/// solid cobalt when a command was understood, quiet outline otherwise.
+/// A small rounded status chip — same style and position whether the
+/// command succeeded or was rejected, so only the message text differs.
 class ConfirmationPill extends StatelessWidget {
   const ConfirmationPill({super.key, required this.result});
 
@@ -16,7 +16,6 @@ class ConfirmationPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final recognized = result.recognized;
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -26,14 +25,14 @@ class ConfirmationPill extends StatelessWidget {
           vertical: AppSpacing.sm,
         ),
         decoration: BoxDecoration(
-          color: recognized ? colors.accent : colors.surface,
+          color: colors.surface,
           borderRadius: BorderRadius.circular(AppRadius.md),
         ),
         child: Text(
           result.message,
           style: GoogleFonts.jetBrainsMono(
             fontSize: 14,
-            color: recognized ? Colors.white : colors.secondaryText,
+            color: colors.primaryText,
           ),
         ),
       ),

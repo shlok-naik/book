@@ -4,13 +4,13 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 
-/// Floating pill tab bar. Profile / streak / library share the wide left
-/// pill; "+" gets its own circle, set apart, as the primary action.
+/// Rounded-rect (not full pill) tab bar. Profile / streak / library share
+/// the wide left container; "+" gets its own square, set apart, as the
+/// primary action.
 ///
-/// Base (always present, selection never changes it): a white pill/circle
-/// with a smaller accent-tinted pill/circle inset 2px inside it. Icons
-/// sit on that tint. Selecting one layers a solid accent circle + white
-/// icon on top — the base underneath stays exactly as it was.
+/// Every icon slot follows the same explicit, symmetric ring — identical
+/// whether it's an edge icon or a middle one:
+///   white → [_tintInset] → tint → [_itemGap] → selection → [_iconInset] → icon
 class BottomSwitcher extends StatelessWidget {
   const BottomSwitcher({
     super.key,
@@ -28,10 +28,12 @@ class BottomSwitcher extends StatelessWidget {
   ];
   static const _addIndex = 3;
 
-  /// White shape → tinted shape gap ("3px smaller in every direction").
-  static const _tintInset = 3.0;
-  static const _contentHeight = 56.0;
-  static const _outerHeight = _contentHeight + _tintInset * 2;
+  static const _tintInset = AppSpacing.xs;
+  static const _itemGap = AppSpacing.xs;
+  static const _iconSpacing = AppSpacing.md;
+  static const _slotSize = _SwitcherItem.selectedSize;
+  static const _outerHeight = _slotSize + (_itemGap + _tintInset) * 2;
+  static const _barRadius = AppRadius.lg;
 
   @override
   Widget build(BuildContext context) {
@@ -43,30 +45,27 @@ class BottomSwitcher extends StatelessWidget {
         _Base(
           colors: colors,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+            padding: const EdgeInsets.all(_itemGap),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (var i = 0; i < _groupIcons.length; i++) ...[
-                  if (i > 0) const SizedBox(width: AppSpacing.sm),
-                  SizedBox(
-                    width: _contentHeight,
-                    child: _SwitcherItem(
-                      icon: _groupIcons[i],
-                      selected: index == i,
-                      onTap: () => onChanged(i),
-                    ),
+                  if (i > 0) const SizedBox(width: _iconSpacing),
+                  _SwitcherItem(
+                    icon: _groupIcons[i],
+                    selected: index == i,
+                    onTap: () => onChanged(i),
                   ),
                 ],
               ],
             ),
           ),
         ),
-        const SizedBox(width: AppSpacing.sm),
-        SizedBox(
-          width: _outerHeight,
-          child: _Base(
-            colors: colors,
+        const SizedBox(width: _iconSpacing),
+        _Base(
+          colors: colors,
+          child: Padding(
+            padding: const EdgeInsets.all(_itemGap),
             child: _SwitcherItem(
               icon: Icons.add,
               selected: index == _addIndex,
@@ -79,7 +78,7 @@ class BottomSwitcher extends StatelessWidget {
   }
 }
 
-/// The white pill/circle with its inset accent-tinted twin — unchanging
+/// The white rounded-rect with its inset accent-tinted twin — unchanging
 /// regardless of what's selected inside it.
 class _Base extends StatelessWidget {
   const _Base({required this.colors, required this.child});
@@ -94,7 +93,7 @@ class _Base extends StatelessWidget {
       padding: const EdgeInsets.all(BottomSwitcher._tintInset),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
+        borderRadius: BorderRadius.circular(BottomSwitcher._barRadius),
         boxShadow: [
           BoxShadow(
             color: colors.primaryText.withValues(alpha: 0.08),
@@ -106,7 +105,7 @@ class _Base extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: colors.accent.withValues(alpha: 0.22),
-          borderRadius: BorderRadius.circular(AppRadius.pill),
+          borderRadius: BorderRadius.circular(AppRadius.md),
         ),
         child: child,
       ),
@@ -125,7 +124,9 @@ class _SwitcherItem extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  static const _selectedSize = 48.0;
+  static const selectedSize = 54.0;
+  static const _iconInset = AppSpacing.sm + 4;
+  static const _iconSize = selectedSize - _iconInset * 2;
 
   @override
   Widget build(BuildContext context) {
@@ -133,19 +134,23 @@ class _SwitcherItem extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      customBorder: const CircleBorder(),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       child: SizedBox(
-        height: BottomSwitcher._contentHeight,
+        width: selectedSize,
+        height: selectedSize,
         child: Center(
           child: selected
               ? Container(
-                  width: _selectedSize,
-                  height: _selectedSize,
+                  width: selectedSize,
+                  height: selectedSize,
                   alignment: Alignment.center,
-                  decoration: BoxDecoration(color: colors.accent, shape: BoxShape.circle),
-                  child: Icon(icon, size: 26, color: Colors.white),
+                  decoration: BoxDecoration(
+                    color: colors.accent,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Icon(icon, size: _iconSize, color: Colors.white),
                 )
-              : Icon(icon, size: 26, color: colors.accent),
+              : Icon(icon, size: _iconSize, color: colors.accent),
         ),
       ),
     );
