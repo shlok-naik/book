@@ -45,7 +45,7 @@ class MonthDotGrid extends StatelessWidget {
           style: GoogleFonts.jetBrainsMono(
             fontSize: 16,
             fontWeight: FontWeight.w600,
-            color: colors.secondaryText,
+            color: colors.primaryText,
           ),
         ),
         SizedBox(height: labelGap),

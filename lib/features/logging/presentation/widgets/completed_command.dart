@@ -28,22 +28,25 @@ class CompletedCommand extends StatelessWidget {
       parent: animation,
       curve: const Interval(0.5, 1, curve: Curves.elasticOut),
     );
+    // Matches the text's own rendered line height, so a same-height,
+    // same-top-aligned box lets the checkmark center itself against the
+    // text/strikethrough specifically — not the row's full height.
+    final lineHeight = style.fontSize! * (style.height ?? 1.0);
 
     return AnimatedBuilder(
       animation: animation,
       builder: (context, _) {
         return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Flexible(
               child: Stack(
                 alignment: Alignment.centerLeft,
                 children: [
-                  Text(
-                    text,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: style.copyWith(color: colors.secondaryText),
-                  ),
+                  // Painted first (behind the text) so the line only shows
+                  // through the gaps between letters, the way strikethrough
+                  // conventionally renders — painted on top, it erases
+                  // chunks of the glyph strokes and reads as "cut into".
                   Positioned.fill(
                     child: Align(
                       alignment: Alignment.centerLeft,
@@ -53,6 +56,15 @@ class CompletedCommand extends StatelessWidget {
                       ),
                     ),
                   ),
+                  Text(
+                    text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    // Same dark color as the TextField it replaces — a
+                    // lighter gray here measurably read as "smaller" even
+                    // at an identical font size (a contrast illusion).
+                    style: style.copyWith(color: colors.primaryText),
+                  ),
                 ],
               ),
             ),
@@ -60,9 +72,14 @@ class CompletedCommand extends StatelessWidget {
             // so the Flexible text area's width — and the text's position
             // — never shifts once the checkmark starts appearing.
             const SizedBox(width: 10),
-            Transform.scale(
-              scale: checkmark.value,
-              child: Icon(Icons.check_circle, color: colors.accent, size: 22),
+            SizedBox(
+              height: lineHeight,
+              child: Center(
+                child: Transform.scale(
+                  scale: checkmark.value,
+                  child: Icon(Icons.check_circle, color: colors.accent, size: 22),
+                ),
+              ),
             ),
           ],
         );

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/widgets/date_pill.dart';
 import '../../domain/log_command_parser.dart';
 import '../widgets/completed_command.dart';
 import '../widgets/confirmation_pill.dart';
@@ -117,6 +118,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const Center(child: DatePill()),
+                const SizedBox(height: AppSpacing.lg),
                 Align(
                   alignment: Alignment.topLeft,
                   child: SizedBox(
@@ -142,7 +145,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               minLines: 1,
                               keyboardType: TextInputType.text,
                               textInputAction: TextInputAction.done,
-                              textAlignVertical: TextAlignVertical.center,
+                              textAlignVertical: TextAlignVertical.top,
                               onSubmitted: _confirm,
                               style: inputStyle,
                               cursorColor: colors.accent,
