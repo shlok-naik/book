@@ -105,17 +105,35 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> submit(WidgetTester tester, String text) async {
+  /// Submits [text] and returns once the outcome has been decided, but
+  /// before any accept animation has run.
+  Future<void> send(WidgetTester tester, String text) async {
     await tester.enterText(find.byType(TextField), text);
     await tester.testTextInput.receiveAction(TextInputAction.done);
     // One pump lets the (fake, immediate) library call resolve; a
-    // second renders the frame it triggers — needed now that the
-    // confirmation waits on that result instead of firing optimistically.
+    // second renders the frame it triggers — the confirmation waits on
+    // that result instead of firing optimistically.
     await tester.pump();
     await tester.pump();
-    // Let the strike-through/checkmark animation finish and the field
-    // reset, so the next submit() can find the TextField again.
-    await tester.pump(const Duration(milliseconds: 1400));
+  }
+
+  /// Runs an in-flight accept sequence out to the frame that clears the
+  /// field. Must be reached before a test ends, or the hold timer is
+  /// still pending at teardown.
+  Future<void> finishAccept(WidgetTester tester) async {
+    // The strike/checkmark animation, then the hold before the clear —
+    // pumped separately because the hold's timer is only created once
+    // the animation's future has resolved.
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump();
+  }
+
+  /// Submits [text] and runs the full accept sequence to completion, so
+  /// the field is empty and editable again on return.
+  Future<void> submit(WidgetTester tester, String text) async {
+    await send(tester, text);
+    await finishAccept(tester);
   }
 
   testWidgets('Log page is the default view, with a text box that confirms on submit',
@@ -148,22 +166,97 @@ void main() {
   });
 
   testWidgets(
-      'shows a strikethrough + checkmark in place of the field right after '
-      'a valid command, then resets it', (WidgetTester tester) async {
+      'strikes the command through in place, then clears the field',
+      (WidgetTester tester) async {
     await useDeviceSize(tester);
     await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
 
-    await tester.enterText(find.byType(TextField), 'start Dune');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    // Let the (fake, immediate) library call resolve and its frame render.
-    await tester.pump();
-    await tester.pump();
+    await send(tester, 'start Dune');
 
-    expect(find.byType(TextField), findsNothing);
+    // The same field is still there, still holding the same text — the
+    // strike is drawn on it rather than replacing it.
+    expect(find.byType(TextField), findsOneWidget);
     expect(find.text('start Dune'), findsOneWidget);
 
-    await tester.pump(const Duration(milliseconds: 1400));
+    await finishAccept(tester);
+
     expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('start Dune'), findsNothing);
+  });
+
+  testWidgets(
+      'the struck-through text keeps the exact size and position it had '
+      'while being typed', (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+
+    final editable = find.byType(EditableText);
+    TextStyle styleNow() => tester.widget<EditableText>(editable).style;
+
+    await tester.enterText(find.byType(TextField), 'start Dune');
+    await tester.pump();
+    final typedRect = tester.getRect(editable);
+    final typedStyle = styleNow();
+
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    await tester.pump();
+
+    // Sampled across the strike — start, middle, and end — because a
+    // swap-in stand-in widget would only betray itself on the frames
+    // where it is actually mounted.
+    for (final elapsed in const [0, 150, 300, 550]) {
+      await tester.pump(Duration(milliseconds: elapsed));
+      expect(
+        tester.getRect(editable),
+        typedRect,
+        reason: 'text moved or resized ${elapsed}ms into the strike',
+      );
+      expect(styleNow().fontSize, typedStyle.fontSize);
+      expect(styleNow().height, typedStyle.height);
+      expect(styleNow().color, typedStyle.color);
+    }
+
+    await finishAccept(tester);
+  });
+
+  testWidgets('the strikethrough grows across the text as it animates',
+      (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+
+    // Counts characters carrying a lineThrough decoration in whatever
+    // the field is currently rendering — the strike's actual extent.
+    int struckCharacters() {
+      final span = tester.widget<EditableText>(
+        find.byType(EditableText),
+      ).controller.buildTextSpan(
+        context: tester.element(find.byType(EditableText)),
+        withComposing: false,
+      );
+      var struck = 0;
+      span.visitChildren((visited) {
+        if (visited is TextSpan &&
+            visited.style?.decoration == TextDecoration.lineThrough) {
+          struck += visited.text?.length ?? 0;
+        }
+        return true;
+      });
+      return struck;
+    }
+
+    await send(tester, 'start Dune');
+    expect(struckCharacters(), 0, reason: 'nothing struck before it animates');
+
+    await tester.pump(const Duration(milliseconds: 200));
+    final midway = struckCharacters();
+    expect(midway, greaterThan(0));
+    expect(midway, lessThan('start Dune'.length));
+
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(struckCharacters(), 'start Dune'.length);
+
+    await finishAccept(tester);
   });
 
   testWidgets('keeps the field and shakes for an unrecognized command',
@@ -190,18 +283,17 @@ void main() {
     expect(find.text('Started "Dune"'), findsOneWidget);
 
     // Same book again — the second start is a no-op, not a success.
-    await tester.enterText(find.byType(TextField), 'start Dune');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pump();
-    await tester.pump();
+    await send(tester, 'start Dune');
 
-    expect(
-      find.byType(TextField),
-      findsOneWidget,
-      reason: 'a failed command must not swap in the checkmark',
-    );
-    expect(find.text('start Dune'), findsOneWidget);
     expect(find.text('"Dune" is already on your shelf.'), findsOneWidget);
+    // The text stays put for correcting, and no strike runs over it.
+    expect(find.text('start Dune'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 800));
+    expect(
+      find.text('start Dune'),
+      findsOneWidget,
+      reason: 'a rejected command must not be struck through or cleared',
+    );
   });
 
   testWidgets(

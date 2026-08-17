@@ -76,7 +76,7 @@ String volumesJson({
         'volumeInfo': {
           'title': title,
           'authors': authors,
-          if (pageCount != null) 'pageCount': pageCount,
+          'pageCount': ?pageCount,
           if (thumbnail != null) 'imageLinks': {'thumbnail': thumbnail},
         },
       },
