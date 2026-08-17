@@ -1,11 +1,36 @@
-/// Zero-cost, rule-based parser for Structured mode commands:
-/// `start <book>`, `update <book> <page>`, `finish <book>`,
-/// `rate <book> <star value> stars`.
-class ParsedLogCommand {
-  const ParsedLogCommand({required this.message, required this.recognized});
+// Zero-cost, rule-based parser for Structured mode commands:
+// `start <book>`, `update <book> <page>`, `finish <book>`,
+// `rate <book> <stars>`, `delete <book>`.
 
+/// Which command was recognized, so callers can act on it rather than
+/// re-parsing the confirmation text.
+enum LogCommandType { start, update, finish, rate, delete, unknown }
+
+class ParsedLogCommand {
+  const ParsedLogCommand({
+    required this.message,
+    required this.recognized,
+    this.type = LogCommandType.unknown,
+    this.title,
+    this.page,
+    this.rating,
+  });
+
+  /// Confirmation (or error/suggestion) text for the pill.
   final String message;
   final bool recognized;
+
+  final LogCommandType type;
+
+  /// The book the command refers to — null when unrecognized.
+  final String? title;
+
+  /// Page argument of `update`. Always a non-negative int when present;
+  /// the pattern only matches digits, so no sign or decimal can get in.
+  final int? page;
+
+  /// Star argument of `rate`.
+  final double? rating;
 }
 
 abstract final class LogCommandParser {
@@ -14,17 +39,19 @@ abstract final class LogCommandParser {
       RegExp(r'^update\s+(.+?)\s+(\d+)$', caseSensitive: false);
   static final _finishPattern = RegExp(r'^finish\s+(.+)$', caseSensitive: false);
   static final _ratePattern = RegExp(
-    r'^rate\s+(.+?)\s+(\d+(?:\.\d+)?)\s*stars?$',
+    r'^rate\s+(.+?)\s+(\d+(?:\.\d+)?)$',
     caseSensitive: false,
   );
+  static final _deletePattern = RegExp(r'^delete\s+(.+)$', caseSensitive: false);
 
   static const _firstWordPattern = r'^(\S+)';
-  static const _keywords = ['start', 'update', 'finish', 'rate'];
+  static const _keywords = ['start', 'update', 'finish', 'rate', 'delete'];
   static const _usage = {
     'start': 'start <book>',
     'update': 'update <book> <page>',
     'finish': 'finish <book>',
-    'rate': 'rate <book> <star value> stars',
+    'rate': 'rate <book> <stars>',
+    'delete': 'delete <book>',
   };
 
   static ParsedLogCommand parse(String input) {
@@ -40,6 +67,9 @@ abstract final class LogCommandParser {
       return ParsedLogCommand(
         message: '"$title" — $rating★',
         recognized: true,
+        type: LogCommandType.rate,
+        title: title,
+        rating: double.tryParse(rating),
       );
     }
 
@@ -50,6 +80,11 @@ abstract final class LogCommandParser {
       return ParsedLogCommand(
         message: '"$title" — pg $page',
         recognized: true,
+        type: LogCommandType.update,
+        title: title,
+        // The pattern guarantees digits only; tryParse still guards the
+        // one case it can't — a number too large for an int.
+        page: int.tryParse(page),
       );
     }
 
@@ -59,6 +94,8 @@ abstract final class LogCommandParser {
       return ParsedLogCommand(
         message: 'Finished "$title"',
         recognized: true,
+        type: LogCommandType.finish,
+        title: title,
       );
     }
 
@@ -68,6 +105,19 @@ abstract final class LogCommandParser {
       return ParsedLogCommand(
         message: 'Started "$title"',
         recognized: true,
+        type: LogCommandType.start,
+        title: title,
+      );
+    }
+
+    final delete = _deletePattern.firstMatch(text);
+    if (delete != null) {
+      final title = delete.group(1)!.trim();
+      return ParsedLogCommand(
+        message: 'Removed "$title"',
+        recognized: true,
+        type: LogCommandType.delete,
+        title: title,
       );
     }
 
@@ -85,7 +135,7 @@ abstract final class LogCommandParser {
       }
     }
     return 'Not recognized. Try "start Dune", "update Dune 120", '
-        '"finish Dune", or "rate Dune 5 stars".';
+        '"finish Dune", "rate Dune 5", or "delete Dune".';
   }
 
   /// A word only needs to be "close enough" relative to its own length —

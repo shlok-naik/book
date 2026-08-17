@@ -7,6 +7,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/date_pill.dart';
+import '../../../library/presentation/controllers/library_controller.dart';
+import '../../../library/presentation/library_scope.dart';
 import '../../domain/log_command_parser.dart';
 import '../widgets/completed_command.dart';
 import '../widgets/confirmation_pill.dart';
@@ -61,11 +63,60 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  /// Handles a submitted line.
+  ///
+  /// Unrecognized syntax rejects immediately. Recognized syntax still
+  /// has to clear the library — Supabase, Google Books, a duplicate
+  /// `start`, a page past the end — before it's actually a success, so
+  /// this waits for [_applyToLibrary] and only plays the
+  /// strike-through/checkmark once that's confirmed. A command that
+  /// looked valid but didn't apply gets the same shake and stays in the
+  /// field as one that was never recognized, so nothing that silently
+  /// failed can look like it went through.
   Future<void> _confirm(String value) async {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return;
 
-    final result = LogCommandParser.parse(trimmed);
+    final parsed = LogCommandParser.parse(trimmed);
+    if (!parsed.recognized) {
+      _reject(parsed);
+      return;
+    }
+
+    final outcome = await _applyToLibrary(parsed);
+    if (!mounted) return;
+    if (outcome != null && !outcome.success) {
+      _reject(
+        ParsedLogCommand(
+          message: outcome.message ?? 'Something went wrong.',
+          recognized: false,
+        ),
+      );
+      return;
+    }
+
+    _showResult(parsed);
+    setState(() => _completedText = trimmed);
+    _controller.clear();
+    _strikeController.forward(from: 0);
+
+    await Future.delayed(const Duration(milliseconds: 1300));
+    if (!mounted) return;
+    setState(() => _completedText = null);
+    _focusNode.requestFocus();
+  }
+
+  /// Shows [result] in the pill and shakes the input, leaving the typed
+  /// text in place — for syntax the parser never recognized, and for
+  /// syntax it did but that failed to apply.
+  void _reject(ParsedLogCommand result) {
+    _showResult(result);
+    _shakeController.forward(from: 0);
+  }
+
+  /// Puts [result] in the confirmation pill and (re)starts its
+  /// fade-in/lifetime/fade-out cycle.
+  void _showResult(ParsedLogCommand result) {
     setState(() => _lastResult = result);
     _messageOpacity.forward(from: 0);
     _messageTimer?.cancel();
@@ -77,20 +128,39 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         setState(() => _lastResult = null);
       }
     });
+  }
 
-    if (!result.recognized) {
-      _shakeController.forward(from: 0);
-      return;
+  /// Applies a recognized command to the library, if it has one to
+  /// apply — `rate` doesn't (ratings are out of scope for the library
+  /// feature; the parser's own confirmation is the whole of it), so this
+  /// returns null and [_confirm] treats that the same as a success.
+  Future<LibraryActionResult?> _applyToLibrary(ParsedLogCommand command) {
+    final title = command.title;
+    if (title == null || title.isEmpty) return Future.value(null);
+
+    final library = LibraryScope.read(context);
+
+    switch (command.type) {
+      case LogCommandType.start:
+        return library.startBook(title);
+      case LogCommandType.update:
+        final page = command.page;
+        if (page == null) {
+          return Future.value(
+            const LibraryActionResult.failure(
+              "That page number isn't a number we can use.",
+            ),
+          );
+        }
+        return library.updateProgress(title, page);
+      case LogCommandType.finish:
+        return library.finishBook(title);
+      case LogCommandType.delete:
+        return library.deleteBook(title);
+      case LogCommandType.rate:
+      case LogCommandType.unknown:
+        return Future.value(null);
     }
-
-    setState(() => _completedText = trimmed);
-    _controller.clear();
-    _strikeController.forward(from: 0);
-
-    await Future.delayed(const Duration(milliseconds: 1300));
-    if (!mounted) return;
-    setState(() => _completedText = null);
-    _focusNode.requestFocus();
   }
 
   @override
