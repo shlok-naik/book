@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
 
-/// Central Light/Dark [ThemeData] for the Parchment & Cobalt design system.
+/// Central Light/Dark [ThemeData] for the Mono & Teal design system.
 /// Fraunces for headings/display, Inter for body/UI.
 abstract final class AppTheme {
   static ThemeData light = _build(AppColors.light, Brightness.light);
@@ -32,6 +32,7 @@ abstract final class AppTheme {
 
     return base.copyWith(
       scaffoldBackgroundColor: colors.background,
+      dividerColor: colors.divider,
       colorScheme: base.colorScheme.copyWith(
         brightness: brightness,
         surface: colors.surface,

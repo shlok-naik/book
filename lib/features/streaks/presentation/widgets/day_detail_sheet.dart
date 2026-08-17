@@ -5,50 +5,55 @@ import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/date_pill.dart';
 
-/// Opened from tapping a day-dot on the streaks grid — a panel the same
-/// shape as the screen itself, pushed in well on every side, with an
-/// accent border. Tapping outside fades it away.
+/// Opened from tapping a day-dot on the streaks grid — a standard modal
+/// bottom sheet: full width, rounded top corners only, a drag handle,
+/// sliding up from the bottom edge. Swipe down or tap outside to dismiss.
 Future<void> showDayDetailSheet(BuildContext context, DateTime date) {
   final colors = context.colors;
 
-  return showGeneralDialog<void>(
+  return showModalBottomSheet<void>(
     context: context,
-    barrierDismissible: true,
-    barrierLabel: 'Dismiss',
+    backgroundColor: colors.background,
     barrierColor: Colors.black.withValues(alpha: 0.4),
-    transitionDuration: const Duration(milliseconds: 200),
-    pageBuilder: (context, animation, secondaryAnimation) {
+    constraints: const BoxConstraints(maxWidth: double.infinity),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+    ),
+    builder: (context) {
+      final minHeight = MediaQuery.sizeOf(context).height * 0.32;
+
       return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.xxl,
-            vertical: AppSpacing.xxl + AppSpacing.lg,
-          ),
-          child: Material(
-            color: colors.background,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              side: BorderSide(color: colors.accent, width: 2),
-            ),
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: minHeight),
+          child: SizedBox(
+            width: double.infinity,
             child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: DatePill(date: date),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.lg,
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.divider,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: DatePill(date: date),
+                  ),
+                ],
               ),
             ),
           ),
-        ),
-      );
-    },
-    transitionBuilder: (context, animation, secondaryAnimation, child) {
-      return FadeTransition(
-        opacity: animation,
-        child: ScaleTransition(
-          scale: Tween(begin: 0.96, end: 1.0).animate(
-            CurvedAnimation(parent: animation, curve: Curves.easeOut),
-          ),
-          child: child,
         ),
       );
     },

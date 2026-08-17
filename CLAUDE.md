@@ -1,24 +1,26 @@
 # Minimalist AI Book Tracker
 
-## 🎨 Design System: Parchment & Cobalt
+## 🎨 Design System: Mono & Teal
 
 ### Light Mode
 | Role | Color | Hex Code | Usage |
 | :--- | :--- | :--- | :--- |
-| **Background** | Warm Paper | `#F9F9F6` | Main app scaffold and empty space. |
-| **Surface** | Pure White | `#FFFFFF` | Book cards, bottom navigation, and pop-up sheets. |
-| **Primary Text** | Soft Black | `#1A1C20` | Book titles, main reading stats, and AI responses. |
-| **Secondary Text** | Ash Gray | `#6E737D` | Author names, dates, and placeholder text. |
-| **Accent / AI** | Vibrant Cobalt | `#2E5EFF` | Progress bars, AI assistant buttons, and active tabs. |
+| **Background** | Pure White | `#FFFFFF` | Main app scaffold and empty space. |
+| **Surface** | Off-White | `#F5F5F5` | Book cards, bottom navigation, and pop-up sheets. |
+| **Primary Text** | Pure Black | `#000000` | Book titles, main reading stats, and AI responses. |
+| **Secondary Text** | Gray | `#6B6B6B` | Author names, dates, and placeholder text. |
+| **Accent / AI** | Teal | `#1A8FBF` | Progress bars, AI assistant buttons, and active tabs. |
+| **Dividers** | Light Gray | `#E8E8E8` | Hairlines, separators, and card borders. |
 
 ### Dark Mode
 | Role | Color | Hex Code | Usage |
 | :--- | :--- | :--- | :--- |
-| **Background** | Deep Navy | `#16233E` | Main app scaffold and empty space. |
-| **Surface** | Elevated Navy | `#1E2B49` | Book cards, bottom navigation, and pop-up sheets. |
-| **Primary Text** | Off-White | `#F9F9F6` | Book titles, main reading stats, and AI responses. |
-| **Secondary Text** | Slate | `#8B94A3` | Author names, dates, and placeholder text. |
-| **Accent / AI** | Vibrant Cobalt | `#2E5EFF` | Progress bars, AI assistant buttons, and active tabs. |
+| **Background** | Dark Gray | `#1A1A1A` | Main app scaffold and empty space. |
+| **Surface** | Elevated Dark Gray | `#242424` | Book cards, bottom navigation, and pop-up sheets. |
+| **Primary Text** | Off-White | `#F5F5F5` | Book titles, main reading stats, and AI responses. |
+| **Secondary Text** | Gray | `#9A9A9A` | Author names, dates, and placeholder text. |
+| **Accent / AI** | Teal | `#1B9FD9` | Progress bars, AI assistant buttons, and active tabs. |
+| **Dividers** | Mid Gray | `#3A3A3A` | Hairlines, separators, and card borders. |
 
 ### Typography
 *   **Headings/Display**: *Fraunces* – provides a classic, museum-like editorial feel suited for book titles and headers.
@@ -41,7 +43,7 @@ Keep your UI components strictly focused on presentation. Extract all business l
 Never instantiate HTTP clients or AI service classes directly inside your UI or business logic. Inject them. This makes it trivial to swap out a real AI backend for a mocked version during testing or development, avoiding unnecessary API costs.
 
 ### 4. Theme Extensions
-Do not hardcode the hex values from the design system directly into UI components. Define the Light and Dark schemes centrally using theme extensions. This ensures that toggling between the Parchment and Navy modes updates the entire app consistently and instantly.
+Do not hardcode the hex values from the design system directly into UI components. Define the Light and Dark schemes centrally using theme extensions. This ensures that toggling between the Light and Dark modes updates the entire app consistently and instantly.
 
 ---
 
@@ -52,7 +54,7 @@ Do not hardcode the hex values from the design system directly into UI component
 *   **Action**: Ensure that your data models accurately serialize and deserialize the AI's responses (especially if parsing JSON from an LLM). Test edge cases, such as network timeouts or malformed AI output, to ensure the app degrades gracefully rather than crashing.
 
 ### Component / UI Tests
-*   **Focus**: Reusable UI elements (e.g., the Cobalt progress ring, book cover cards, AI summary bottom sheets).
+*   **Focus**: Reusable UI elements (e.g., the Teal progress ring, book cover cards, AI summary bottom sheets).
 *   **Action**: Render these components in isolation. Verify that the progress bar accurately reflects 0%, 50%, and 100% states. Ensure the text contrast remains readable in both Light and Dark themes.
 
 ### Integration Tests

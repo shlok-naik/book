@@ -98,20 +98,24 @@ class _Base extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+
     return Container(
       height: BottomSwitcher._outerHeight,
       padding: const EdgeInsets.all(BottomSwitcher._tintInset),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isLight ? colors.background : colors.surface,
         shape: shape,
         borderRadius: shape == BoxShape.rectangle ? borderRadius : null,
-        boxShadow: [
-          BoxShadow(
-            color: colors.primaryText.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: isLight
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
       ),
       child: DecoratedBox(
         decoration: BoxDecoration(
@@ -166,7 +170,7 @@ class _SwitcherItem extends StatelessWidget {
                     shape: shape,
                     borderRadius: radius,
                   ),
-                  child: Icon(icon, size: _iconSize, color: Colors.white),
+                  child: Icon(icon, size: _iconSize, color: colors.background),
                 )
               : Icon(icon, size: _iconSize, color: colors.accent),
         ),

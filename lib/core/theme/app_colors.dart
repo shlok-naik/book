@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// Parchment & Cobalt design system colors, exposed as a [ThemeExtension]
-/// so widgets never hardcode hex values directly.
+/// Mono & Teal design system colors, exposed as a [ThemeExtension] so
+/// widgets never hardcode hex values directly.
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
@@ -10,6 +10,7 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.primaryText,
     required this.secondaryText,
     required this.accent,
+    required this.divider,
   });
 
   final Color background;
@@ -17,26 +18,24 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color primaryText;
   final Color secondaryText;
   final Color accent;
-
-  /// The app's single accent color — every button, highlight, pill, and
-  /// dot reads from here (light and dark alike). Change this one line to
-  /// reskin the whole app.
-  static const mainColor = Color(0xFFE8720F);
+  final Color divider;
 
   static const light = AppColors(
-    background: Color(0xFFFAF7F2),
-    surface: Color(0xFFF3EEE6),
-    primaryText: Color(0xFF1A1C20),
-    secondaryText: Color(0xFF6E737D),
-    accent: mainColor,
+    background: Color(0xFFFFFFFF),
+    surface: Color(0xFFF5F5F5),
+    primaryText: Color(0xFF000000),
+    secondaryText: Color(0xFF6B6B6B),
+    accent: Color(0xFF1A8FBF),
+    divider: Color(0xFFE8E8E8),
   );
 
   static const dark = AppColors(
-    background: Color(0xFF16233E),
-    surface: Color(0xFF1E2B49),
-    primaryText: Color(0xFFF9F9F6),
-    secondaryText: Color(0xFF8B94A3),
-    accent: mainColor,
+    background: Color(0xFF1A1A1A),
+    surface: Color(0xFF242424),
+    primaryText: Color(0xFFF5F5F5),
+    secondaryText: Color(0xFF9A9A9A),
+    accent: Color(0xFF1B9FD9),
+    divider: Color(0xFF3A3A3A),
   );
 
   @override
@@ -46,6 +45,7 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? primaryText,
     Color? secondaryText,
     Color? accent,
+    Color? divider,
   }) {
     return AppColors(
       background: background ?? this.background,
@@ -53,6 +53,7 @@ class AppColors extends ThemeExtension<AppColors> {
       primaryText: primaryText ?? this.primaryText,
       secondaryText: secondaryText ?? this.secondaryText,
       accent: accent ?? this.accent,
+      divider: divider ?? this.divider,
     );
   }
 
@@ -65,6 +66,7 @@ class AppColors extends ThemeExtension<AppColors> {
       primaryText: Color.lerp(primaryText, other.primaryText, t)!,
       secondaryText: Color.lerp(secondaryText, other.secondaryText, t)!,
       accent: Color.lerp(accent, other.accent, t)!,
+      divider: Color.lerp(divider, other.divider, t)!,
     );
   }
 }

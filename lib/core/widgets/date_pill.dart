@@ -50,7 +50,7 @@ class DatePill extends StatelessWidget {
         style: GoogleFonts.jetBrainsMono(
           fontSize: 13,
           fontWeight: FontWeight.w600,
-          color: Colors.white,
+          color: colors.background,
         ),
       ),
     );
