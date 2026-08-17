@@ -81,9 +81,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   /// Applies a recognized command to the library, if it has one to
-  /// apply — `rate` doesn't (ratings are out of scope for the library
-  /// feature; the parser's own confirmation is the whole of it), so this
-  /// returns null and [_run] treats that the same as a success.
+  /// apply — `unknown` never reaches here (the caller filters
+  /// unrecognized syntax out first), so this returns null only for that
+  /// impossible case, which [_run] treats the same as a success.
   Future<LibraryActionResult?> _applyToLibrary(ParsedLogCommand command) {
     final title = command.title;
     if (title == null || title.isEmpty) return Future.value(null);
@@ -108,6 +108,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.delete:
         return library.deleteBook(title);
       case LogCommandType.rate:
+        final rating = command.rating;
+        if (rating == null) {
+          return Future.value(
+            const LibraryActionResult.failure(
+              "That rating isn't a number we can use.",
+            ),
+          );
+        }
+        return library.rateBook(title, rating);
       case LogCommandType.unknown:
         return Future.value(null);
     }

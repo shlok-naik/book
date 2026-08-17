@@ -155,6 +155,65 @@ class LibraryController extends ChangeNotifier {
     );
   }
 
+  /// `rate <book> <stars>` — only allowed once the book is finished, so
+  /// a rating always reflects a book actually read rather than a
+  /// prediction. Optimistic like the other commands: the star shows
+  /// immediately and rolls back if the write fails.
+  ///
+  /// Uses [UserBookRepository.rate] rather than [_persist] — that helper
+  /// writes progress/status through [UserBookRepository.saveProgress],
+  /// which has no `rating` column in its update and would silently drop
+  /// this write.
+  Future<LibraryActionResult> rateBook(String title, double rating) async {
+    final entry = _findByTitle(title);
+    if (entry == null) {
+      return LibraryActionResult.failure(
+        'You haven\'t started "$title" yet — try "start $title" first.',
+      );
+    }
+    if (!entry.isFinished) {
+      return LibraryActionResult.failure(
+        'Finish "${entry.book.title}" before rating it.',
+      );
+    }
+
+    // Half-star granularity — rounded here (not just in the parser) so
+    // the rule holds no matter who calls rateBook, and the star row
+    // never has to render a value finer than it can actually display.
+    final rounded = (rating * 2).round() / 2;
+    if (rounded <= 0 || rounded > 5) {
+      return const LibraryActionResult.failure(
+        'Ratings are between 0.5 and 5 stars.',
+      );
+    }
+
+    final previous = entry;
+    _upsertLocal(entry.copyWith(progress: entry.progress.copyWith(rating: rounded)));
+    notifyListeners();
+
+    try {
+      final saved = await userBooks.rate(userBookId: entry.progress.id, rating: rounded);
+      _upsertLocal(entry.copyWith(progress: saved));
+      notifyListeners();
+      return LibraryActionResult.success(
+        '"${entry.book.title}" — ${_formatStars(rounded)}★',
+      );
+    } on LibraryException catch (error) {
+      _upsertLocal(previous);
+      notifyListeners();
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// Drops a trailing ".0" ("5★" rather than "5.0★") but keeps a real
+  /// half ("4.5★") — mirrors `LogCommandParser`'s own formatting so the
+  /// optimistic pill message and this result never disagree.
+  static String _formatStars(double rating) {
+    return rating == rating.roundToDouble()
+        ? rating.toInt().toString()
+        : rating.toStringAsFixed(1);
+  }
+
   /// `delete <book>` — removes the book from the shelf. Optimistic like
   /// the other commands: it disappears immediately, and comes back if
   /// the delete fails to persist.

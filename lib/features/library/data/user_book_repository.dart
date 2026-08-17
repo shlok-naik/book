@@ -139,6 +139,37 @@ class UserBookRepository {
     );
   }
 
+  /// Persists a rating — `rate <book> <stars>`.
+  ///
+  /// Whether the book is actually finished is
+  /// `LibraryController.rateBook`'s call, not this method's; it only
+  /// range-checks the number itself (the same 0-exclusive-to-5 range the
+  /// `rating` column's check constraint enforces) so a bad value fails
+  /// fast instead of round-tripping to Supabase first.
+  Future<UserBook> rate({required String userBookId, required double rating}) {
+    if (rating <= 0 || rating > 5) {
+      throw const InvalidInputException(
+        'Ratings are between 0.5 and 5 stars.',
+      );
+    }
+
+    return runSupabase(
+      () async {
+        final row = await _client
+            .from(_table)
+            .update({
+              'rating': rating,
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+            })
+            .eq('id', userBookId)
+            .select()
+            .single();
+        return UserBook.fromRow(row);
+      },
+      friendlyMessage: "We couldn't save that rating.",
+    );
+  }
+
   /// Removes a book from the shelf — `delete <book>`.
   ///
   /// Only deletes the `user_books` progress row, not the shared `books`

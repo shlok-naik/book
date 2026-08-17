@@ -63,17 +63,34 @@ class _InMemoryUserBookRepository extends UserBookRepository {
     );
   }
 
+  ReadingStatus _status = ReadingStatus.reading;
+
   @override
   Future<UserBook> saveProgress({
     required String userBookId,
     required int currentPage,
     required bool finished,
   }) async {
+    _status = finished ? ReadingStatus.finished : ReadingStatus.reading;
     return UserBook(
       id: userBookId,
       bookId: 'book-1',
       currentPage: currentPage,
-      status: finished ? ReadingStatus.finished : ReadingStatus.reading,
+      status: _status,
+    );
+  }
+
+  @override
+  Future<UserBook> rate({
+    required String userBookId,
+    required double rating,
+  }) async {
+    return UserBook(
+      id: userBookId,
+      bookId: 'book-1',
+      currentPage: 0,
+      status: _status,
+      rating: rating,
     );
   }
 }
@@ -294,6 +311,19 @@ void main() {
       findsOneWidget,
       reason: 'a rejected command must not be struck through or cleared',
     );
+  });
+
+  testWidgets('refuses to rate a book that is not finished yet',
+      (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+
+    await submit(tester, 'start Dune');
+    await send(tester, 'rate Dune 5');
+
+    expect(find.text('Finish "Dune" before rating it.'), findsOneWidget);
+    // Rejected like any other failed command: text stays, no strike.
+    expect(find.text('rate Dune 5'), findsOneWidget);
   });
 
   testWidgets(

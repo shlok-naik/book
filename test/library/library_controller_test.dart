@@ -88,6 +88,24 @@ class FakeUserBookRepository extends UserBookRepository {
     if (failure != null) throw failure!;
     deletedIds.add(userBookId);
   }
+
+  int rates = 0;
+
+  @override
+  Future<UserBook> rate({
+    required String userBookId,
+    required double rating,
+  }) async {
+    rates++;
+    if (failure != null) throw failure!;
+    return UserBook(
+      id: userBookId,
+      bookId: 'book',
+      currentPage: 400,
+      status: ReadingStatus.finished,
+      rating: rating,
+    );
+  }
 }
 
 /// Cache that always hits, so controller tests never depend on network
@@ -326,6 +344,89 @@ void main() {
 
       expect(result.success, isFalse);
       expect(result.message, '"Dune" is already finished.');
+    });
+  });
+
+  group('rateBook', () {
+    test('rates a finished book and shows the star', () async {
+      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      await controller.load();
+
+      final result = await controller.rateBook('dune', 4.5);
+
+      expect(result.success, isTrue);
+      expect(result.message, '"Dune" — 4.5★');
+      expect(controller.finished.single.rating, 4.5);
+    });
+
+    test('rounds a rating to the nearest half star before saving', () async {
+      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      await controller.load();
+
+      final result = await controller.rateBook('Dune', 4.3);
+
+      expect(result.success, isTrue);
+      expect(result.message, '"Dune" — 4.5★', reason: '4.3 is closer to 4.5 than 4.0');
+      expect(controller.finished.single.rating, 4.5);
+    });
+
+    test('formats a rounded whole rating without a trailing .0', () async {
+      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      await controller.load();
+
+      final result = await controller.rateBook('Dune', 4.2);
+
+      expect(result.message, '"Dune" — 4★', reason: '4.2 rounds down to 4.0');
+      expect(controller.finished.single.rating, 4.0);
+    });
+
+    test('refuses to rate a book still in progress', () async {
+      final controller = controllerWith([_entry(_dune, page: 100)]);
+      await controller.load();
+
+      final result = await controller.rateBook('Dune', 5);
+
+      expect(result.success, isFalse);
+      expect(result.message, 'Finish "Dune" before rating it.');
+      expect(controller.inProgress.single.rating, isNull);
+      expect(userBooks.rates, 0);
+    });
+
+    test('explains itself when the book was never started', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+
+      final result = await controller.rateBook('Neuromancer', 5);
+
+      expect(result.success, isFalse);
+      expect(result.message, contains('start Neuromancer'));
+    });
+
+    test('rejects a rating outside 0.5-5 without writing', () async {
+      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      await controller.load();
+
+      final tooHigh = await controller.rateBook('Dune', 6);
+      final zero = await controller.rateBook('Dune', 0);
+
+      expect(tooHigh.success, isFalse);
+      expect(zero.success, isFalse);
+      expect(userBooks.rates, 0);
+    });
+
+    test('rolls back when the write fails', () async {
+      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      await controller.load();
+      userBooks.failure = const NetworkException("You're offline");
+
+      final result = await controller.rateBook('Dune', 4);
+
+      expect(result.success, isFalse);
+      expect(
+        controller.finished.single.rating,
+        isNull,
+        reason: 'screen must not show a rating that never persisted',
+      );
     });
   });
 

@@ -71,7 +71,12 @@ class UnusedCache extends BookCacheRepository {
       throw const RemoteDataException('not used in this test');
 }
 
-LibraryBook _entry(Book book, {int page = 0, bool finished = false}) {
+LibraryBook _entry(
+  Book book, {
+  int page = 0,
+  bool finished = false,
+  double? rating,
+}) {
   return LibraryBook(
     book: book,
     progress: UserBook(
@@ -79,6 +84,7 @@ LibraryBook _entry(Book book, {int page = 0, bool finished = false}) {
       bookId: book.id,
       currentPage: page,
       status: finished ? ReadingStatus.finished : ReadingStatus.reading,
+      rating: rating,
     ),
   );
 }
@@ -157,6 +163,34 @@ void main() {
 
     expect(find.text('reading'), findsNothing);
     expect(find.text('finished'), findsNWidgets(2));
+  });
+
+  testWidgets('shows a star rating on a rated finished book',
+      (tester) async {
+    await pumpPage(
+      tester,
+      controllerFor([_entry(_dune, page: 400, finished: true, rating: 3.5)]),
+    );
+
+    // 3 full stars, 1 half, 1 outline for a 3.5 rating.
+    expect(find.byIcon(Icons.star), findsNWidgets(3));
+    expect(find.byIcon(Icons.star_half), findsOneWidget);
+    expect(find.byIcon(Icons.star_border), findsOneWidget);
+    // The number itself, alongside the icons — a half star reads
+    // ambiguously at 12px on its own.
+    expect(find.text('3.5'), findsOneWidget);
+  });
+
+  testWidgets('shows no stars on a finished book that was never rated',
+      (tester) async {
+    await pumpPage(
+      tester,
+      controllerFor([_entry(_dune, page: 400, finished: true)]),
+    );
+
+    expect(find.byIcon(Icons.star), findsNothing);
+    expect(find.byIcon(Icons.star_half), findsNothing);
+    expect(find.byIcon(Icons.star_border), findsNothing);
   });
 
   testWidgets('falls back to a placeholder when a book has no cover',

@@ -18,6 +18,11 @@ class LibraryBook {
   /// (`finish <book>`) or by logging a page at/after the last one.
   bool get isFinished => progress.isFinished;
 
+  /// `rate <book> <stars>`. Only ever set on a finished book — see
+  /// [UserBook.rating] — so the UI can treat a non-null value here as
+  /// safe to render without re-checking [isFinished] itself.
+  double? get rating => progress.rating;
+
   /// Completion in the 0..1 range, or null when the total page count is
   /// unknown (Google Books often omits it) — callers must handle null by
   /// showing "page N" instead of a percentage bar. Finished books read

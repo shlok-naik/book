@@ -24,8 +24,19 @@ void main() {
       expect(result.type, LogCommandType.rate);
       expect(result.title, 'Dune');
       expect(result.rating, 5);
+      expect(result.message, '"Dune" — 5★');
       // The old "rate Dune 5 stars" form is no longer accepted.
       expect(LogCommandParser.parse('rate Dune 5 stars').recognized, isFalse);
+    });
+
+    test('rounds a rating to the nearest half star', () {
+      final closerToHalf = LogCommandParser.parse('rate Dune 4.3');
+      expect(closerToHalf.rating, 4.5);
+      expect(closerToHalf.message, '"Dune" — 4.5★');
+
+      final closerToWhole = LogCommandParser.parse('rate Dune 4.2');
+      expect(closerToWhole.rating, 4.0);
+      expect(closerToWhole.message, '"Dune" — 4★');
     });
 
     test('suggests the closest keyword for a small typo', () {

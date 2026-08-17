@@ -38,6 +38,11 @@ create table if not exists public.user_books (
   current_page integer not null default 0 check (current_page >= 0),
   status       text not null default 'reading'
                  check (status in ('reading', 'finished')),
+  -- Half-star granularity (`rate <book> 4.5`); null until rated. Only
+  -- ever set once `status = 'finished'` — LibraryController.rateBook
+  -- enforces that, not this column, so the same rule is easy to relax
+  -- later without a migration.
+  rating       numeric(2, 1) check (rating is null or (rating > 0 and rating <= 5)),
   started_at   timestamptz not null default now(),
   finished_at  timestamptz,
   updated_at   timestamptz not null default now(),
@@ -45,6 +50,14 @@ create table if not exists public.user_books (
   -- idempotent instead of piling up duplicates.
   unique (book_id)
 );
+
+-- Re-running this file against a database that already has `user_books`
+-- (created before `rating` existed) needs an explicit ALTER — `create
+-- table if not exists` won't add a column to an existing table.
+alter table public.user_books add column if not exists rating numeric(2, 1);
+alter table public.user_books drop constraint if exists user_books_rating_check;
+alter table public.user_books add constraint user_books_rating_check
+  check (rating is null or (rating > 0 and rating <= 5));
 
 create index if not exists user_books_updated_at_idx
   on public.user_books (updated_at desc);

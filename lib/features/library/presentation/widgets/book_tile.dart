@@ -60,6 +60,12 @@ class BookTile extends StatelessWidget {
             color: entry.isFinished ? colors.accent : colors.secondaryText,
           ),
         ),
+        // Only ever set on a finished book (LibraryController.rateBook
+        // enforces that), so no separate isFinished check is needed here.
+        if (entry.rating != null) ...[
+          const SizedBox(height: 2),
+          _StarRating(rating: entry.rating!, color: colors.accent),
+        ],
       ],
     );
   }
@@ -74,6 +80,58 @@ class BookTile extends StatelessWidget {
     }
     final percent = ((entry.completion ?? 0) * 100).round();
     return '${entry.currentPage}/$total · $percent%';
+  }
+}
+
+/// A `rate <book> <stars>` rating: five stars (full, half, or outline)
+/// plus the number itself. The icons alone read fine at a glance for a
+/// whole rating, but a half star at 12px is easy to misread as full or
+/// empty — the number next to it is what actually says "4.5" rather
+/// than leaving it to a squint at the icon shape.
+class _StarRating extends StatelessWidget {
+  const _StarRating({required this.rating, required this.color});
+
+  final double rating;
+  final Color color;
+
+  static const _starCount = 5;
+  static const _size = 12.0;
+  static const _gap = 1.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < _starCount; i++) ...[
+          if (i > 0) const SizedBox(width: _gap),
+          Icon(_iconFor(i), size: _size, color: color),
+        ],
+        const SizedBox(width: AppSpacing.xs),
+        Text(
+          _formatRating(rating),
+          style: GoogleFonts.jetBrainsMono(fontSize: 11, color: color),
+        ),
+      ],
+    );
+  }
+
+  /// Star [i] is full once [rating] reaches its whole position, half if
+  /// it reaches the half-star just before that, else outline.
+  IconData _iconFor(int i) {
+    final threshold = i + 1;
+    if (rating >= threshold) return Icons.star;
+    if (rating >= threshold - 0.5) return Icons.star_half;
+    return Icons.star_border;
+  }
+
+  /// Drops a trailing ".0" ("5" rather than "5.0") but keeps a real half
+  /// ("4.5") — mirrors `LogCommandParser`'s own formatting so the
+  /// confirmation pill and this label never disagree.
+  static String _formatRating(double rating) {
+    return rating == rating.roundToDouble()
+        ? rating.toInt().toString()
+        : rating.toStringAsFixed(1);
   }
 }
 

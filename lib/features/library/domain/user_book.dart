@@ -30,6 +30,7 @@ class UserBook {
     required this.status,
     this.startedAt,
     this.finishedAt,
+    this.rating,
   });
 
   final String id;
@@ -42,12 +43,19 @@ class UserBook {
   final DateTime? startedAt;
   final DateTime? finishedAt;
 
+  /// `rate <book> <stars>`. Half-star granularity, 0 (exclusive) to 5.
+  /// Null until rated — [LibraryController.rateBook] is what enforces
+  /// that a rating can only be set on a finished book; this column
+  /// itself allows one on any row.
+  final double? rating;
+
   bool get isFinished => status == ReadingStatus.finished;
 
   UserBook copyWith({
     int? currentPage,
     ReadingStatus? status,
     DateTime? finishedAt,
+    double? rating,
   }) {
     return UserBook(
       id: id,
@@ -56,6 +64,7 @@ class UserBook {
       status: status ?? this.status,
       startedAt: startedAt,
       finishedAt: finishedAt ?? this.finishedAt,
+      rating: rating ?? this.rating,
     );
   }
 
@@ -86,6 +95,7 @@ class UserBook {
       status: ReadingStatus.fromWire(row['status']),
       startedAt: _parseDate(row['started_at']),
       finishedAt: _parseDate(row['finished_at']),
+      rating: _parseRating(row['rating']),
     );
   }
 
@@ -93,5 +103,14 @@ class UserBook {
     if (value is DateTime) return value;
     if (value is! String || value.isEmpty) return null;
     return DateTime.tryParse(value);
+  }
+
+  /// Postgres `numeric` columns come back over the REST API as a String
+  /// (to avoid float rounding), not a num — normalize either shape.
+  static double? _parseRating(Object? value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 }

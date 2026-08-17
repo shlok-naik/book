@@ -63,13 +63,18 @@ abstract final class LogCommandParser {
     final rate = _ratePattern.firstMatch(text);
     if (rate != null) {
       final title = rate.group(1)!.trim();
-      final rating = rate.group(2)!;
+      final rawRating = double.tryParse(rate.group(2)!);
+      // Half-star granularity — the library only ever renders full,
+      // half, or empty stars, so a finer rating (4.3) would show as one
+      // thing and be stored as another. Rounded here so the pill's own
+      // optimistic message already matches what rateBook will save.
+      final rating = rawRating == null ? null : _roundToHalfStar(rawRating);
       return ParsedLogCommand(
-        message: '"$title" — $rating★',
+        message: rating == null ? '' : '"$title" — ${_formatStars(rating)}★',
         recognized: true,
         type: LogCommandType.rate,
         title: title,
-        rating: double.tryParse(rating),
+        rating: rating,
       );
     }
 
@@ -136,6 +141,16 @@ abstract final class LogCommandParser {
     }
     return 'Not recognized. Try "start Dune", "update Dune 120", '
         '"finish Dune", "rate Dune 5", or "delete Dune".';
+  }
+
+  static double _roundToHalfStar(double value) => (value * 2).round() / 2;
+
+  /// Drops a trailing ".0" ("5★" rather than "5.0★") but keeps a real
+  /// half ("4.5★") — matches how the library's star row reads a rating.
+  static String _formatStars(double rating) {
+    return rating == rating.roundToDouble()
+        ? rating.toInt().toString()
+        : rating.toStringAsFixed(1);
   }
 
   /// A word only needs to be "close enough" relative to its own length —
