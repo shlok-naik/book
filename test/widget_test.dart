@@ -10,6 +10,7 @@ import 'package:book/features/library/domain/book_lookup_service.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
+import 'package:book/features/onboarding/data/session_service.dart';
 import 'package:book/main.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -95,6 +96,14 @@ class _InMemoryUserBookRepository extends UserBookRepository {
   }
 }
 
+/// These tests exercise the log page's own flow, which starts past the
+/// onboarding gate — so every `BookApp` in this file is built already
+/// signed in, without a real Supabase session.
+class _AlwaysSignedIn extends SessionService {
+  @override
+  bool get isSignedIn => true;
+}
+
 LibraryController _newLibraryController() {
   return LibraryController(
     lookup: BookLookupService(
@@ -156,7 +165,10 @@ void main() {
   testWidgets('Log page is the default view, with a text box that confirms on submit',
       (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
 
     expect(find.byType(TextField), findsOneWidget);
 
@@ -167,7 +179,10 @@ void main() {
   testWidgets('recognizes update, finish, and rate commands',
       (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
 
     await submit(tester, 'start Dune');
     expect(find.text('Started "Dune"'), findsOneWidget);
@@ -186,7 +201,10 @@ void main() {
       'strikes the command through in place, then clears the field',
       (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
 
     await send(tester, 'start Dune');
 
@@ -205,7 +223,10 @@ void main() {
       'the struck-through text keeps the exact size and position it had '
       'while being typed', (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
 
     final editable = find.byType(EditableText);
     TextStyle styleNow() => tester.widget<EditableText>(editable).style;
@@ -240,7 +261,10 @@ void main() {
   testWidgets('the strikethrough grows across the text as it animates',
       (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
 
     // Counts characters carrying a lineThrough decoration in whatever
     // the field is currently rendering — the strike's actual extent.
@@ -279,7 +303,10 @@ void main() {
   testWidgets('keeps the field and shakes for an unrecognized command',
       (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
 
     await tester.enterText(find.byType(TextField), 'gibberish');
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -294,7 +321,10 @@ void main() {
       'apply — e.g. starting a book already on the shelf',
       (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
 
     await submit(tester, 'start Dune');
     expect(find.text('Started "Dune"'), findsOneWidget);
@@ -316,7 +346,10 @@ void main() {
   testWidgets('refuses to rate a book that is not finished yet',
       (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
 
     await submit(tester, 'start Dune');
     await send(tester, 'rate Dune 5');
@@ -330,7 +363,10 @@ void main() {
       'clears the confirmation pill on its own after a few seconds, for '
       'both success and error', (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
 
     await submit(tester, 'start Dune');
     expect(find.text('Started "Dune"'), findsOneWidget);
@@ -354,7 +390,10 @@ void main() {
   testWidgets('Streaks page is reachable and grouped by month',
       (WidgetTester tester) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(libraryController: _newLibraryController()));
+    await tester.pumpWidget(BookApp(
+      libraryController: _newLibraryController(),
+      sessionService: _AlwaysSignedIn(),
+    ));
     await goToStreaksPage(tester);
 
     expect(find.text('january'), findsOneWidget);

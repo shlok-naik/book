@@ -52,7 +52,7 @@ class _RootShellState extends State<RootShell> {
                 ),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
-                  '<name>',
+                  'cactus',
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 15,
                     color: colors.secondaryText,

@@ -11,22 +11,49 @@ import 'features/library/data/user_book_repository.dart';
 import 'features/library/domain/book_lookup_service.dart';
 import 'features/library/presentation/controllers/library_controller.dart';
 import 'features/library/presentation/library_scope.dart';
+import 'features/onboarding/data/onboarding_profile_repository.dart';
+import 'features/onboarding/data/session_service.dart';
+import 'features/onboarding/presentation/pages/welcome_page.dart';
 import 'features/shell/presentation/pages/root_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
   await SupabaseService.init();
-  runApp(const BookApp());
+  // Always starts at onboarding while that flow is still under active
+  // development — flip to false once it's done, to let a returning
+  // session skip straight back into the app as normal.
+  runApp(const BookApp(alwaysShowOnboarding: true));
 }
 
 class BookApp extends StatefulWidget {
-  const BookApp({super.key, this.libraryController});
+  const BookApp({
+    super.key,
+    this.libraryController,
+    this.sessionService,
+    this.profileRepository,
+    this.alwaysShowOnboarding = false,
+  });
 
   /// Injection point for tests: pass a controller backed by fakes to
   /// drive the library without Supabase or Google Books. In the app this
   /// is null and the real graph below is composed instead.
   final LibraryController? libraryController;
+
+  /// Injection point for tests: pass a fake to control whether a session
+  /// exists (and how signing in behaves) without a real Supabase call.
+  /// In the app this is null and a real one, backed by the initialized
+  /// Supabase client, is built instead.
+  final SessionService? sessionService;
+
+  /// Injection point for tests: pass a fake to control what onboarding's
+  /// profile save/averages calls do without a real Supabase call. In
+  /// the app this is null and a real one is built instead.
+  final OnboardingProfileRepository? profileRepository;
+
+  /// When true, ignores an existing session and always starts at
+  /// [WelcomePage] — see the comment on [main] for why this is on there.
+  final bool alwaysShowOnboarding;
 
   @override
   State<BookApp> createState() => _BookAppState();
@@ -38,6 +65,19 @@ class _BookAppState extends State<BookApp> {
   /// widget constructs its own (see CLAUDE.md § Dependency Injection).
   late final LibraryController _library =
       widget.libraryController ?? _buildLibraryController();
+
+  late final SessionService _session = widget.sessionService ?? SessionService();
+
+  late final OnboardingProfileRepository _profiles =
+      widget.profileRepository ?? OnboardingProfileRepository();
+
+  /// Whether the log-in gate has already been cleared. Read once at
+  /// startup — [WelcomePage] and the sign in/up screens each replace the
+  /// whole navigation stack with [RootShell] on success (see their
+  /// `pushAndRemoveUntil` calls) rather than flipping this flag, so it
+  /// only has to reflect "was there already a session when the app
+  /// launched", not track changes afterward.
+  late final bool _signedIn = _session.isSignedIn;
 
   /// Owned only when we built it — an injected client belongs to the
   /// caller, so we must not close it.
@@ -71,13 +111,15 @@ class _BookAppState extends State<BookApp> {
         return LibraryScope(
           controller: _library,
           child: MaterialApp(
-            title: 'Book',
+            title: 'cactus',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,
             darkTheme: AppTheme.dark,
             themeMode: themeMode,
             scrollBehavior: AppScrollBehavior(),
-            home: const RootShell(),
+            home: (_signedIn && !widget.alwaysShowOnboarding)
+                ? const RootShell()
+                : WelcomePage(session: _session, profiles: _profiles),
           ),
         );
       },
