@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/onboarding_profile_repository.dart';
 import '../../data/session_service.dart';
 import '../../domain/onboarding_profile_draft.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/onboarding_text_field.dart';
+import '../widgets/soft_pill_button.dart';
 import 'description_page.dart';
 
 /// New-reader path, account dot (step 4): what to call them.
@@ -44,6 +44,7 @@ class _NamePageState extends State<NamePage> {
     return HalfSheetScaffold(
       showBackButton: true,
       progressStep: 4,
+      topContent: const Text('✍️', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -58,7 +59,8 @@ class _NamePageState extends State<NamePage> {
           const SizedBox(height: AppSpacing.lg),
           OnboardingTextField(controller: _name, hintText: 'name'),
           const SizedBox(height: AppSpacing.lg),
-          FilledButton(
+          SoftPillButton(
+            label: 'continue',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => DescriptionPage(
@@ -68,15 +70,6 @@ class _NamePageState extends State<NamePage> {
                 ),
               ),
             ),
-            style: FilledButton.styleFrom(
-              backgroundColor: colors.accent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-            ),
-            child: Text('continue', style: GoogleFonts.inter(fontSize: 16)),
           ),
         ],
       ),

@@ -3,30 +3,28 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../shell/presentation/pages/root_shell.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/soft_pill_button.dart';
+import 'founders_note_page.dart';
 
-/// Step 5 (finish) of the post-tutorial sequence — the last screen
-/// before the app itself. By the time a reader gets here they're signed
-/// in one way or another (anonymous account or an existing sign-in), so
-/// this replaces the whole navigation stack with [RootShell] rather
-/// than pushing, so none of the onboarding screens can be popped back to.
-class FinishPage extends StatelessWidget {
-  const FinishPage({super.key});
+/// Second finish-category screen — a teaser beat between the paywall
+/// and the founder's note.
+class OneMoreThingPage extends StatelessWidget {
+  const OneMoreThingPage({super.key});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
 
     return HalfSheetScaffold(
+      showBackButton: true,
       progressStep: 5,
-      topContent: const Text('🎉', style: TextStyle(fontSize: 96)),
+      topContent: const Text('➡️', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            "you're all set",
+            'one more thing',
             style: GoogleFonts.ebGaramond(
               fontSize: 28,
               fontWeight: FontWeight.w600,
@@ -35,7 +33,7 @@ class FinishPage extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'time to start reading.',
+            'we have a little surprise for you.',
             style: GoogleFonts.inter(
               fontSize: 14,
               height: 1.5,
@@ -44,11 +42,10 @@ class FinishPage extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.lg),
           SoftPillButton(
-            label: "let's go",
-            onPressed: () => Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const RootShell()),
-              (route) => false,
-            ),
+            label: 'continue',
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const FoundersNotePage())),
           ),
         ],
       ),

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/soft_pill_button.dart';
 
 /// One step of the post-welcome tutorial, styled after Pushr's
 /// onboarding pattern: whatever demonstrates the step sits in the top
@@ -70,18 +70,7 @@ class TutorialStepPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
-          FilledButton(
-            onPressed: onContinue,
-            style: FilledButton.styleFrom(
-              backgroundColor: colors.accent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-            ),
-            child: Text(buttonLabel, style: GoogleFonts.inter(fontSize: 16)),
-          ),
+          SoftPillButton(label: buttonLabel, onPressed: onContinue),
         ],
       ),
     );

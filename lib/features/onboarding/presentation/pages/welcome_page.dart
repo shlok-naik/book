@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/widgets/dotted_background.dart';
 import '../../data/onboarding_profile_repository.dart';
 import '../../data/session_service.dart';
+import '../widgets/soft_pill_button.dart';
 import 'add_book_tutorial_page.dart';
 
 /// The app's first screen — Pushr-style: "cactus" holds centered for a
@@ -103,80 +104,81 @@ class _WelcomePageState extends State<WelcomePage>
 
     return Scaffold(
       backgroundColor: colors.background,
-      body: AnimatedBuilder(
-        animation: Listenable.merge([_reveal, _buttonController]),
-        builder: (context, _) {
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Align(
-                alignment: _wordmarkPosition.value,
-                child: Text(
-                  'cactus',
-                  style: GoogleFonts.ebGaramond(
-                    fontSize: 80,
-                    fontWeight: FontWeight.w600,
-                    color: colors.primaryText,
+      body: DottedBackground(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_reveal, _buttonController]),
+          builder: (context, _) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Align(
+                  alignment: _wordmarkPosition.value,
+                  child: Text(
+                    'cactus',
+                    style: GoogleFonts.ebGaramond(
+                      fontSize: 80,
+                      fontWeight: FontWeight.w600,
+                      color: colors.primaryText,
+                    ),
                   ),
                 ),
-              ),
-              Align(
-                alignment: const Alignment(0, _descriptionY),
-                child: Opacity(
-                  opacity: _descriptionOpacity.value,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-                    child: Text.rich(
-                      TextSpan(
-                        style: GoogleFonts.inter(fontSize: 15, height: 1.5),
-                        children: [
-                          TextSpan(
-                            text: 'cactus is your next favourite reading '
-                                'companion. ',
-                            style: TextStyle(
-                              color: colors.primaryText,
-                              fontWeight: FontWeight.w600,
+                Align(
+                  alignment: const Alignment(0, _descriptionY),
+                  child: Opacity(
+                    opacity: _descriptionOpacity.value,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.xl,
+                      ),
+                      child: Text.rich(
+                        TextSpan(
+                          style: GoogleFonts.inter(fontSize: 15, height: 1.5),
+                          children: [
+                            TextSpan(
+                              text:
+                                  'cactus is your next favourite reading '
+                                  'companion. ',
+                              style: TextStyle(
+                                color: colors.primaryText,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
-                          TextSpan(
-                            text: 'it helps you track your reading more '
-                                'efficiently than any other app in a clean '
-                                'and beautiful interface.',
-                            style: TextStyle(color: colors.secondaryText),
-                          ),
-                        ],
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: AppSpacing.xxl,
-                child: Opacity(
-                  opacity: _buttonOpacity.value,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-                    child: FilledButton(
-                      onPressed: _buttonOpacity.value == 0 ? null : _start,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: colors.accent,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                            TextSpan(
+                              text:
+                                  'it helps you track your reading more '
+                                  'efficiently than any other app in a clean '
+                                  'and beautiful interface.',
+                              style: TextStyle(color: colors.secondaryText),
+                            ),
+                          ],
                         ),
+                        textAlign: TextAlign.center,
                       ),
-                      child: Text('start', style: GoogleFonts.inter(fontSize: 16)),
                     ),
                   ),
                 ),
-              ),
-            ],
-          );
-        },
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: AppSpacing.xxl,
+                  child: Opacity(
+                    opacity: _buttonOpacity.value,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.xl,
+                      ),
+                      child: SoftPillButton(
+                        label: 'start',
+                        backdrop: SoftPillBackdrop.background,
+                        onPressed: _buttonOpacity.value == 0 ? null : _start,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/onboarding_profile_repository.dart';
 import '../../data/session_service.dart';
 import '../../domain/onboarding_profile_draft.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/onboarding_text_field.dart';
-import 'finish_page.dart';
+import '../widgets/soft_pill_button.dart';
+import 'paywall_page.dart';
 
 /// Returning-reader path, account dot (step 4): the "have we met
 /// before" yes-branch. Same passwordless email OTP as
@@ -94,9 +94,9 @@ class _SignInPageState extends State<SignInPage> {
         // Ignored — see above.
       }
       if (!mounted) return;
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const FinishPage()),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const PaywallPage()));
     } on OnboardingException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -113,6 +113,7 @@ class _SignInPageState extends State<SignInPage> {
     return HalfSheetScaffold(
       showBackButton: true,
       progressStep: 4,
+      topContent: const Text('🔑', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -155,26 +156,18 @@ class _SignInPageState extends State<SignInPage> {
             const SizedBox(height: AppSpacing.md),
             Text(
               _error!,
-              style: GoogleFonts.inter(fontSize: 13, color: colors.secondaryText),
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: colors.secondaryText,
+              ),
             ),
           ],
           const SizedBox(height: AppSpacing.lg),
-          FilledButton(
+          SoftPillButton(
+            label: _busy
+                ? (_codeSent ? 'verifying…' : 'sending…')
+                : (_codeSent ? 'verify' : 'send code'),
             onPressed: _busy ? null : (_codeSent ? _verifyCode : _sendCode),
-            style: FilledButton.styleFrom(
-              backgroundColor: colors.accent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-            ),
-            child: Text(
-              _busy
-                  ? (_codeSent ? 'verifying…' : 'sending…')
-                  : (_codeSent ? 'verify' : 'send code'),
-              style: GoogleFonts.inter(fontSize: 16),
-            ),
           ),
         ],
       ),

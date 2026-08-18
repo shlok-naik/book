@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/onboarding_profile_repository.dart';
 import '../../data/session_service.dart';
 import '../../domain/onboarding_profile_draft.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/soft_pill_button.dart';
 import 'name_page.dart';
 import 'sign_in_page.dart';
 
@@ -36,6 +36,7 @@ class HaveWeMetPage extends StatelessWidget {
     return HalfSheetScaffold(
       showBackButton: true,
       progressStep: 4,
+      topContent: const Text('👋', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -57,7 +58,8 @@ class HaveWeMetPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
-          FilledButton(
+          SoftPillButton(
+            label: 'yes',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => SignInPage(
@@ -67,18 +69,11 @@ class HaveWeMetPage extends StatelessWidget {
                 ),
               ),
             ),
-            style: FilledButton.styleFrom(
-              backgroundColor: colors.accent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-            ),
-            child: Text('yes', style: GoogleFonts.inter(fontSize: 16)),
           ),
           const SizedBox(height: AppSpacing.sm),
-          OutlinedButton(
+          SoftPillButton(
+            label: 'no',
+            tint: colors.secondaryText,
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => NamePage(
@@ -88,15 +83,6 @@ class HaveWeMetPage extends StatelessWidget {
                 ),
               ),
             ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: colors.primaryText,
-              side: BorderSide(color: colors.divider),
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-            ),
-            child: Text('no', style: GoogleFonts.inter(fontSize: 16)),
           ),
         ],
       ),

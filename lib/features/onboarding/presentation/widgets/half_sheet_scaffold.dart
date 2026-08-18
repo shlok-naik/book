@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/widgets/dotted_background.dart';
 import 'onboarding_progress_dots.dart';
 
 /// The onboarding flow's shared page shape: whatever illustrates the
@@ -46,89 +47,91 @@ class HalfSheetScaffold extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: colors.background,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final cardHeight = constraints.maxHeight * 0.5;
+      body: DottedBackground(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final cardHeight = constraints.maxHeight * 0.5;
 
-          return Stack(
-            children: [
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: cardHeight,
-                // Without its own SafeArea, `Center` would center within
-                // a region that starts at y=0 of the physical screen —
-                // including the area a status bar/notch sits over — so
-                // "centered" could still land content up against it.
-                child: SafeArea(
-                  bottom: false,
-                  child: Center(child: topContent ?? const SizedBox.shrink()),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: cardHeight,
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(AppRadius.lg),
+            return Stack(
+              children: [
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: cardHeight,
+                  // Without its own SafeArea, `Center` would center within
+                  // a region that starts at y=0 of the physical screen —
+                  // including the area a status bar/notch sits over — so
+                  // "centered" could still land content up against it.
+                  child: SafeArea(
+                    bottom: false,
+                    child: Center(child: topContent ?? const SizedBox.shrink()),
                   ),
-                  child: ColoredBox(
-                    color: colors.surface,
-                    child: SafeArea(
-                      top: false,
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: SingleChildScrollView(
-                              padding: const EdgeInsets.all(AppSpacing.xl),
-                              child: cardChild,
-                            ),
-                          ),
-                          if (progressStep != null)
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                AppSpacing.xl,
-                                0,
-                                AppSpacing.xl,
-                                AppSpacing.md,
-                              ),
-                              child: OnboardingProgressDots(
-                                currentStep: progressStep!,
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: cardHeight,
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(AppRadius.lg),
+                    ),
+                    child: ColoredBox(
+                      color: colors.surface,
+                      child: SafeArea(
+                        top: false,
+                        child: Column(
+                          children: [
+                            Expanded(
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.all(AppSpacing.xl),
+                                child: cardChild,
                               ),
                             ),
-                        ],
+                            if (progressStep != null)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  AppSpacing.xl,
+                                  0,
+                                  AppSpacing.xl,
+                                  AppSpacing.md,
+                                ),
+                                child: OnboardingProgressDots(
+                                  currentStep: progressStep!,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              if (showBackButton)
-                // Explicitly Positioned rather than left as a bare Stack
-                // child: an unpositioned child is sized with *loosened*
-                // constraints from the whole Stack (i.e. up to the full
-                // screen), and despite being drawn small, the space
-                // Stack reserves for it at that alignment absorbed hit
-                // tests for the entire area below it — including the
-                // card's own button, confirmed by removing this
-                // temporarily and watching the tap start landing
-                // correctly. Positioned pins it to a small, exact box
-                // instead.
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  child: SafeArea(
-                    child: IconButton(
-                      icon: Icon(Icons.arrow_back, color: colors.primaryText),
-                      onPressed: () => Navigator.of(context).maybePop(),
+                if (showBackButton)
+                  // Explicitly Positioned rather than left as a bare Stack
+                  // child: an unpositioned child is sized with *loosened*
+                  // constraints from the whole Stack (i.e. up to the full
+                  // screen), and despite being drawn small, the space
+                  // Stack reserves for it at that alignment absorbed hit
+                  // tests for the entire area below it — including the
+                  // card's own button, confirmed by removing this
+                  // temporarily and watching the tap start landing
+                  // correctly. Positioned pins it to a small, exact box
+                  // instead.
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    child: SafeArea(
+                      child: IconButton(
+                        icon: Icon(Icons.arrow_back, color: colors.primaryText),
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
                     ),
                   ),
-                ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
     );
   }

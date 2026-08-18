@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/onboarding_profile_repository.dart';
 import '../../data/session_service.dart';
@@ -10,10 +9,13 @@ import '../../domain/onboarding_averages.dart';
 import '../../domain/onboarding_profile_draft.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/onboarding_text_field.dart';
-import 'reading_time_page.dart';
+import '../widgets/soft_pill_button.dart';
+import 'have_we_met_page.dart';
 
-/// Step 2 (Q1) of the post-tutorial sequence: how many books the reader
-/// plans to read this year.
+/// Q2 slot of the post-tutorial sequence (pushed back one slot by
+/// [ThemePreferencePage] taking Q1): how many books the reader plans to
+/// read this year. The old Q2 — reading time per day — has been
+/// removed, so this now leads straight into the account step.
 class ReadingGoalPage extends StatefulWidget {
   const ReadingGoalPage({
     super.key,
@@ -32,7 +34,8 @@ class ReadingGoalPage extends StatefulWidget {
 
 class _ReadingGoalPageState extends State<ReadingGoalPage> {
   final _goal = TextEditingController();
-  late final Future<OnboardingAverages> _averages = widget.profiles.fetchAverages();
+  late final Future<OnboardingAverages> _averages = widget.profiles
+      .fetchAverages();
 
   @override
   void dispose() {
@@ -46,7 +49,8 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 2,
+      progressStep: 3,
+      topContent: const Text('📚', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -75,15 +79,19 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
               if (goal == null) return const SizedBox.shrink();
               return Text(
                 'the average reader here plans for $goal books this year.',
-                style: GoogleFonts.inter(fontSize: 13, color: colors.secondaryText),
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: colors.secondaryText,
+                ),
               );
             },
           ),
           const SizedBox(height: AppSpacing.lg),
-          FilledButton(
+          SoftPillButton(
+            label: 'continue',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => ReadingTimePage(
+                builder: (_) => HaveWeMetPage(
                   session: widget.session,
                   profiles: widget.profiles,
                   draft: widget.draft.copyWith(
@@ -92,15 +100,6 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
                 ),
               ),
             ),
-            style: FilledButton.styleFrom(
-              backgroundColor: colors.accent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-            ),
-            child: Text('continue', style: GoogleFonts.inter(fontSize: 16)),
           ),
         ],
       ),
