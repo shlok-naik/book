@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/onboarding/domain/paywall_pricing.dart';
+import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.dart';
 import 'package:book/features/onboarding/presentation/pages/paywall_page.dart';
 import 'package:book/features/onboarding/presentation/widgets/soft_pill_button.dart';
 
@@ -130,70 +131,50 @@ void main() {
   });
 
   group('free trial', () {
-    testWidgets('is off by default, and the CTA reads "join now"', (
+    testWidgets('the CTA reads "join now" and never mentions a trial', (
       tester,
     ) async {
       await pumpPaywall(tester);
 
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
       expect(find.widgetWithText(SoftPillButton, 'join now'), findsOneWidget);
+      expect(find.text('start free trial'), findsNothing);
     });
 
-    testWidgets('turning it on switches the CTA to the trial wording', (
-      tester,
-    ) async {
+    testWidgets('"not sure yet" opens a sheet explaining the trial, whose '
+        'own button is the only trial CTA on screen', (tester) async {
       await pumpPaywall(tester);
 
-      await tester.tap(find.byType(Switch));
+      await tester.tap(find.widgetWithText(SoftPillButton, 'not sure yet'));
       await settleFrames(tester);
 
+      expect(find.text('free trial'), findsOneWidget);
+      expect(find.textContaining('3 days'), findsOneWidget);
+      expect(find.textContaining('yearly plan'), findsOneWidget);
       expect(
         find.widgetWithText(SoftPillButton, 'start free trial'),
         findsOneWidget,
       );
-      expect(find.widgetWithText(SoftPillButton, 'join now'), findsNothing);
     });
 
-    testWidgets('turning it on from monthly moves the reader to yearly — '
-        'trials are a yearly perk', (tester) async {
-      await pumpPaywall(tester);
-
-      await tester.tap(find.text('monthly'));
-      await settleFrames(tester);
-      expect(
-        cardWidth(tester, 'monthly'),
-        greaterThan(cardWidth(tester, 'yearly')),
-      );
-
-      await tester.tap(find.byType(Switch));
-      await settleFrames(tester);
-
-      expect(
-        cardWidth(tester, 'yearly'),
-        greaterThan(cardWidth(tester, 'monthly')),
-      );
-    });
-
-    testWidgets('picking monthly switches an active trial back off', (
+    testWidgets('starting the trial from the sheet closes it and moves on', (
       tester,
     ) async {
       await pumpPaywall(tester);
 
-      await tester.tap(find.byType(Switch));
-      await settleFrames(tester);
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
-
-      await tester.tap(find.text('monthly'));
+      await tester.tap(find.widgetWithText(SoftPillButton, 'not sure yet'));
       await settleFrames(tester);
 
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
-      expect(find.widgetWithText(SoftPillButton, 'join now'), findsOneWidget);
+      await tester.tap(find.widgetWithText(SoftPillButton, 'start free trial'));
+      await settleFrames(tester);
+
+      expect(find.byType(OneMoreThingPage), findsOneWidget);
     });
   });
 
   group('invalid pricing', () {
-    testWidgets('shows a notice instead of prices, and disables the CTA '
-        'and the trial toggle', (tester) async {
+    testWidgets('shows a notice instead of prices, and disables the CTA', (
+      tester,
+    ) async {
       await pumpPaywall(
         tester,
         pricing: const PaywallPricing(monthlyPerMonth: 0, yearlyPerYear: 0),
@@ -203,7 +184,6 @@ void main() {
       expect(find.text('monthly'), findsNothing);
       expect(find.text('yearly'), findsNothing);
 
-      expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNull);
       expect(
         tester
             .widget<SoftPillButton>(

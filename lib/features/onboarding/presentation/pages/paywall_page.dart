@@ -12,17 +12,17 @@ import 'one_more_thing_page.dart';
 
 /// First finish-category screen: sprung right after an account exists
 /// (new sign-up or a returning sign-in). No real billing is wired up
-/// yet — the close button and the CTA both just move on to
-/// [OneMoreThingPage] — but the screen is real, and [pricing] is
-/// already validated the way it will need to be once a store SDK is
-/// feeding it.
+/// yet — the close button, "join now", and the sheet's "start free
+/// trial" all just move on to [OneMoreThingPage] — but the screen is
+/// real, and [pricing] is already validated the way it will need to be
+/// once a store SDK is feeding it.
 ///
 /// ## Layout
 ///
-/// Top-to-bottom: header, headline, three rows of feature pills,
-/// side-by-side pricing cards, a free-trial toggle, then the CTA. The
-/// column is split into three groups laid out `spaceBetween` inside the
-/// bounded card, so leftover vertical room is distributed *between*
+/// Top-to-bottom: header, headline, two rows of feature pills,
+/// side-by-side pricing cards, "not sure yet", then the CTA. The column
+/// is split into three groups with flexible gaps between them inside
+/// the bounded card, so leftover vertical room is distributed *between*
 /// sections instead of pooling at the bottom — that, plus the
 /// [_Metrics] scale factor, is what keeps the proportions steady from
 /// a small phone to a tablet without anything overflowing.
@@ -33,9 +33,8 @@ import 'one_more_thing_page.dart';
 /// * feature pills scroll via [TiltedMarqueeWall], the same widget (and
 ///   the same tilt, speeds and alternating directions) the tutorial
 ///   step's command wall uses;
-/// * the toggle and CTA are both built on [SoftPillShell] /
-///   [SoftPillButton], the pill treatment every other onboarding button
-///   already wears;
+/// * both buttons are [SoftPillButton], the pill treatment every other
+///   onboarding button already wears;
 /// * colors come from [AppColors] and spacing/radii from
 ///   [AppSpacing] / [AppRadius], so the screen follows the reader's
 ///   light/dark choice like the rest of the flow.
@@ -85,13 +84,9 @@ class _PaywallPageState extends State<PaywallPage> {
   /// only has something to say while it's the selected plan.
   _Plan _plan = _Plan.yearly;
 
-  /// Free trials are a yearly-plan perk, so this and [_plan] are kept
-  /// consistent in both directions: see [_selectPlan] / [_setTrial].
-  bool _trialEnabled = false;
-
-  /// Feature pills, three rows to match the reference's structure and
-  /// [CommandWall]'s. Each pill sizes itself to its label, so rows end
-  /// up pleasantly ragged rather than a rigid grid.
+  /// Feature pills — exactly the six the flow already had, two rows of
+  /// three. Each pill sizes itself to its label, so rows end up
+  /// pleasantly ragged rather than a rigid grid.
   static const _featureRows = <List<(IconData, String)>>[
     [
       (Icons.memory, 'long term memory'),
@@ -103,11 +98,6 @@ class _PaywallPageState extends State<PaywallPage> {
       (Icons.chat_bubble_outline, 'use natural language'),
       (Icons.favorite_border, 'support the creator'),
     ],
-    [
-      (Icons.insights_outlined, 'reading stats'),
-      (Icons.local_fire_department_outlined, 'streak tracking'),
-      (Icons.all_inclusive, 'unlimited books'),
-    ],
   ];
 
   void _continue() {
@@ -116,22 +106,72 @@ class _PaywallPageState extends State<PaywallPage> {
     ).push(MaterialPageRoute(builder: (_) => const OneMoreThingPage()));
   }
 
-  void _selectPlan(_Plan plan) {
-    setState(() {
-      _plan = plan;
-      // Monthly can't carry a trial, so picking it silently drops one
-      // rather than leaving the toggle claiming something untrue.
-      if (plan == _Plan.monthly) _trialEnabled = false;
-    });
-  }
+  void _selectPlan(_Plan plan) => setState(() => _plan = plan);
 
-  void _setTrial(bool enabled) {
-    setState(() {
-      _trialEnabled = enabled;
-      // ...and the reverse: opting into a trial moves the reader onto
-      // the only plan that offers one.
-      if (enabled) _plan = _Plan.yearly;
-    });
+  /// The only place a trial is offered — or even mentioned. "join now"
+  /// below never brings it up.
+  void _showNotSureSheet() {
+    final colors = context.colors;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: colors.surface,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xl,
+          AppSpacing.lg,
+          AppSpacing.xl,
+          AppSpacing.xl,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.divider,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'free trial',
+              style: GoogleFonts.ebGaramond(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                color: colors.primaryText,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'full access to every feature for 3 days. after your trial '
+              'ends, you continue on the yearly plan.',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.5,
+                color: colors.secondaryText,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            SoftPillButton(
+              label: 'start free trial',
+              onPressed: () {
+                Navigator.of(context).pop();
+                _continue();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -178,9 +218,8 @@ class _PaywallPageState extends State<PaywallPage> {
                             pricing: pricing,
                             priceable: priceable,
                             plan: _plan,
-                            trialEnabled: _trialEnabled,
                             onSelectPlan: _selectPlan,
-                            onTrialChanged: _setTrial,
+                            onNotSureYet: _showNotSureSheet,
                             onSubmit: priceable ? _continue : null,
                           ),
                         ],
@@ -289,7 +328,7 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// The three auto-scrolling rows of feature pills.
+/// The two auto-scrolling rows of feature pills.
 ///
 /// The visual is [TiltedMarqueeWall] — shared with the tutorial step —
 /// but semantically it's one static list: the marquee repeats each pill
@@ -379,17 +418,16 @@ class _FeaturePill extends StatelessWidget {
   }
 }
 
-/// Pricing cards, trial toggle and CTA — the part of the screen that
-/// asks for a decision, pinned together at the bottom.
+/// Pricing cards, "not sure yet", and the CTA — the part of the screen
+/// that asks for a decision, pinned together at the bottom.
 class _CommitBlock extends StatelessWidget {
   const _CommitBlock({
     required this.metrics,
     required this.pricing,
     required this.priceable,
     required this.plan,
-    required this.trialEnabled,
     required this.onSelectPlan,
-    required this.onTrialChanged,
+    required this.onNotSureYet,
     required this.onSubmit,
   });
 
@@ -397,13 +435,14 @@ class _CommitBlock extends StatelessWidget {
   final PaywallPricing pricing;
   final bool priceable;
   final _Plan plan;
-  final bool trialEnabled;
   final ValueChanged<_Plan> onSelectPlan;
-  final ValueChanged<bool> onTrialChanged;
+  final VoidCallback onNotSureYet;
   final VoidCallback? onSubmit;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Padding(
       padding: EdgeInsets.fromLTRB(
         AppSpacing.xl,
@@ -425,18 +464,15 @@ class _CommitBlock extends StatelessWidget {
           else
             const _PricingUnavailable(),
           SizedBox(height: metrics.gapMd),
-          _TrialToggle(
-            value: trialEnabled,
-            // A trial can't be offered without a price to fall back to
-            // when it ends.
-            onChanged: priceable ? onTrialChanged : null,
-            metrics: metrics,
+          // Deliberately not the trial CTA — that one only lives inside
+          // the sheet this opens.
+          SoftPillButton(
+            label: 'not sure yet',
+            tint: colors.secondaryText,
+            onPressed: onNotSureYet,
           ),
           SizedBox(height: metrics.gapSm),
-          SoftPillButton(
-            label: trialEnabled ? 'start free trial' : 'join now',
-            onPressed: onSubmit,
-          ),
+          SoftPillButton(label: 'join now', onPressed: onSubmit),
         ],
       ),
     );
@@ -671,90 +707,6 @@ class _PricingCard extends StatelessWidget {
                   ),
                 ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// "activate free trial" + switch, wearing [SoftPillShell] so it matches
-/// the CTA directly beneath it rather than introducing a second button
-/// language.
-class _TrialToggle extends StatelessWidget {
-  const _TrialToggle({
-    required this.value,
-    required this.onChanged,
-    required this.metrics,
-  });
-
-  final bool value;
-
-  /// Null disables the control — used when there's no valid price to
-  /// roll onto once a trial ends.
-  final ValueChanged<bool>? onChanged;
-
-  final _Metrics metrics;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    final enabled = onChanged != null;
-    final tint = enabled ? colors.accent : colors.secondaryText;
-
-    return Semantics(
-      toggled: value,
-      enabled: enabled,
-      label: 'activate free trial',
-      onTap: enabled ? () => onChanged!(!value) : null,
-      child: ExcludeSemantics(
-        child: SoftPillShell(
-          tint: tint,
-          child: InkWell(
-            onTap: enabled ? () => onChanged!(!value) : null,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: metrics.gapMd,
-                vertical: AppSpacing.xs,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'activate free trial',
-                      style: GoogleFonts.inter(
-                        fontSize: 16 * metrics.scale,
-                        fontWeight: FontWeight.w600,
-                        color: tint,
-                      ),
-                    ),
-                  ),
-                  Switch(
-                    value: value,
-                    onChanged: onChanged,
-                    // WidgetStateProperty rather than the deprecated
-                    // activeColor/inactiveThumbColor pair.
-                    thumbColor: WidgetStateProperty.resolveWith(
-                      (states) => states.contains(WidgetState.selected)
-                          ? colors.background
-                          : colors.secondaryText,
-                    ),
-                    trackColor: WidgetStateProperty.resolveWith(
-                      // Off reads against the tinted pill behind it, so
-                      // the track has to be the *background* tone —
-                      // `divider` is too close to the tint to register.
-                      (states) => states.contains(WidgetState.selected)
-                          ? tint
-                          : colors.background,
-                    ),
-                    trackOutlineColor: WidgetStateProperty.all(
-                      Colors.transparent,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
         ),
       ),
