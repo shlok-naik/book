@@ -11,12 +11,15 @@ import '../widgets/soft_pill_button.dart';
 import 'name_page.dart';
 import 'sign_in_page.dart';
 
-/// Start of the account dot (step 4): branches the flow depending on
-/// whether this reader already has an account.
+/// Start of the account step (step 2, right after the tutorial):
+/// branches the flow depending on whether this reader already has an
+/// account.
 ///
 /// "yes" skips straight to signing in — the same passwordless email
 /// OTP as the "no" branch ends on, just without the name/description
-/// steps first. "no" starts the new-reader path.
+/// steps first, and afterward skips the rest of onboarding entirely
+/// (see [SignInPage]). "no" starts the new-reader path, which continues
+/// through the theme/reading-goal questions and the paywall.
 class HaveWeMetPage extends StatelessWidget {
   const HaveWeMetPage({
     super.key,
@@ -35,7 +38,7 @@ class HaveWeMetPage extends StatelessWidget {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 4,
+      progressStep: 2,
       topContent: const Text('👋', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -61,13 +64,7 @@ class HaveWeMetPage extends StatelessWidget {
           SoftPillButton(
             label: 'yes',
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => SignInPage(
-                  session: session,
-                  profiles: profiles,
-                  draft: draft,
-                ),
-              ),
+              MaterialPageRoute(builder: (_) => SignInPage(session: session)),
             ),
           ),
           const SizedBox(height: AppSpacing.sm),

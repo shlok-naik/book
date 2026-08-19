@@ -148,133 +148,45 @@ Future<void> tapWithoutSettling(WidgetTester tester, String label) async {
 }
 
 void main() {
-  testWidgets(
-    'walks tutorial -> theme -> reading goal -> have we met (no) -> name '
-    '-> description -> protect account -> paywall -> one more thing -> '
-    "founder's note -> finish -> app",
-    (tester) async {
-      await useDeviceSize(tester);
-      final session = FakeSessionService();
-      final profiles = FakeProfileRepository();
-      await tester.pumpWidget(
-        harness(AddBookTutorialPage(session: session, profiles: profiles)),
-      );
-      // Lets the command wall's post-frame width measurement (and the
-      // setState it triggers) land before checking its content.
-      await tester.pump();
-
-      expect(find.text('start The Shining'), findsWidgets);
-      expect(find.text('log books as you read them'), findsOneWidget);
-      // The step indicator is deliberately absent on the tutorial page.
-      expect(find.byType(OnboardingProgressDots), findsNothing);
-
-      await tapPill(tester, 'continue');
-
-      expect(find.byType(ThemePreferencePage), findsOneWidget);
-      expect(find.text('pick a look'), findsOneWidget);
-      expect(_progressStep(tester), 2);
-
-      await tapPill(tester, 'continue');
-
-      expect(find.byType(ReadingGoalPage), findsOneWidget);
-      expect(
-        find.text('how many books do you plan to read this year?'),
-        findsOneWidget,
-      );
-      expect(_progressStep(tester), 3);
-
-      await tester.enterText(find.byType(TextField), '24');
-      await tapPill(tester, 'continue');
-
-      expect(find.byType(HaveWeMetPage), findsOneWidget);
-      expect(_progressStep(tester), 4);
-
-      await tapPill(tester, 'no');
-
-      expect(find.byType(NamePage), findsOneWidget);
-      expect(_progressStep(tester), 4);
-
-      await tester.enterText(find.byType(TextField), 'ada');
-      await tapPill(tester, 'continue');
-
-      expect(find.byType(DescriptionPage), findsOneWidget);
-      expect(_progressStep(tester), 4);
-
-      await tester.enterText(find.byType(TextField), 'reads on the subway');
-      await tapPill(tester, 'continue');
-
-      expect(find.byType(ProtectAccountPage), findsOneWidget);
-      expect(_progressStep(tester), 4);
-
-      await tester.enterText(find.byType(TextField), 'ada@example.com');
-      await tapPill(tester, 'send code');
-
-      expect(session.sendEmailConfirmationCalls, 1);
-
-      await tester.enterText(find.byType(TextField), '123456');
-      // This tap lands on PaywallPage, whose feature tiles auto-scroll
-      // forever, so pumpAndSettle would never return.
-      await tapWithoutSettling(tester, 'verify');
-
-      expect(session.verifyEmailCodeCalls, 1);
-      expect(profiles.saveProfileCalls, 1);
-      expect(profiles.savedDraft?.readingGoal, 24);
-      // Q2 (reading time) was removed, so this is never collected.
-      expect(profiles.savedDraft?.readingMinutesPerDay, isNull);
-      expect(profiles.savedDraft?.name, 'ada');
-      expect(profiles.savedDraft?.description, 'reads on the subway');
-
-      // The paywall skips HalfSheetScaffold, so it has no progress dots
-      // to check.
-      expect(find.byType(PaywallPage), findsOneWidget);
-
-      // Tapped from inside PaywallPage, whose feature wall animates
-      // forever, so no settling here either. The label is "join now"
-      // rather than the trial CTA — that one only appears once the
-      // free-trial toggle is switched on.
-      await tapWithoutSettling(tester, 'join now');
-
-      expect(find.byType(OneMoreThingPage), findsOneWidget);
-      expect(_progressStep(tester), 5);
-
-      await tapPill(tester, 'continue');
-
-      expect(find.byType(FoundersNotePage), findsOneWidget);
-      expect(_progressStep(tester), 5);
-
-      await tapPill(tester, 'continue');
-
-      expect(find.byType(FinishPage), findsOneWidget);
-      expect(_progressStep(tester), 5);
-
-      await tapPill(tester, "let's go");
-
-      expect(find.byType(FinishPage), findsNothing);
-      // Lands on RootShell's default page (the log page).
-      expect(find.byType(TextField), findsOneWidget);
-    },
-  );
-
-  testWidgets('have we met (yes) goes straight to sign in, then paywall', (
-    tester,
-  ) async {
+  testWidgets('walks tutorial -> have we met (no) -> name -> description -> '
+      'protect account -> theme -> reading goal -> paywall -> one more '
+      "thing -> founder's note -> finish -> app", (tester) async {
     await useDeviceSize(tester);
     final session = FakeSessionService();
     final profiles = FakeProfileRepository();
     await tester.pumpWidget(
-      harness(
-        HaveWeMetPage(
-          session: session,
-          profiles: profiles,
-          draft: const OnboardingProfileDraft(readingGoal: 24),
-        ),
-      ),
+      harness(AddBookTutorialPage(session: session, profiles: profiles)),
     );
+    // Lets the command wall's post-frame width measurement (and the
+    // setState it triggers) land before checking its content.
+    await tester.pump();
 
-    await tapPill(tester, 'yes');
+    expect(find.text('start The Shining'), findsWidgets);
+    expect(find.text('log books as you read them'), findsOneWidget);
+    // The step indicator is deliberately absent on the tutorial page.
+    expect(find.byType(OnboardingProgressDots), findsNothing);
 
-    expect(find.byType(SignInPage), findsOneWidget);
-    expect(_progressStep(tester), 4);
+    await tapPill(tester, 'continue');
+
+    expect(find.byType(HaveWeMetPage), findsOneWidget);
+    expect(_progressStep(tester), 2);
+
+    await tapPill(tester, 'no');
+
+    expect(find.byType(NamePage), findsOneWidget);
+    expect(_progressStep(tester), 2);
+
+    await tester.enterText(find.byType(TextField), 'ada');
+    await tapPill(tester, 'continue');
+
+    expect(find.byType(DescriptionPage), findsOneWidget);
+    expect(_progressStep(tester), 2);
+
+    await tester.enterText(find.byType(TextField), 'reads on the subway');
+    await tapPill(tester, 'continue');
+
+    expect(find.byType(ProtectAccountPage), findsOneWidget);
+    expect(_progressStep(tester), 2);
 
     await tester.enterText(find.byType(TextField), 'ada@example.com');
     await tapPill(tester, 'send code');
@@ -282,15 +194,127 @@ void main() {
     expect(session.sendEmailConfirmationCalls, 1);
 
     await tester.enterText(find.byType(TextField), '123456');
-    await tapWithoutSettling(tester, 'verify');
+    // Verifying lands on ThemePreferencePage — no infinite animation
+    // there, so a normal settle-based tap is fine.
+    await tapPill(tester, 'verify');
 
     expect(session.verifyEmailCodeCalls, 1);
-    // A returning reader's Q1 answer is still saved, updating just that
-    // one column.
+    // The account exists now, so name/description are saved
+    // immediately — readingGoal isn't collected until Q2, below.
     expect(profiles.saveProfileCalls, 1);
+    expect(profiles.savedDraft?.readingGoal, isNull);
+    expect(profiles.savedDraft?.name, 'ada');
+    expect(profiles.savedDraft?.description, 'reads on the subway');
+
+    expect(find.byType(ThemePreferencePage), findsOneWidget);
+    expect(find.text('pick a look'), findsOneWidget);
+    expect(_progressStep(tester), 3);
+
+    await tapPill(tester, 'continue');
+
+    expect(find.byType(ReadingGoalPage), findsOneWidget);
+    expect(
+      find.text('how many books do you plan to read this year?'),
+      findsOneWidget,
+    );
+    expect(_progressStep(tester), 4);
+
+    await tester.enterText(find.byType(TextField), '24');
+    // This tap lands on PaywallPage, whose feature tiles auto-scroll
+    // forever, so pumpAndSettle would never return.
+    await tapWithoutSettling(tester, 'continue');
+
+    // The reading goal is saved on its own, straight from this page —
+    // the account already exists by the time Q2 is answered, so there's
+    // no later verification step to do it.
+    expect(profiles.saveProfileCalls, 2);
     expect(profiles.savedDraft?.readingGoal, 24);
+    expect(profiles.savedDraft?.name, 'ada');
+    expect(profiles.savedDraft?.description, 'reads on the subway');
+
+    // The paywall skips HalfSheetScaffold, so it has no progress dots
+    // to check.
     expect(find.byType(PaywallPage), findsOneWidget);
+
+    // Tapped from inside PaywallPage, whose feature wall animates
+    // forever, so no settling here either. The label is "join now"
+    // rather than the trial CTA — that one only appears inside the
+    // "not sure yet" sheet.
+    await tapWithoutSettling(tester, 'join now');
+
+    expect(find.byType(OneMoreThingPage), findsOneWidget);
+    expect(_progressStep(tester), 5);
+
+    await tapPill(tester, 'continue');
+
+    expect(find.byType(FoundersNotePage), findsOneWidget);
+    expect(_progressStep(tester), 5);
+
+    await tapPill(tester, 'continue');
+
+    expect(find.byType(FinishPage), findsOneWidget);
+    expect(_progressStep(tester), 5);
+    // The full sign-up path never takes a shortcut.
+    expect(tester.widget<FinishPage>(find.byType(FinishPage)).bypass, isNull);
+
+    await tapPill(tester, "let's go");
+
+    expect(find.byType(FinishPage), findsNothing);
+    // Lands on RootShell's default page (the log page).
+    expect(find.byType(TextField), findsOneWidget);
   });
+
+  testWidgets(
+    'have we met (yes) goes through sign in and theme, then straight to '
+    'finish — skipping Q2, the paywall, one more thing, and the '
+    "founder's note",
+    (tester) async {
+      await useDeviceSize(tester);
+      final session = FakeSessionService();
+      final profiles = FakeProfileRepository();
+      await tester.pumpWidget(
+        harness(
+          HaveWeMetPage(
+            session: session,
+            profiles: profiles,
+            draft: const OnboardingProfileDraft(),
+          ),
+        ),
+      );
+
+      await tapPill(tester, 'yes');
+
+      expect(find.byType(SignInPage), findsOneWidget);
+      expect(_progressStep(tester), 2);
+
+      await tester.enterText(find.byType(TextField), 'ada@example.com');
+      await tapPill(tester, 'send code');
+
+      expect(session.sendEmailConfirmationCalls, 1);
+
+      await tester.enterText(find.byType(TextField), '123456');
+      await tapPill(tester, 'verify');
+
+      expect(session.verifyEmailCodeCalls, 1);
+      // Nothing was collected before signing in, so there's nothing to
+      // save — a returning reader's sign-in never calls saveProfile.
+      expect(profiles.saveProfileCalls, 0);
+
+      expect(find.byType(ThemePreferencePage), findsOneWidget);
+      expect(_progressStep(tester), 3);
+
+      await tapPill(tester, 'continue');
+
+      expect(find.byType(FinishPage), findsOneWidget);
+      expect(_progressStep(tester), 5);
+      // A returning reader takes the account -> finish shortcut, shown
+      // as a second line alongside the ordinary one.
+      expect(tester.widget<FinishPage>(find.byType(FinishPage)).bypass, (
+        from: 2,
+        to: 5,
+      ));
+    },
+  );
 
   testWidgets(
     'shows an error and stays put when sending the sign-in code fails',
@@ -300,15 +324,7 @@ void main() {
         ..sendEmailConfirmationFailure = const OnboardingException(
           "You're offline",
         );
-      await tester.pumpWidget(
-        harness(
-          SignInPage(
-            session: session,
-            profiles: FakeProfileRepository(),
-            draft: const OnboardingProfileDraft(),
-          ),
-        ),
-      );
+      await tester.pumpWidget(harness(SignInPage(session: session)));
 
       await tester.enterText(find.byType(TextField), 'ada@example.com');
       await tester.tap(find.widgetWithText(SoftPillButton, 'send code'));
@@ -379,36 +395,33 @@ void main() {
     },
   );
 
-  testWidgets(
-    'still reaches the paywall even when saving the profile fails after '
-    'verifying',
-    (tester) async {
-      await useDeviceSize(tester);
-      final session = FakeSessionService();
-      final profiles = FakeProfileRepository()
-        ..saveProfileFailure = const OnboardingException(
-          "We couldn't save that.",
-        );
-      await tester.pumpWidget(
-        harness(
-          ProtectAccountPage(
-            session: session,
-            profiles: profiles,
-            draft: const OnboardingProfileDraft(name: 'ada'),
-          ),
-        ),
+  testWidgets('still reaches the theme step even when saving the profile fails '
+      'after verifying', (tester) async {
+    await useDeviceSize(tester);
+    final session = FakeSessionService();
+    final profiles = FakeProfileRepository()
+      ..saveProfileFailure = const OnboardingException(
+        "We couldn't save that.",
       );
+    await tester.pumpWidget(
+      harness(
+        ProtectAccountPage(
+          session: session,
+          profiles: profiles,
+          draft: const OnboardingProfileDraft(name: 'ada'),
+        ),
+      ),
+    );
 
-      await tester.enterText(find.byType(TextField), 'ada@example.com');
-      await tapPill(tester, 'send code');
+    await tester.enterText(find.byType(TextField), 'ada@example.com');
+    await tapPill(tester, 'send code');
 
-      await tester.enterText(find.byType(TextField), '123456');
-      await tapWithoutSettling(tester, 'verify');
+    await tester.enterText(find.byType(TextField), '123456');
+    await tapPill(tester, 'verify');
 
-      expect(profiles.saveProfileCalls, 1);
-      expect(find.byType(PaywallPage), findsOneWidget);
-    },
-  );
+    expect(profiles.saveProfileCalls, 1);
+    expect(find.byType(ThemePreferencePage), findsOneWidget);
+  });
 
   testWidgets(
     'shows the fetched average reading goal on the reading goal page',

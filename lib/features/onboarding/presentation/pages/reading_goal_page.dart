@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -10,12 +12,14 @@ import '../../domain/onboarding_profile_draft.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/onboarding_text_field.dart';
 import '../widgets/soft_pill_button.dart';
-import 'have_we_met_page.dart';
+import 'paywall_page.dart';
 
-/// Q2 slot of the post-tutorial sequence (pushed back one slot by
-/// [ThemePreferencePage] taking Q1): how many books the reader plans to
-/// read this year. The old Q2 — reading time per day — has been
-/// removed, so this now leads straight into the account step.
+/// New-reader path, Q2 slot: how many books the reader plans to read
+/// this year. Only reached by the sign-up branch — a returning sign-in
+/// skips straight from Q1 to finish (see [ThemePreferencePage]) — so by
+/// the time a reader lands here the account already exists, and
+/// "continue" saves the answer directly rather than waiting for a
+/// later verification step to do it.
 class ReadingGoalPage extends StatefulWidget {
   const ReadingGoalPage({
     super.key,
@@ -43,13 +47,26 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
     super.dispose();
   }
 
+  void _continue() {
+    final draft = widget.draft.copyWith(
+      readingGoal: int.tryParse(_goal.text.trim()),
+    );
+    // Best-effort, same as the account step's own save — a reader who
+    // answered this shouldn't get stuck here just because the write
+    // failed, so this doesn't block moving on to the paywall.
+    unawaited(widget.profiles.saveProfile(draft).catchError((_) {}));
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const PaywallPage()));
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 3,
+      progressStep: 4,
       topContent: const Text('📚', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -87,20 +104,7 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
             },
           ),
           const SizedBox(height: AppSpacing.lg),
-          SoftPillButton(
-            label: 'continue',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => HaveWeMetPage(
-                  session: widget.session,
-                  profiles: widget.profiles,
-                  draft: widget.draft.copyWith(
-                    readingGoal: int.tryParse(_goal.text.trim()),
-                  ),
-                ),
-              ),
-            ),
-          ),
+          SoftPillButton(label: 'continue', onPressed: _continue),
         ],
       ),
     );

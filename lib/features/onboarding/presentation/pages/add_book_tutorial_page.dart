@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../data/onboarding_profile_repository.dart';
 import '../../data/session_service.dart';
+import '../../domain/onboarding_profile_draft.dart';
 import '../widgets/command_wall.dart';
-import 'theme_preference_page.dart';
+import 'have_we_met_page.dart';
 import 'tutorial_step_page.dart';
 
 /// Step 1 of the post-welcome sequence, shown right after the welcome
@@ -30,8 +31,11 @@ class AddBookTutorialPage extends StatelessWidget {
       description: 'tutorial copy goes here.',
       onContinue: () => Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) =>
-              ThemePreferencePage(session: session, profiles: profiles),
+          builder: (_) => HaveWeMetPage(
+            session: session,
+            profiles: profiles,
+            draft: const OnboardingProfileDraft(),
+          ),
         ),
       ),
     );

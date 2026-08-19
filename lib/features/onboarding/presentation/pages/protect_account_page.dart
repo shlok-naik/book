@@ -9,14 +9,17 @@ import '../../domain/onboarding_profile_draft.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/onboarding_text_field.dart';
 import '../widgets/soft_pill_button.dart';
-import 'paywall_page.dart';
+import 'reading_goal_page.dart';
+import 'theme_preference_page.dart';
 
-/// New-reader path, account dot (step 4): passwordless email sign-up.
+/// New-reader path, account step (step 2): passwordless email sign-up.
 /// "send code" asks Supabase to email a one-time code to the given
 /// address; "verify" checks it and provisions the account on the spot
 /// if that email hasn't signed up before — see
 /// [SessionService.sendEmailConfirmation]. Once that succeeds, [draft]
-/// (everything collected since Q1) is saved against the new account.
+/// (the name/description collected so far) is saved against the new
+/// account, and the flow continues into Q1 (theme) then Q2 (reading
+/// goal) before the paywall.
 class ProtectAccountPage extends StatefulWidget {
   const ProtectAccountPage({
     super.key,
@@ -95,9 +98,21 @@ class _ProtectAccountPageState extends State<ProtectAccountPage> {
         // Ignored — see above.
       }
       if (!mounted) return;
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const PaywallPage()));
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ThemePreferencePage(
+            onContinue: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ReadingGoalPage(
+                  session: widget.session,
+                  profiles: widget.profiles,
+                  draft: widget.draft,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
     } on OnboardingException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -113,7 +128,7 @@ class _ProtectAccountPageState extends State<ProtectAccountPage> {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 4,
+      progressStep: 2,
       topContent: const Text('🔒', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

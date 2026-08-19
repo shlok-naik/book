@@ -11,7 +11,7 @@ import '../widgets/onboarding_text_field.dart';
 import '../widgets/soft_pill_button.dart';
 import 'description_page.dart';
 
-/// New-reader path, account dot (step 4): what to call them.
+/// New-reader path, account step (step 2): what to call them.
 class NamePage extends StatefulWidget {
   const NamePage({
     super.key,
@@ -43,7 +43,7 @@ class _NamePageState extends State<NamePage> {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 4,
+      progressStep: 2,
       topContent: const Text('✍️', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

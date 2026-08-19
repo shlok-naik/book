@@ -13,7 +13,13 @@ import '../widgets/soft_pill_button.dart';
 /// this replaces the whole navigation stack with [RootShell] rather
 /// than pushing, so none of the onboarding screens can be popped back to.
 class FinishPage extends StatelessWidget {
-  const FinishPage({super.key});
+  const FinishPage({super.key, this.bypass});
+
+  /// Forwarded to the progress dots — the sign-in shortcut arrives here
+  /// having skipped everything between account and finish, so it passes
+  /// `(from: 2, to: 5)` to draw that shortcut alongside the ordinary
+  /// line, which still runs through every dot unchanged.
+  final ({int from, int to})? bypass;
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +27,7 @@ class FinishPage extends StatelessWidget {
 
     return HalfSheetScaffold(
       progressStep: 5,
+      bypass: bypass,
       topContent: const Text('🎉', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

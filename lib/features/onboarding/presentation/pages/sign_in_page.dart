@@ -3,29 +3,26 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../data/onboarding_profile_repository.dart';
 import '../../data/session_service.dart';
-import '../../domain/onboarding_profile_draft.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/onboarding_text_field.dart';
 import '../widgets/soft_pill_button.dart';
-import 'paywall_page.dart';
+import 'finish_page.dart';
+import 'theme_preference_page.dart';
 
-/// Returning-reader path, account dot (step 4): the "have we met
+/// Returning-reader path, account step (step 2): the "have we met
 /// before" yes-branch. Same passwordless email OTP as
 /// [ProtectAccountPage] — `signInWithOtp`/`verifyOTP` sign an existing
 /// reader straight in, no password involved.
+///
+/// A returning reader doesn't need the rest of onboarding — nothing's
+/// been collected to save (account comes before any question is asked),
+/// so after picking a theme (Q1), this skips Q2, the paywall, "one more
+/// thing", and the founder's note, landing straight on [FinishPage].
 class SignInPage extends StatefulWidget {
-  const SignInPage({
-    super.key,
-    required this.session,
-    required this.profiles,
-    required this.draft,
-  });
+  const SignInPage({super.key, required this.session});
 
   final SessionService session;
-  final OnboardingProfileRepository profiles;
-  final OnboardingProfileDraft draft;
 
   @override
   State<SignInPage> createState() => _SignInPageState();
@@ -83,20 +80,18 @@ class _SignInPageState extends State<SignInPage> {
         email: _email.text.trim(),
         code: _code.text.trim(),
       );
-      // The Q1/Q2 answers are still worth keeping even for a returning
-      // reader — this only updates those two columns, so it can't
-      // clobber a name/description already on file. Best-effort: a
-      // failure here shouldn't strand a reader who did successfully
-      // sign in on an error screen.
-      try {
-        await widget.profiles.saveProfile(widget.draft);
-      } on OnboardingException {
-        // Ignored — see above.
-      }
       if (!mounted) return;
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const PaywallPage()));
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ThemePreferencePage(
+            onContinue: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const FinishPage(bypass: (from: 2, to: 5)),
+              ),
+            ),
+          ),
+        ),
+      );
     } on OnboardingException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -112,7 +107,7 @@ class _SignInPageState extends State<SignInPage> {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 4,
+      progressStep: 2,
       topContent: const Text('🔑', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

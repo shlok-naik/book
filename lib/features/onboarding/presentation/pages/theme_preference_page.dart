@@ -5,28 +5,25 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
-import '../../data/onboarding_profile_repository.dart';
-import '../../data/session_service.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/soft_pill_button.dart';
-import 'reading_goal_page.dart';
 
-/// New Q1 slot: picks [ThemeController.mode] before any question is
-/// asked, so the rest of the flow already renders in the reader's
-/// preferred look. Replaces the old Q1 (reading goal, now pushed to the
-/// Q2 slot — see [ReadingGoalPage]).
+/// Q1 slot: picks [ThemeController.mode] right after the account
+/// exists, so the rest of the flow already renders in the reader's
+/// preferred look.
+///
+/// Reached from both account branches — a new sign-up (from
+/// [ProtectAccountPage]) and a returning sign-in (from [SignInPage]) —
+/// so it doesn't know or care which; [onContinue] is supplied by
+/// whichever one pushed it, and decides where "continue" goes next
+/// (Q2 for a new reader, straight to finish for a returning one).
 ///
 /// A single dropdown rather than a stack of options — this whole page
 /// needs to fit in the card without scrolling.
 class ThemePreferencePage extends StatelessWidget {
-  const ThemePreferencePage({
-    super.key,
-    required this.session,
-    required this.profiles,
-  });
+  const ThemePreferencePage({super.key, required this.onContinue});
 
-  final SessionService session;
-  final OnboardingProfileRepository profiles;
+  final VoidCallback onContinue;
 
   static const _labels = {
     ThemeMode.light: '☀️  light',
@@ -44,7 +41,7 @@ class ThemePreferencePage extends StatelessWidget {
       builder: (context, mode, _) {
         return HalfSheetScaffold(
           showBackButton: true,
-          progressStep: 2,
+          progressStep: 3,
           topContent: const Text('🌗', style: TextStyle(fontSize: 96)),
           cardChild: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -97,15 +94,7 @@ class ThemePreferencePage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
-              SoftPillButton(
-                label: 'continue',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        ReadingGoalPage(session: session, profiles: profiles),
-                  ),
-                ),
-              ),
+              SoftPillButton(label: 'continue', onPressed: onContinue),
             ],
           ),
         );

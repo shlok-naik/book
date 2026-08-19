@@ -11,7 +11,7 @@ import '../widgets/onboarding_text_field.dart';
 import '../widgets/soft_pill_button.dart';
 import 'protect_account_page.dart';
 
-/// New-reader path, account dot (step 4): something fun about them,
+/// New-reader path, account step (step 2): something fun about them,
 /// entirely optional — the last answer collected before the account
 /// itself is created.
 class DescriptionPage extends StatefulWidget {
@@ -45,7 +45,7 @@ class _DescriptionPageState extends State<DescriptionPage> {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 4,
+      progressStep: 2,
       topContent: const Text('💬', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

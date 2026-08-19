@@ -19,6 +19,7 @@ class HalfSheetScaffold extends StatelessWidget {
     required this.cardChild,
     this.showBackButton = false,
     this.progressStep,
+    this.bypass,
   });
 
   /// What illustrates this page — centered in the top half. Null when a
@@ -34,12 +35,18 @@ class HalfSheetScaffold extends StatelessWidget {
   /// itself doesn't offer one.
   final bool showBackButton;
 
-  /// Which step (1-5) of the tutorial → Q1 → Q2 → account → finish
+  /// Which step (1-5) of the tutorial → account → Q1 → Q2 → finish
   /// sequence this page is — shown as a fixed footer row pinned to the
   /// bottom of the card, below its scrollable content. Null hides it —
   /// used for the welcome screen and, deliberately, the tutorial page
-  /// itself (the sequence isn't shown until Q1).
+  /// itself (the sequence isn't shown until account).
   final int? progressStep;
+
+  /// Forwarded to [OnboardingProgressDots] — a shortcut line drawn from
+  /// step `from` to step `to`, alongside (not instead of) the ordinary
+  /// line through every dot. See the sign-in shortcut, which shows
+  /// account leading straight to finish.
+  final ({int from, int to})? bypass;
 
   @override
   Widget build(BuildContext context) {
@@ -99,6 +106,7 @@ class HalfSheetScaffold extends StatelessWidget {
                                 ),
                                 child: OnboardingProgressDots(
                                   currentStep: progressStep!,
+                                  bypass: bypass,
                                 ),
                               ),
                           ],
