@@ -16,10 +16,10 @@ import 'paywall_page.dart';
 
 /// New-reader path, Q2 slot: how many books the reader plans to read
 /// this year. Only reached by the sign-up branch — a returning sign-in
-/// skips straight from Q1 to finish (see [ThemePreferencePage]) — so by
-/// the time a reader lands here the account already exists, and
-/// "continue" saves the answer directly rather than waiting for a
-/// later verification step to do it.
+/// skips straight from account to finish (see [SignInPage]) — so by the
+/// time a reader lands here the account already exists, and "continue"
+/// saves the answer directly rather than waiting for a later
+/// verification step to do it.
 class ReadingGoalPage extends StatefulWidget {
   const ReadingGoalPage({
     super.key,

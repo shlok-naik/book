@@ -5,25 +5,28 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
+import '../../data/onboarding_profile_repository.dart';
+import '../../data/session_service.dart';
+import '../../domain/onboarding_profile_draft.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/soft_pill_button.dart';
+import 'have_we_met_page.dart';
 
-/// Q1 slot: picks [ThemeController.mode] right after the account
+/// Q1 slot — right after the tutorial's two steps, before any account
 /// exists, so the rest of the flow already renders in the reader's
-/// preferred look.
-///
-/// Reached from both account branches — a new sign-up (from
-/// [ProtectAccountPage]) and a returning sign-in (from [SignInPage]) —
-/// so it doesn't know or care which; [onContinue] is supplied by
-/// whichever one pushed it, and decides where "continue" goes next
-/// (Q2 for a new reader, straight to finish for a returning one).
+/// preferred look regardless of which account branch comes next.
 ///
 /// A single dropdown rather than a stack of options — this whole page
 /// needs to fit in the card without scrolling.
 class ThemePreferencePage extends StatelessWidget {
-  const ThemePreferencePage({super.key, required this.onContinue});
+  const ThemePreferencePage({
+    super.key,
+    required this.session,
+    required this.profiles,
+  });
 
-  final VoidCallback onContinue;
+  final SessionService session;
+  final OnboardingProfileRepository profiles;
 
   static const _labels = {
     ThemeMode.light: '☀️  light',
@@ -41,7 +44,7 @@ class ThemePreferencePage extends StatelessWidget {
       builder: (context, mode, _) {
         return HalfSheetScaffold(
           showBackButton: true,
-          progressStep: 3,
+          progressStep: 2,
           topContent: const Text('🌗', style: TextStyle(fontSize: 96)),
           cardChild: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -94,7 +97,18 @@ class ThemePreferencePage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
-              SoftPillButton(label: 'continue', onPressed: onContinue),
+              SoftPillButton(
+                label: 'continue',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => HaveWeMetPage(
+                      session: session,
+                      profiles: profiles,
+                      draft: const OnboardingProfileDraft(),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         );

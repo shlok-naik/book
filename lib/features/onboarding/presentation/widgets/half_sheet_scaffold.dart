@@ -35,17 +35,17 @@ class HalfSheetScaffold extends StatelessWidget {
   /// itself doesn't offer one.
   final bool showBackButton;
 
-  /// Which step (1-5) of the tutorial → account → Q1 → Q2 → finish
+  /// Which step (1-5) of the tutorial → Q1 → account → Q2 → finish
   /// sequence this page is — shown as a fixed footer row pinned to the
   /// bottom of the card, below its scrollable content. Null hides it —
-  /// used for the welcome screen and, deliberately, the tutorial page
-  /// itself (the sequence isn't shown until account).
+  /// used for the welcome screen and, deliberately, the tutorial pages
+  /// themselves (the sequence isn't shown until Q1).
   final int? progressStep;
 
   /// Forwarded to [OnboardingProgressDots] — a shortcut line drawn from
   /// step `from` to step `to`, alongside (not instead of) the ordinary
   /// line through every dot. See the sign-in shortcut, which shows
-  /// account leading straight to finish.
+  /// account (step 3) leading straight to finish.
   final ({int from, int to})? bypass;
 
   @override

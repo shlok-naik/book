@@ -5,17 +5,18 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 
 /// The step indicator shown across the post-tutorial onboarding flow:
-/// tutorial → account → Q1 → Q2 → finish. [currentStep] (1-5) and every
+/// tutorial → Q1 → account → Q2 → finish. [currentStep] (1-5) and every
 /// step before it are drawn filled, with a filled connecting line
 /// leading into them; the rest are hollow. Never shown on the tutorial
-/// page itself — only from account onward.
+/// pages themselves — only from Q1 onward.
 ///
 /// [bypass] draws a second line as a loop hanging below the main one —
 /// down from step `from`, across, up into step `to` — for a path that
-/// skipped everything in between, without touching the main line at
-/// all. The sign-in shortcut uses this to show account leading straight
-/// to finish alongside the ordinary line still running through every
-/// dot.
+/// skipped everything in between. Steps strictly inside that range
+/// (dot, label, and the main line's own segments through them) stay
+/// hollow no matter how far [currentStep] has gotten — a bypassed path
+/// never actually visits them, so only the loop gets to show as done
+/// there.
 class OnboardingProgressDots extends StatelessWidget {
   const OnboardingProgressDots({
     super.key,
@@ -27,13 +28,20 @@ class OnboardingProgressDots extends StatelessWidget {
   final ({int from, int to})? bypass;
 
   static const stepCount = 5;
-  static const _labels = ['tutorial', 'account', 'Q1', 'Q2', 'finish'];
+  static const _labels = ['tutorial', 'Q1', 'account', 'Q2', 'finish'];
   static const _dotSize = 16.0;
 
   /// How far below the main line the bypass loop hangs — deep enough to
   /// read as a clear loop rather than a second line running alongside
   /// the first.
   static const _bypassOffset = 16.0;
+
+  /// A step strictly between [bypass]'s `from` and `to` was never
+  /// actually reached on a bypassed path — the loop skips over it
+  /// entirely — so its dot and label stay hollow even once
+  /// [currentStep] has passed it.
+  bool _isSkipped(int step) =>
+      bypass != null && step > bypass!.from && step < bypass!.to;
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +59,7 @@ class OnboardingProgressDots extends StatelessWidget {
                     _labels[step - 1],
                     style: GoogleFonts.inter(
                       fontSize: 11,
-                      color: step <= currentStep
+                      color: !_isSkipped(step) && step <= currentStep
                           ? colors.primaryText
                           : colors.secondaryText,
                     ),
@@ -104,7 +112,8 @@ class OnboardingProgressDots extends StatelessWidget {
                                 height: _dotSize,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: step <= currentStep
+                                  color:
+                                      !_isSkipped(step) && step <= currentStep
                                       ? colors.accent
                                       : colors.divider,
                                 ),
@@ -126,9 +135,12 @@ class OnboardingProgressDots extends StatelessWidget {
 
 /// Draws the ordinary straight line through every dot, then — only when
 /// [bypass] is set — a second line looping below it: down from
-/// [bypass]'s `from` step, across, up into its `to` step. The main line
-/// is never altered by a bypass; the two are independent, sharing only
-/// the two points the loop drops from and rises back into.
+/// [bypass]'s `from` step, across, up into its `to` step. The two lines
+/// are independent, sharing only the two points the loop drops from and
+/// rises back into — except that the main line's own segments between
+/// `from` and `to` stay hollow regardless of [currentStep], since a
+/// bypassed path never actually walks that stretch; only the loop gets
+/// to show as done there.
 class _ConnectorPainter extends CustomPainter {
   _ConnectorPainter({
     required this.currentStep,
@@ -152,9 +164,15 @@ class _ConnectorPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final bypass = this.bypass;
     for (var step = 2; step <= OnboardingProgressDots.stepCount; step++) {
+      // A segment the bypass skips over was never actually walked, so
+      // it stays hollow even once currentStep has passed it — only the
+      // loop below gets to claim that ground as "done".
+      final skipped =
+          bypass != null && step - 1 >= bypass.from && step <= bypass.to;
       final paint = Paint()
-        ..color = step <= currentStep ? activeColor : inactiveColor
+        ..color = !skipped && step <= currentStep ? activeColor : inactiveColor
         ..strokeWidth = _strokeWidth
         ..strokeCap = StrokeCap.round;
       canvas.drawLine(
@@ -164,7 +182,6 @@ class _ConnectorPainter extends CustomPainter {
       );
     }
 
-    final bypass = this.bypass;
     if (bypass != null) {
       final fromX = _centerX(bypass.from);
       final toX = _centerX(bypass.to);
@@ -181,7 +198,11 @@ class _ConnectorPainter extends CustomPainter {
       canvas.drawPath(
         path,
         Paint()
-          ..color = activeColor
+          // Same rule as the main line's segments: only lit once the
+          // reader has actually reached that far, not just because a
+          // bypass exists. Shown from early in the shortcut (`from`
+          // onward), this stays hollow until `to` is reached.
+          ..color = bypass.to <= currentStep ? activeColor : inactiveColor
           ..strokeWidth = _strokeWidth
           ..strokeCap = StrokeCap.round
           ..style = PaintingStyle.stroke,

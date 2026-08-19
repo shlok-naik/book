@@ -10,16 +10,15 @@ import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/onboarding_text_field.dart';
 import '../widgets/soft_pill_button.dart';
 import 'reading_goal_page.dart';
-import 'theme_preference_page.dart';
 
-/// New-reader path, account step (step 2): passwordless email sign-up.
-/// "send code" asks Supabase to email a one-time code to the given
-/// address; "verify" checks it and provisions the account on the spot
-/// if that email hasn't signed up before — see
+/// New-reader path, account step (step 3, right after Q1): passwordless
+/// email sign-up. "send code" asks Supabase to email a one-time code to
+/// the given address; "verify" checks it and provisions the account on
+/// the spot if that email hasn't signed up before — see
 /// [SessionService.sendEmailConfirmation]. Once that succeeds, [draft]
 /// (the name/description collected so far) is saved against the new
-/// account, and the flow continues into Q1 (theme) then Q2 (reading
-/// goal) before the paywall.
+/// account, and the flow continues into Q2 (reading goal) before the
+/// paywall.
 class ProtectAccountPage extends StatefulWidget {
   const ProtectAccountPage({
     super.key,
@@ -100,16 +99,10 @@ class _ProtectAccountPageState extends State<ProtectAccountPage> {
       if (!mounted) return;
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => ThemePreferencePage(
-            onContinue: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ReadingGoalPage(
-                  session: widget.session,
-                  profiles: widget.profiles,
-                  draft: widget.draft,
-                ),
-              ),
-            ),
+          builder: (_) => ReadingGoalPage(
+            session: widget.session,
+            profiles: widget.profiles,
+            draft: widget.draft,
           ),
         ),
       );
@@ -128,7 +121,7 @@ class _ProtectAccountPageState extends State<ProtectAccountPage> {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 2,
+      progressStep: 3,
       topContent: const Text('🔒', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -33,7 +33,16 @@ class TutorialStepPage extends StatelessWidget {
   final Widget topContent;
 
   final String heading;
-  final String description;
+
+  /// The step's body. A plain `Text` for a short blurb, or something
+  /// richer — a command list, an inline example — for a step that
+  /// needs more room to explain itself. Inherits the shared body style
+  /// (secondary color, 14px, 1.5 line height) via [DefaultTextStyle],
+  /// so a plain `Text` doesn't need to restate it, though any `Text`
+  /// inside can still override individual pieces (bold a word, italicize
+  /// a note) as needed.
+  final Widget description;
+
   final VoidCallback onContinue;
   final String buttonLabel;
 
@@ -61,13 +70,13 @@ class TutorialStepPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
-          Text(
-            description,
+          DefaultTextStyle.merge(
             style: GoogleFonts.inter(
               fontSize: 14,
               height: 1.5,
               color: colors.secondaryText,
             ),
+            child: description,
           ),
           const SizedBox(height: AppSpacing.lg),
           SoftPillButton(label: buttonLabel, onPressed: onContinue),

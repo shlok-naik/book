@@ -11,9 +11,8 @@ import '../widgets/soft_pill_button.dart';
 import 'name_page.dart';
 import 'sign_in_page.dart';
 
-/// Start of the account step (step 2, right after the tutorial):
-/// branches the flow depending on whether this reader already has an
-/// account.
+/// Start of the account step (step 3, right after Q1): branches the
+/// flow depending on whether this reader already has an account.
 ///
 /// "yes" skips straight to signing in — the same passwordless email
 /// OTP as the "no" branch ends on, just without the name/description
@@ -38,7 +37,7 @@ class HaveWeMetPage extends StatelessWidget {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 2,
+      progressStep: 3,
       topContent: const Text('👋', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

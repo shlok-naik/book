@@ -5,8 +5,9 @@ import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/onboarding/presentation/pages/tutorial_step_page.dart';
 
 void main() {
-  testWidgets('shows the top content, heading, description, and button',
-      (tester) async {
+  testWidgets('shows the top content, heading, description, and button', (
+    tester,
+  ) async {
     var continued = false;
 
     await tester.pumpWidget(
@@ -15,7 +16,7 @@ void main() {
         home: TutorialStepPage(
           topContent: const Text('mock content'),
           heading: 'a heading',
-          description: 'a description',
+          description: const Text('a description'),
           onContinue: () => continued = true,
         ),
       ),
@@ -37,7 +38,7 @@ void main() {
         home: TutorialStepPage(
           topContent: const SizedBox.shrink(),
           heading: 'heading',
-          description: 'description',
+          description: const Text('description'),
           buttonLabel: 'Next',
           onContinue: () {},
         ),
@@ -48,21 +49,23 @@ void main() {
     expect(find.text('continue'), findsNothing);
   });
 
-  testWidgets('the card fills exactly the bottom half of the screen',
-      (tester) async {
+  testWidgets('the card fills exactly the bottom half of the screen', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light,
         home: TutorialStepPage(
           topContent: const SizedBox.shrink(),
           heading: 'heading',
-          description: 'description',
+          description: const Text('description'),
           onContinue: () {},
         ),
       ),
     );
 
-    final screenHeight = tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    final screenHeight =
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
     final card = tester.widget<ClipRRect>(find.byType(ClipRRect));
     final cardRect = tester.getRect(find.byWidget(card));
 

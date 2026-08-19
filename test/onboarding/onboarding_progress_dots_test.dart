@@ -36,46 +36,42 @@ void main() {
     expect(hollow, 2);
   });
 
-  testWidgets(
-    'renders a bypass line without throwing, and dot fill still follows '
-    'currentStep alone',
-    (tester) async {
-      late AppColors colors;
+  testWidgets('renders a bypass line without throwing, and leaves the dots it '
+      'skips over hollow even past currentStep', (tester) async {
+    late AppColors colors;
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light,
-          home: Builder(
-            builder: (context) {
-              colors = context.colors;
-              return const Scaffold(
-                body: OnboardingProgressDots(
-                  currentStep: 5,
-                  bypass: (from: 2, to: 5),
-                ),
-              );
-            },
-          ),
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Builder(
+          builder: (context) {
+            colors = context.colors;
+            return const Scaffold(
+              body: OnboardingProgressDots(
+                currentStep: 5,
+                bypass: (from: 2, to: 5),
+              ),
+            );
+          },
         ),
-      );
+      ),
+    );
 
-      final decorations = tester
-          .widgetList<Container>(find.byType(Container))
-          .map((container) => container.decoration)
-          .whereType<BoxDecoration>()
-          .toList();
+    final decorations = tester
+        .widgetList<Container>(find.byType(Container))
+        .map((container) => container.decoration)
+        .whereType<BoxDecoration>()
+        .toList();
 
-      // All 5 dots still fill up to currentStep — a bypass only adds a
-      // second line, it doesn't change which dots light up.
-      expect(decorations, hasLength(OnboardingProgressDots.stepCount));
-      expect(
-        decorations.where((d) => d.color == colors.accent).length,
-        OnboardingProgressDots.stepCount,
-      );
+    // Dots 3 and 4 sit strictly inside the (from: 2, to: 5) bypass —
+    // never actually reached on this path — so they stay hollow even
+    // though currentStep is 5; only dots 1, 2, and 5 fill in.
+    expect(decorations, hasLength(OnboardingProgressDots.stepCount));
+    expect(decorations.where((d) => d.color == colors.accent).length, 3);
+    expect(decorations.where((d) => d.color == colors.divider).length, 2);
 
-      // The connector painter is present and didn't throw during paint.
-      expect(find.byType(CustomPaint), findsWidgets);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    // The connector painter is present and didn't throw during paint.
+    expect(find.byType(CustomPaint), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
 }

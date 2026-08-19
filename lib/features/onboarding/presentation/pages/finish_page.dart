@@ -17,7 +17,7 @@ class FinishPage extends StatelessWidget {
 
   /// Forwarded to the progress dots — the sign-in shortcut arrives here
   /// having skipped everything between account and finish, so it passes
-  /// `(from: 2, to: 5)` to draw that shortcut alongside the ordinary
+  /// `(from: 3, to: 5)` to draw that shortcut alongside the ordinary
   /// line, which still runs through every dot unchanged.
   final ({int from, int to})? bypass;
 
