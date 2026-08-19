@@ -125,22 +125,23 @@ int _progressStep(WidgetTester tester) => tester
     .widget<OnboardingProgressDots>(find.byType(OnboardingProgressDots))
     .currentStep;
 
-/// Every onboarding action lives on a [SoftPillButton] now (the shared
-/// pill treatment), so tapping by label goes through this instead of
-/// the old `FilledButton`/`OutlinedButton` finders.
+/// Almost every onboarding action lives on a [SoftPillButton] (the
+/// shared pill treatment) — except the paywall's own CTA and "not sure
+/// yet", which intentionally break from it. Finding by label text
+/// alone works for both.
 Future<void> tapPill(WidgetTester tester, String label) async {
-  final finder = find.widgetWithText(SoftPillButton, label);
+  final finder = find.text(label);
   await tester.ensureVisible(finder);
   await tester.tap(finder);
   await tester.pumpAndSettle();
 }
 
-/// Like [tapPill], but for a tap that enters or leaves [PaywallPage] —
-/// its feature wall auto-scrolls forever (the same marquee ticker as
-/// the tutorial page's command wall), so a settle-based pump would
-/// never return while it's mounted. Fixed pumps stand in instead.
+/// Like [tapPill], but for a tap that enters or leaves a page with an
+/// infinite ticker running (the tutorial's command/natural-language
+/// walls), so a settle-based pump would never return while it's
+/// mounted. Fixed pumps stand in instead.
 Future<void> tapWithoutSettling(WidgetTester tester, String label) async {
-  final finder = find.widgetWithText(SoftPillButton, label);
+  final finder = find.text(label);
   await tester.ensureVisible(finder);
   await tester.tap(finder);
   for (var i = 0; i < 6; i++) {

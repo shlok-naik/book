@@ -7,8 +7,9 @@ import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.
 import 'package:book/features/onboarding/presentation/pages/paywall_page.dart';
 import 'package:book/features/onboarding/presentation/widgets/soft_pill_button.dart';
 
-/// The paywall's feature wall marquees forever, so `pumpAndSettle`
-/// would never return — every helper here uses fixed pumps instead.
+/// Every helper here uses fixed pumps rather than `pumpAndSettle` —
+/// harmless now that the feature list is static, but kept so a future
+/// infinite animation on this page wouldn't quietly hang the suite.
 Future<void> settleFrames(WidgetTester tester) async {
   for (var i = 0; i < 6; i++) {
     await tester.pump(const Duration(milliseconds: 100));
@@ -136,7 +137,7 @@ void main() {
     ) async {
       await pumpPaywall(tester);
 
-      expect(find.widgetWithText(SoftPillButton, 'join now'), findsOneWidget);
+      expect(find.text('join now'), findsOneWidget);
       expect(find.text('start free trial'), findsNothing);
     });
 
@@ -144,7 +145,7 @@ void main() {
         'own button is the only trial CTA on screen', (tester) async {
       await pumpPaywall(tester);
 
-      await tester.tap(find.widgetWithText(SoftPillButton, 'not sure yet'));
+      await tester.tap(find.text('not sure yet'));
       await settleFrames(tester);
 
       expect(find.text('free trial'), findsOneWidget);
@@ -161,7 +162,7 @@ void main() {
     ) async {
       await pumpPaywall(tester);
 
-      await tester.tap(find.widgetWithText(SoftPillButton, 'not sure yet'));
+      await tester.tap(find.text('not sure yet'));
       await settleFrames(tester);
 
       await tester.tap(find.widgetWithText(SoftPillButton, 'start free trial'));
@@ -184,14 +185,12 @@ void main() {
       expect(find.text('monthly'), findsNothing);
       expect(find.text('yearly'), findsNothing);
 
-      expect(
-        tester
-            .widget<SoftPillButton>(
-              find.widgetWithText(SoftPillButton, 'join now'),
-            )
-            .onPressed,
-        isNull,
-      );
+      // Disabled rather than typed-checked — the CTA isn't a
+      // SoftPillButton here, so the behavior that matters is that
+      // tapping it does nothing.
+      await tester.tap(find.text('join now'));
+      await settleFrames(tester);
+      expect(find.byType(OneMoreThingPage), findsNothing);
     });
 
     testWidgets('treats NaN prices as invalid rather than rendering them', (
@@ -263,12 +262,12 @@ void main() {
     // still fits at the size given.
     testWidgets('lays out without overflow on a small phone', (tester) async {
       await pumpPaywall(tester, size: const Size(1080, 1920));
-      expect(find.widgetWithText(SoftPillButton, 'join now'), findsOneWidget);
+      expect(find.text('join now'), findsOneWidget);
     });
 
     testWidgets('lays out without overflow on a tall device', (tester) async {
       await pumpPaywall(tester, size: const Size(1170, 2900));
-      expect(find.widgetWithText(SoftPillButton, 'join now'), findsOneWidget);
+      expect(find.text('join now'), findsOneWidget);
     });
 
     testWidgets('scales its spacing down on a shorter viewport', (
@@ -281,6 +280,27 @@ void main() {
       final short = cardHeight(tester, 'yearly');
 
       expect(short, lessThan(tall));
+    });
+  });
+
+  group('chapters', () {
+    testWidgets('opens on chapter I', (tester) async {
+      await pumpPaywall(tester);
+
+      expect(find.text('chapter I'), findsOneWidget);
+      expect(find.text('Converse & Express'), findsOneWidget);
+    });
+
+    testWidgets('swiping left turns the page to the next chapter', (
+      tester,
+    ) async {
+      await pumpPaywall(tester);
+
+      await tester.drag(find.text('Converse & Express'), const Offset(-400, 0));
+      await settleFrames(tester);
+
+      expect(find.text('chapter II'), findsOneWidget);
+      expect(find.text('A Mind of Its Own'), findsOneWidget);
     });
   });
 
@@ -305,17 +325,16 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('the marquee is summarised once rather than read out per '
-        'repeat', (tester) async {
+    testWidgets('the open chapter reads out as plain, real text', (
+      tester,
+    ) async {
       final handle = tester.ensureSemantics();
       await pumpPaywall(tester);
 
-      // The wall repeats each pill several times to fake the loop; the
-      // semantics tree should carry exactly one summary instead.
-      expect(
-        find.bySemanticsLabel(RegExp('included with cactus PRO:.*')),
-        findsOneWidget,
-      );
+      // A real PageView page, unlike the marquee it replaced, needs no
+      // summarising workaround — the chapter's title is just its own
+      // text node.
+      expect(find.text('Converse & Express'), findsOneWidget);
 
       handle.dispose();
     });

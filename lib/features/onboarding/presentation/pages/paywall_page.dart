@@ -5,7 +5,6 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/dotted_background.dart';
-import '../../../../core/widgets/tilted_marquee_wall.dart';
 import '../../domain/paywall_pricing.dart';
 import '../widgets/soft_pill_button.dart';
 import 'one_more_thing_page.dart';
@@ -19,22 +18,25 @@ import 'one_more_thing_page.dart';
 ///
 /// ## Layout
 ///
-/// Top-to-bottom: header, headline, two rows of feature pills,
-/// side-by-side pricing cards, "not sure yet", then the CTA. The column
-/// is split into three groups with flexible gaps between them inside
-/// the bounded card, so leftover vertical room is distributed *between*
-/// sections instead of pooling at the bottom — that, plus the
-/// [_Metrics] scale factor, is what keeps the proportions steady from
-/// a small phone to a tablet without anything overflowing.
+/// Top-to-bottom: header, headline, a swipeable set of book "chapters"
+/// — each one a feature, framed as a page the reader turns rather than
+/// a list they skim — filling every bit of room left over between the
+/// headline and the pricing cards, the CTA, and "not sure yet" below
+/// it. The [_Metrics] scale factor is what keeps the proportions steady
+/// from a small phone to a tablet without anything overflowing.
 ///
 /// ## Component reuse
 ///
-/// Nothing here is a one-off:
-/// * feature pills scroll via [TiltedMarqueeWall], the same widget (and
-///   the same tilt, speeds and alternating directions) the tutorial
-///   step's command wall uses;
-/// * both buttons are [SoftPillButton], the pill treatment every other
-///   onboarding button already wears;
+/// * the chapters are plain, real pages in a [PageView] — turned by
+///   swipe rather than an automatic marquee, so nothing is cut off at
+///   the edge and a reader sets their own pace;
+/// * "join now" and "start free trial" (inside the sheet) are both
+///   [SoftPillButton], the pill treatment every other onboarding
+///   button wears — the CTA doesn't need a shape of its own to stand
+///   out, just to be the only pill on screen;
+/// * "not sure yet" is a plain text link rather than a second pill —
+///   the close button already covers "I don't want this", so it only
+///   needs to be findable, not as visually loud as "join now";
 /// * colors come from [AppColors] and spacing/radii from
 ///   [AppSpacing] / [AppRadius], so the screen follows the reader's
 ///   light/dark choice like the rest of the flow.
@@ -66,10 +68,6 @@ class _Metrics {
   double get gapMd => AppSpacing.md * scale;
   double get gapLg => AppSpacing.lg * scale;
 
-  /// Height of a single marquee row. The pill's own padding is fixed,
-  /// so this only needs to leave room for one line of label.
-  double get featureRowHeight => 40 * scale;
-
   /// Both pricing cards are pinned to this height, so selecting one
   /// changes only its *width* — the row never reflows vertically.
   double get pricingCardHeight => 104 * scale;
@@ -83,22 +81,6 @@ class _PaywallPageState extends State<PaywallPage> {
   /// Yearly leads on load — it's the better value, and the savings tag
   /// only has something to say while it's the selected plan.
   _Plan _plan = _Plan.yearly;
-
-  /// Feature pills — exactly the six the flow already had, two rows of
-  /// three. Each pill sizes itself to its label, so rows end up
-  /// pleasantly ragged rather than a rigid grid.
-  static const _featureRows = <List<(IconData, String)>>[
-    [
-      (Icons.memory, 'long term memory'),
-      (Icons.auto_awesome, 'access to cactus ai'),
-      (Icons.menu_book_outlined, 'book recommendations'),
-    ],
-    [
-      (Icons.tune, 'preference tracking'),
-      (Icons.chat_bubble_outline, 'use natural language'),
-      (Icons.favorite_border, 'support the creator'),
-    ],
-  ];
 
   void _continue() {
     Navigator.of(
@@ -205,14 +187,13 @@ class _PaywallPageState extends State<PaywallPage> {
                       return Column(
                         children: [
                           _Header(onClose: _continue, metrics: m),
-                          // Leftover height is split 2:3 between the two
-                          // gaps rather than evenly, which pulls the
-                          // feature wall up under the headline and lets
-                          // the breathing room fall where the reference
-                          // puts it — above the commit block.
-                          const Spacer(flex: 2),
-                          _FeatureWall(rows: _featureRows, metrics: m),
-                          const Spacer(flex: 3),
+                          SizedBox(height: m.gapSm),
+                          // Fills every bit of room left over between
+                          // the headline and the commit block — this is
+                          // the "empty middle" the old marquee-and-two-
+                          // spacers layout used to leave behind, now
+                          // doing double duty as the pitch itself.
+                          Expanded(child: _ChapterPager(metrics: m)),
                           _CommitBlock(
                             metrics: m,
                             pricing: pricing,
@@ -236,7 +217,10 @@ class _PaywallPageState extends State<PaywallPage> {
   }
 }
 
-/// Wordmark + PRO badge + close, then the headline quote beneath.
+/// Wordmark + PRO badge + close, then the headline beneath — the hook
+/// that has three seconds to convince the reader this is worth paying
+/// for, so it names the concrete thing PRO does rather than gesturing
+/// at it with a quote.
 class _Header extends StatelessWidget {
   const _Header({required this.onClose, required this.metrics});
 
@@ -304,23 +288,14 @@ class _Header extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
           child: Text(
-            '"the limits of my language mean the limits of my world."',
+            'just say it. cactus handles the rest.',
             textAlign: TextAlign.center,
             style: GoogleFonts.ebGaramond(
-              fontSize: 18 * metrics.scale,
-              fontStyle: FontStyle.italic,
-              height: 1.4,
+              fontSize: 26 * metrics.scale,
+              fontWeight: FontWeight.w600,
+              height: 1.25,
               color: colors.primaryText,
             ),
-          ),
-        ),
-        SizedBox(height: metrics.gapSm),
-        Text(
-          '- ludwig wittgenstein',
-          textAlign: TextAlign.center,
-          style: GoogleFonts.inter(
-            fontSize: 13 * metrics.scale,
-            color: colors.secondaryText,
           ),
         ),
       ],
@@ -328,92 +303,281 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// The two auto-scrolling rows of feature pills.
-///
-/// The visual is [TiltedMarqueeWall] — shared with the tutorial step —
-/// but semantically it's one static list: the marquee repeats each pill
-/// several times to fake an endless loop, which a screen reader would
-/// otherwise read out four times over. So the whole wall is excluded
-/// from the tree and replaced with a single summarising label.
-class _FeatureWall extends StatelessWidget {
-  const _FeatureWall({required this.rows, required this.metrics});
+/// One "chapter" per feature. [body] is the real pitch, kept to two
+/// short sentences — a book's wide margins only stay airy if the copy
+/// itself stays brief. [filler] is one line of plain placeholder text,
+/// the same role Lorem Ipsum plays in a print layout, just enough to
+/// give the page a second line of rhythm without running long.
+typedef _Chapter = ({String roman, String title, String body, String filler});
 
-  final List<List<(IconData, String)>> rows;
+const _chapters = <_Chapter>[
+  (
+    roman: 'I',
+    title: 'Converse & Express',
+    body:
+        'Interact with your library using your own words. Express your '
+        'emotions, and discover exactly what you are looking for next.',
+    filler: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.',
+  ),
+  (
+    roman: 'II',
+    title: 'A Mind of Its Own',
+    body:
+        'Powered by advanced AI with long-term memory. It remembers '
+        'your preferences and conversations, so you never repeat '
+        'yourself.',
+    filler: 'Duis aute irure dolor in reprehenderit in voluptate velit.',
+  ),
+  (
+    roman: 'III',
+    title: 'The Perfect Match',
+    body:
+        'Discover your next great story. Get tailored recommendations '
+        'built from your conversational history.',
+    filler: 'Sed ut perspiciatis unde omnis iste natus error sit.',
+  ),
+];
+
+/// The pitch, told as chapters rather than skimmed as a feature list —
+/// swipe left to turn the page onto the next one. A row of dots below
+/// tracks which chapter is open, the same way a book's progress is felt
+/// by the thickness of the pages left in either hand.
+class _ChapterPager extends StatefulWidget {
+  const _ChapterPager({required this.metrics});
+
+  final _Metrics metrics;
+
+  @override
+  State<_ChapterPager> createState() => _ChapterPagerState();
+}
+
+class _ChapterPagerState extends State<_ChapterPager> {
+  final _controller = PageController();
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Expanded(
+          child: PageView.builder(
+            controller: _controller,
+            itemCount: _chapters.length,
+            onPageChanged: (page) => setState(() => _page = page),
+            itemBuilder: (context, index) => _ChapterTransition(
+              controller: _controller,
+              index: index,
+              fallbackPage: _page,
+              child: _ChapterPage(
+                chapter: _chapters[index],
+                metrics: widget.metrics,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: widget.metrics.gapSm),
+        _PageDots(count: _chapters.length, index: _page),
+      ],
+    );
+  }
+}
+
+/// A gentler substitute for [PageView]'s default hard slide: as a
+/// chapter scrolls away from center it fades and shrinks slightly
+/// rather than just translating, so turning the page reads as a soft
+/// crossfade native to a dark digital screen instead of a literal
+/// paper-curl.
+class _ChapterTransition extends StatelessWidget {
+  const _ChapterTransition({
+    required this.controller,
+    required this.index,
+    required this.fallbackPage,
+    required this.child,
+  });
+
+  final PageController controller;
+  final int index;
+
+  /// Used only before the controller has attached to its
+  /// [PageView] and gained a scroll position — from then on
+  /// [controller.page] is authoritative.
+  final int fallbackPage;
+
+  final Widget child;
+
+  static const _maxScaleDrop = 0.08;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      child: child,
+      builder: (context, child) {
+        final page = controller.hasClients && controller.position.haveDimensions
+            ? (controller.page ?? fallbackPage.toDouble())
+            : fallbackPage.toDouble();
+        final distance = (page - index).abs().clamp(0.0, 1.0);
+
+        return Opacity(
+          opacity: 1 - distance,
+          child: Transform.scale(
+            scale: 1 - (distance * _maxScaleDrop),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A single chapter, framed like a museum exhibit card rather than a
+/// bare page of text: a thin hairline border and a background tone
+/// lifted off the surface behind it (the same background-on-surface
+/// contrast used throughout onboarding), with wide padding on every
+/// side so the frame itself supplies the negative space a page of
+/// running text needs to feel unhurried rather than cramped.
+///
+/// Inside: roman numeral, centered title, a short rule, then two brief
+/// paragraphs — set in [GoogleFonts.libreBaskerville], the book trade's
+/// own standard face, rather than the [Inter]/[GoogleFonts.ebGaramond]
+/// mix the rest of onboarding wears. Content starts right under the top
+/// edge of the frame rather than centering within it. Wrapped to scroll
+/// rather than overflow on the rare viewport too short to fit it all.
+class _ChapterPage extends StatelessWidget {
+  const _ChapterPage({required this.chapter, required this.metrics});
+
+  final _Chapter chapter;
   final _Metrics metrics;
 
   @override
   Widget build(BuildContext context) {
-    final labels = [
-      for (final row in rows)
-        for (final (_, label) in row) label,
-    ];
+    final colors = context.colors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    // Darker than the secondaryText this page otherwise reaches for —
+    // a soft charcoal rather than pure black, but dark enough that a
+    // whole paragraph of it stays comfortable to read.
+    final bodyColor = Color.alphaBlend(
+      colors.primaryText.withValues(alpha: 0.82),
+      colors.background,
+    );
+    final bodyStyle = GoogleFonts.libreBaskerville(
+      fontSize: 15 * metrics.scale,
+      height: 1.7,
+      color: bodyColor,
+    );
 
-    return Semantics(
-      label: 'included with cactus PRO: ${labels.join(', ')}',
-      container: true,
-      child: ExcludeSemantics(
-        child: TiltedMarqueeWall(
-          rowHeight: metrics.featureRowHeight,
-          rowSpacing: metrics.gapSm,
-          rows: [
-            for (final row in rows)
-              [
-                for (final (icon, label) in row)
-                  _FeaturePill(icon: icon, label: label, metrics: metrics),
-              ],
-          ],
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: metrics.gapSm,
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: colors.background,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: colors.divider),
+          // A soft, highly diffused shadow — only in light mode, where
+          // it reads against the surface behind it; in dark mode a
+          // shadow this faint would be invisible, so the border alone
+          // carries the separation, same rule SoftPillShell follows.
+          boxShadow: isLight
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : null,
+        ),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.symmetric(
+            horizontal: AppSpacing.xl,
+            vertical: metrics.gapLg,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                'chapter ${chapter.roman}',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.libreBaskerville(
+                  fontSize: 13 * metrics.scale,
+                  fontStyle: FontStyle.italic,
+                  letterSpacing: 1.5,
+                  color: colors.secondaryText,
+                ),
+              ),
+              SizedBox(height: metrics.gapSm),
+              Text(
+                chapter.title,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.libreBaskerville(
+                  fontSize: 22 * metrics.scale,
+                  fontWeight: FontWeight.w700,
+                  color: colors.primaryText,
+                ),
+              ),
+              SizedBox(height: metrics.gapMd),
+              Container(width: 32, height: 1, color: colors.divider),
+              SizedBox(height: metrics.gapMd),
+              Text(
+                chapter.body,
+                textAlign: TextAlign.justify,
+                style: bodyStyle,
+              ),
+              SizedBox(height: metrics.gapMd),
+              Text(
+                chapter.filler,
+                textAlign: TextAlign.justify,
+                style: bodyStyle,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// A single feature pill — sized to its own label rather than to a
-/// fixed width, so "book recommendations" is visibly longer than
-/// "reading stats". Same self-sizing idea as the tutorial's command
-/// chips.
-class _FeaturePill extends StatelessWidget {
-  const _FeaturePill({
-    required this.icon,
-    required this.label,
-    required this.metrics,
-  });
+/// The chapter position indicator: a wide pill for the open chapter,
+/// small dots for the rest — the same "current page is longer" shape
+/// as the pricing row above claiming more width for the selected plan.
+class _PageDots extends StatelessWidget {
+  const _PageDots({required this.count, required this.index});
 
-  final IconData icon;
-  final String label;
-  final _Metrics metrics;
+  final int count;
+  final int index;
+
+  static const _dotSize = 6.0;
+  static const _activeWidth = 18.0;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: colors.background,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
-      child: Row(
-        // min, and no Expanded around the label — that's what lets the
-        // pill hug its text.
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: colors.accent, size: 18 * metrics.scale),
-          SizedBox(width: metrics.gapSm),
-          Text(
-            label,
-            style: GoogleFonts.inter(
-              fontSize: 14 * metrics.scale,
-              fontWeight: FontWeight.w700,
-              height: 1.2,
-              color: colors.primaryText,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (var i = 0; i < count; i++)
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            width: i == index ? _activeWidth : _dotSize,
+            height: _dotSize,
+            decoration: BoxDecoration(
+              color: i == index ? colors.accent : colors.divider,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -464,15 +628,28 @@ class _CommitBlock extends StatelessWidget {
           else
             const _PricingUnavailable(),
           SizedBox(height: metrics.gapMd),
-          // Deliberately not the trial CTA — that one only lives inside
-          // the sheet this opens.
-          SoftPillButton(
-            label: 'not sure yet',
-            tint: colors.secondaryText,
-            onPressed: onNotSureYet,
-          ),
-          SizedBox(height: metrics.gapSm),
           SoftPillButton(label: 'join now', onPressed: onSubmit),
+          SizedBox(height: metrics.gapSm),
+          // Deliberately not the trial CTA — that one only lives inside
+          // the sheet this opens. A plain text link rather than a
+          // second pill: the close button up top already covers "I
+          // don't want this", so this only needs to be findable, not
+          // as visually loud as "join now".
+          Center(
+            child: TextButton(
+              onPressed: onNotSureYet,
+              style: TextButton.styleFrom(
+                foregroundColor: colors.secondaryText,
+              ),
+              child: Text(
+                'not sure yet',
+                style: GoogleFonts.inter(
+                  fontSize: 14 * metrics.scale,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
