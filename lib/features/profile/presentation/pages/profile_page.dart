@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:purchases_flutter/purchases_flutter.dart' show CustomerInfo;
 
+import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
@@ -140,7 +141,14 @@ class _ProfilePageState extends State<ProfilePage> {
                 onTap: _busy ? null : _restorePurchases,
               ),
               const SizedBox(height: AppSpacing.lg),
-              const Center(child: _DarkModeSwitch()),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const _DarkModeSwitch(),
+                  const SizedBox(width: AppSpacing.md),
+                  const _PlanSwitch(),
+                ],
+              ),
             ],
           ),
         ),
@@ -307,6 +315,45 @@ class _DarkModeSwitch extends StatelessWidget {
               const SizedBox(width: AppSpacing.xs),
               Text(
                 isDark ? 'dark' : 'light',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 12,
+                  color: colors.secondaryText,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Debug-only toggle for forcing the "cactus pro" plan state,
+/// independent of any real RevenueCat entitlement — lets us eyeball
+/// both the free and pro experience without a real purchase.
+class _PlanSwitch extends StatelessWidget {
+  const _PlanSwitch();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: PlanController.isPro,
+      builder: (context, isPro, _) {
+        return GestureDetector(
+          onTap: PlanController.toggle,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isPro ? Icons.auto_awesome : Icons.person_outline,
+                size: 14,
+                color: colors.secondaryText,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                isPro ? 'pro' : 'free',
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: 12,
                   color: colors.secondaryText,
