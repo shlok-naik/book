@@ -16,6 +16,7 @@ import 'package:book/features/library/presentation/controllers/library_controlle
 import 'package:book/features/library/presentation/library_scope.dart';
 import 'package:book/features/logging/domain/log_command_parser.dart';
 import 'package:book/features/logging/presentation/pages/home_page.dart';
+import 'package:book/features/logging/presentation/widgets/command_input.dart';
 import 'package:book/features/logging/presentation/widgets/confirmation_pill.dart';
 import 'package:book/features/logging/presentation/widgets/instruction_row.dart';
 import 'package:http/http.dart' as http;
@@ -134,7 +135,8 @@ void main() {
   }
 
   testWidgets(
-    'a sentence extracted into multiple commands runs them in order and clears',
+    'a sentence is swapped for its extracted commands, which run in '
+    'order and clear back to an empty input',
     (tester) async {
       await useDeviceSize(tester);
       final groq = FakeGroqClient(
@@ -154,8 +156,15 @@ void main() {
       await tester.pump();
 
       expect(groq.extractCommandsCalls, 1);
-      // The extracted commands now show as their own list, each an
-      // InstructionRow rendered with RichText (not a plain Text).
+      // The typed sentence is gone the moment extraction succeeds —
+      // CommandInput itself is swapped out, not just cleared — and the
+      // extracted commands take its place, each an InstructionRow
+      // rendered with RichText (not a plain Text) in that same style.
+      expect(find.byType(CommandInput), findsNothing);
+      expect(
+        find.text("I started Dune and I'm on page 120"),
+        findsNothing,
+      );
       expect(
         find.text('start Dune', findRichText: true),
         findsOneWidget,
@@ -171,23 +180,16 @@ void main() {
       await tester.pump(const Duration(milliseconds: 800));
 
       // Both done — the list sits for a few seconds (the confirmation
-      // pill's own lifetime), then clears itself regardless of outcome.
+      // pill's own lifetime), then fades out and a fresh, empty
+      // CommandInput comes right back in its place.
       await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
       expect(find.text('start Dune', findRichText: true), findsNothing);
       expect(
         find.text('update Dune 120', findRichText: true),
         findsNothing,
       );
-
-      // Only once the list (and its hold) has fully resolved does the
-      // typed sentence itself play CommandInput's own accept sequence
-      // and clear too — every extracted line succeeded.
-      await tester.pump(const Duration(milliseconds: 800));
-      await tester.pump(const Duration(milliseconds: 700));
-      expect(
-        find.text("I started Dune and I'm on page 120"),
-        findsNothing,
-      );
+      expect(find.byType(CommandInput), findsOneWidget);
     },
   );
 
@@ -234,26 +236,25 @@ void main() {
         findsOneWidget,
       );
 
-      // Now let that hold elapse and "start Mockingbird" run its own
-      // course, in full.
-      await tester.pump(const Duration(milliseconds: 800));
+      // A failure pauses the whole sequence for the pill's own full
+      // lifetime (long enough to actually read it) before "start
+      // Mockingbird" gets its turn.
+      await tester.pump(const Duration(seconds: 3));
+      // Its own success only needs its checkmark read, not a full pill
+      // lifetime, before the loop finishes.
       await tester.pump(const Duration(milliseconds: 800));
       expect(find.byIcon(Icons.check_circle), findsWidgets);
 
-      // A mixed result (one failed, one didn't) still clears itself on
-      // its own after a few seconds, same as a fully successful list —
-      // only once that's resolved does the sentence itself get its
-      // own accept sequence (`_runInstructions` doesn't return until
-      // after this hold).
+      // A mixed result (one failed, one didn't) still fades out and
+      // clears itself on its own after a few seconds, same as a fully
+      // successful list — and the typed sentence, already swapped out
+      // the moment extraction succeeded, never comes back; a fresh,
+      // empty CommandInput takes its place instead.
       await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
       expect(find.byType(InstructionRow), findsNothing);
-
-      // At least one line succeeded, so the whole typed sentence now
-      // gets crossed out and cleared exactly like an accepted manual
-      // command — CommandInput's own accept sequence, then the clear.
-      await tester.pump(const Duration(milliseconds: 800));
-      await tester.pump(const Duration(milliseconds: 700));
       expect(find.text('finish Dune and start Mockingbird'), findsNothing);
+      expect(find.byType(CommandInput), findsOneWidget);
     },
   );
 
@@ -285,18 +286,24 @@ void main() {
         findsOneWidget,
       );
 
-      // The list still clears itself after a few seconds even though
-      // nothing in it succeeded.
+      // A failure pauses on its own pill for a full read (this is the
+      // only line, so the loop itself doesn't finish until this
+      // elapses), then the list fades out after its own further hold —
+      // two full pill lifetimes altogether, plus the fade itself.
       await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
       expect(
         find.text('read Dune', findRichText: true),
         findsNothing,
       );
 
-      // Nothing succeeded, so the sentence itself never gets crossed
-      // out — it shakes and stays put, same as a rejected manual line.
-      await tester.pump(const Duration(milliseconds: 700));
-      expect(find.text('I read some of Dune'), findsOneWidget);
+      // The typed sentence was already swapped out for the extracted
+      // line the moment Groq returned it — once that line's own run
+      // finishes (whether it succeeded or not), a fresh, empty
+      // CommandInput comes back rather than the original text.
+      expect(find.text('I read some of Dune'), findsNothing);
+      expect(find.byType(CommandInput), findsOneWidget);
     },
   );
 
@@ -357,18 +364,23 @@ void main() {
         findsOneWidget,
       );
 
-      // The list still clears itself after a few seconds even though
-      // nothing in it succeeded.
+      // A failure pauses on its own pill for a full read (this is the
+      // only line, so the loop itself doesn't finish until this
+      // elapses), then the list fades out after its own further hold —
+      // two full pill lifetimes altogether, plus the fade itself.
       await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
       expect(
         find.textContaining('gibberish', findRichText: true),
         findsNothing,
       );
 
-      // Nothing succeeded, so the sentence itself shakes and stays put
-      // to be corrected — same as a rejected manual line.
-      await tester.pump(const Duration(milliseconds: 700));
-      expect(find.text('good morning'), findsOneWidget);
+      // The typed sentence was already swapped out for the "gibberish"
+      // fallback line — once its run finishes, a fresh, empty
+      // CommandInput comes back rather than the original text.
+      expect(find.text('good morning'), findsNothing);
+      expect(find.byType(CommandInput), findsOneWidget);
     },
   );
 }

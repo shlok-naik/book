@@ -24,6 +24,21 @@ class _Instruction {
   InstructionState state = InstructionState.pending;
 }
 
+/// Slides a gradient sideways by a fraction of its own bounds — the
+/// standard recipe for a shimmer effect, paired with a repeating
+/// [LinearGradient.tileMode] so the colors sliding off one edge are
+/// exactly the colors already sliding in the other.
+class _SlidingGradientTransform extends GradientTransform {
+  const _SlidingGradientTransform(this.slidePercent);
+
+  final double slidePercent;
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
+    return Matrix4.translationValues(bounds.width * slidePercent, 0, 0);
+  }
+}
+
 /// The log page: a single command line, and a status pill under it.
 ///
 /// The page owns the *decision* — parse the line, apply it to the
@@ -63,6 +78,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// ever populated on the "cactus pro" AI path, never the manual one.
   List<_Instruction>? _instructions;
 
+  /// True from the moment a sentence is handed to Groq until it comes
+  /// back (however that turns out) — [build] uses this to tint
+  /// [CommandInput]'s still-visible typed text with [_aiGradient]
+  /// while it's genuinely waiting on a response, never before or after.
+  bool _aiThinking = false;
+
   // Quick to fade in, slower to fade out — set via duration/reverseDuration
   // since AnimatedOpacity only takes one duration for both directions.
   late final _messageOpacity = AnimationController(
@@ -71,11 +92,33 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     reverseDuration: _messageFadeOut,
   );
 
+  /// Starts each new [_instructions] list fully visible (no fade in —
+  /// the swap from the typed sentence is instant) and is only ever
+  /// animated in reverse, once, right before the list is cleared.
+  late final _instructionsOpacity = AnimationController(
+    vsync: this,
+    value: 1,
+    duration: _messageFadeOut,
+  );
+
+  /// Drives [_SlidingGradientTransform] while [_aiThinking] — a quick,
+  /// continuous loop (not the one-shot fades above) since "the AI is
+  /// working on this" is an ongoing state, not a single transition.
+  /// Only ever running while [_aiThinking] is true (see [_runAi]); an
+  /// idle repeating controller costs nothing extra to leave ticking,
+  /// but there's nothing to animate for it to drive when it's not.
+  late final _thinkingGradient = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  );
+
   @override
   void dispose() {
     _focusNode.dispose();
     if (_ownsGroq) _groq.dispose();
     _messageOpacity.dispose();
+    _instructionsOpacity.dispose();
+    _thinkingGradient.dispose();
     _messageTimer?.cancel();
     super.dispose();
   }
@@ -121,39 +164,42 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return result.success;
   }
 
-  /// Sends a free-form sentence to Groq, then runs every line it
-  /// extracts through the exact same [_runCommand] the manual path
-  /// uses — each shown as its own [InstructionRow], struck through and
-  /// ticked on success or shaking on failure, precisely mirroring what
-  /// [CommandInput] itself does for a single typed line. A sentence
-  /// with nothing recognizable in it still comes back as one line —
-  /// [GroqClient]'s own prompt asks for the literal word "gibberish" in
-  /// that case rather than an empty list — so that line runs through
-  /// this same unrecognized-command path too instead of needing a
-  /// special case here.
+  /// Sends a free-form sentence to Groq and, once it comes back, swaps
+  /// the typed sentence out for the extracted lines themselves —
+  /// [build] renders [_instructions] in the exact spot and exact style
+  /// [CommandInput] occupied, so the paragraph reads as if it just
+  /// turned into those commands rather than sitting alongside them. A
+  /// sentence with nothing recognizable in it still comes back as one
+  /// line — [GroqClient]'s own prompt asks for the literal word
+  /// "gibberish" in that case rather than an empty list — so that line
+  /// goes through the same swap and the same unrecognized-command path
+  /// as any other, instead of needing a special case here.
   ///
-  /// The sentence itself only gets [CommandInput]'s strike-through once
-  /// at least one extracted line actually went through — this awaits
-  /// the whole run rather than accepting the moment extraction
-  /// succeeds, so "the paragraph is crossed out" always means "at least
-  /// one real thing happened," never just "Groq understood the words."
-  /// If nothing in it succeeded, this returns false and [CommandInput]
-  /// shakes the whole sentence exactly like an unrecognized manual
-  /// command would.
+  /// Fires [_runInstructions] without waiting on it: by the time this
+  /// returns, [CommandInput] has already been replaced (see [build]),
+  /// so there's nothing left for its own accept/shake to apply to —
+  /// running the lines is now entirely [_instructions]' and
+  /// [InstructionRow]'s job.
   ///
   /// A Groq failure itself (not a line inside it — the extraction call
   /// itself) is reported through the same pill and rejects the line
-  /// outright, before anything is even attempted — never a silent
-  /// fallback to manual parsing, and never a retry.
+  /// outright, before anything is even attempted — [CommandInput] is
+  /// still there to shake in that case, never a silent fallback to
+  /// manual parsing, and never a retry.
   Future<bool> _runAi(String command) async {
+    setState(() => _aiThinking = true);
+    _thinkingGradient.repeat();
     final List<String> commands;
     try {
       commands = await _groq.extractCommands(command);
     } on GroqException catch (error) {
+      _thinkingGradient.stop();
       if (!mounted) return false;
+      setState(() => _aiThinking = false);
       _showMessage(error.message);
       return false;
     }
+    _thinkingGradient.stop();
     if (!mounted) return false;
 
     // The prompt asks Groq for a literal "gibberish" line rather than
@@ -161,37 +207,42 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // for the rare reply that doesn't comply, not the normal path.
     final effectiveCommands = commands.isEmpty ? const ['gibberish'] : commands;
 
+    _instructionsOpacity.value = 1;
     setState(() {
+      _aiThinking = false;
       _message = null;
       _instructions = [
         for (final line in effectiveCommands) _Instruction(line),
       ];
     });
-    return _runInstructions();
+    unawaited(_runInstructions());
+    return true;
   }
 
   /// Runs [_instructions] one at a time, in order, each through
   /// [_runCommand] — only ever marking a line [InstructionState.done]
   /// once that has actually resolved for it, never optimistically. A
-  /// failing line never stops the rest: every extracted line gets its
-  /// own independent attempt, same as if the reader had submitted each
-  /// on its own line in Free mode. Returns whether at least one line
-  /// succeeded, which is what [_runAi] uses to decide whether the
-  /// sentence itself gets crossed out.
+  /// failing line never permanently stops the rest — every extracted
+  /// line still gets its own independent attempt, same as if the
+  /// reader had submitted each on its own line in Free mode — but it
+  /// does pause the sequence on its own pill for a full read (see the
+  /// success/failure branch below) before the next line gets its turn,
+  /// since a success' checkmark reads at a glance but a failure is the
+  /// one thing here worth actually stopping to read.
   ///
-  /// A failing line shakes in place — [InstructionRow]'s own version of
-  /// [CommandInput]'s reject shake — long enough to read alongside the
-  /// others before the whole list clears itself on its own, same
-  /// lifetime as the confirmation pill, regardless of whether every
-  /// line succeeded or some didn't.
-  Future<bool> _runInstructions() async {
+  /// A failing line also shakes in place — [InstructionRow]'s own
+  /// version of [CommandInput]'s reject shake. The whole list clears
+  /// itself on its own once every line has had its turn, same lifetime
+  /// as the confirmation pill, regardless of whether every line
+  /// succeeded or some didn't. Clearing [_instructions] is what brings
+  /// a fresh, empty [CommandInput] back (see [build]).
+  Future<void> _runInstructions() async {
     final instructions = _instructions;
-    if (instructions == null) return false;
+    if (instructions == null) return;
 
-    var anySucceeded = false;
     for (final instruction in instructions) {
       final result = await _runCommand(instruction.text);
-      if (!mounted) return anySucceeded;
+      if (!mounted) return;
       _showMessage(result.message);
 
       setState(() {
@@ -199,21 +250,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ? InstructionState.done
             : InstructionState.error;
       });
-      if (result.success) anySucceeded = true;
 
-      // Lets that line's own strike/checkmark (or shake) finish reading
-      // before the next line starts its own.
-      await Future<void>.delayed(const Duration(milliseconds: 750));
-      if (!mounted) return anySucceeded;
+      // A success just needs its strike/checkmark read before the next
+      // line starts. A failure pauses the whole sequence for the
+      // pill's own full lifetime instead — the error is the one thing
+      // here worth stopping to actually read, not just glimpse before
+      // it's replaced.
+      await Future<void>.delayed(
+        result.success ? const Duration(milliseconds: 750) : _messageLifetime,
+      );
+      if (!mounted) return;
     }
 
-    // Give the reader a moment with the finished list up, then clear it
-    // — same lifetime as the confirmation pill, so nothing lingers on
-    // screen indefinitely.
+    // Give the reader a moment with the finished list up, then fade it
+    // out — same lifetime as the confirmation pill, so nothing lingers
+    // on screen indefinitely, and the same fade the pill itself uses
+    // rather than an abrupt disappearance.
     await Future<void>.delayed(_messageLifetime);
-    if (!mounted) return anySucceeded;
+    if (!mounted) return;
+    await _instructionsOpacity.reverse();
+    if (!mounted) return;
     setState(() => _instructions = null);
-    return anySucceeded;
   }
 
   /// Applies a recognized command to the library, if it has one to
@@ -274,11 +331,47 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
   }
 
+  /// The one type style shared by [CommandInput] and, once Groq's
+  /// extracted lines replace it, every [InstructionRow] — so a command
+  /// reads exactly like it was typed there itself, just swapped in
+  /// rather than edited into.
+  TextStyle _inputStyle(AppColors colors) {
+    return GoogleFonts.jetBrainsMono(
+      fontSize: 16,
+      height: 1.5,
+      color: colors.primaryText,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final message = _message;
     final instructions = _instructions;
+
+    Widget commandInput = CommandInput(
+      focusNode: _focusNode,
+      onSubmit: _run,
+      style: _inputStyle(colors),
+    );
+    if (_aiThinking) {
+      // A sliding, mirror-tiled version of [aiGradient] — same colors
+      // [InstructionRow] uses for the generated commands below, just
+      // in motion while there's nothing generated yet to look at.
+      commandInput = AnimatedBuilder(
+        animation: _thinkingGradient,
+        child: commandInput,
+        builder: (context, child) => ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback: (bounds) => LinearGradient(
+            colors: aiGradient.colors,
+            tileMode: TileMode.mirror,
+            transform: _SlidingGradientTransform(_thinkingGradient.value),
+          ).createShader(bounds),
+          child: child,
+        ),
+      );
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -298,35 +391,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 const Center(child: DatePill()),
                 const SizedBox(height: AppSpacing.lg),
                 Expanded(
-                  child: CommandInput(
-                    focusNode: _focusNode,
-                    onSubmit: _run,
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 24,
-                      height: 1.5,
-                      color: colors.primaryText,
-                    ),
-                  ),
-                ),
-                // Both can show together: a failed instruction leaves
-                // its own list up (see [_runInstructions]) at the same
-                // time its pill pops underneath.
-                if (instructions != null)
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final instruction in instructions)
-                        InstructionRow(
-                          text: instruction.text,
-                          state: instruction.state,
-                          style: GoogleFonts.jetBrainsMono(
-                            fontSize: 14,
-                            color: colors.primaryText,
+                  child: instructions == null
+                      ? commandInput
+                      : FadeTransition(
+                          opacity: _instructionsOpacity,
+                          child: Align(
+                            alignment: Alignment.topLeft,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (final instruction in instructions)
+                                  InstructionRow(
+                                    text: instruction.text,
+                                    state: instruction.state,
+                                    style: _inputStyle(colors),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
-                    ],
-                  ),
+                ),
                 FadeTransition(
                   opacity: _messageOpacity,
                   child: message != null
