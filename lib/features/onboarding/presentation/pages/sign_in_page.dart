@@ -1,6 +1,9 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/session_service.dart';
@@ -22,8 +25,8 @@ import 'finish_page.dart';
 /// The shortcut this takes — account straight to finish, since the
 /// tutorial and Q1 are both still visited on this path and only Q2
 /// onward is actually skipped — shows on the progress dots as soon as
-/// this page appears, not just once [FinishPage] is reached, so it's
-/// threaded through every screen this path visits.
+/// this page appears. [FinishPage] itself has no dots of its own (it's
+/// a plain celebration screen, not another step in the sequence).
 class SignInPage extends StatefulWidget {
   const SignInPage({super.key, required this.session});
 
@@ -87,10 +90,19 @@ class _SignInPageState extends State<SignInPage> {
         email: _email.text.trim(),
         code: _code.text.trim(),
       );
+      // Best-effort and fire-and-forget, same reasoning as
+      // ReadingGoalPage's profile save: links this account to a
+      // RevenueCat purchaser id, but never blocks navigation on it —
+      // the reader shouldn't wait on (or get stuck by) a call that
+      // only matters for entitlements to sync across their devices.
+      final userId = widget.session.userId;
+      if (userId != null) {
+        unawaited(const PurchasesService().identify(userId).catchError((_) {}));
+      }
       if (!mounted) return;
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const FinishPage(bypass: _bypass)),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const FinishPage()));
     } on OnboardingException catch (error) {
       if (!mounted) return;
       setState(() {

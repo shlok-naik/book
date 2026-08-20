@@ -7,6 +7,9 @@
 
 # Environment variables / secrets
 .env
+
+# Local-only scratch space for work pulled out of a push (never pushed)
+.ai-backup/
 .atom/
 .build/
 .buildlog/

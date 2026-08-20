@@ -1,11 +1,138 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:purchases_ui_flutter/purchases_ui_flutter.dart'
+    show PaywallResult;
 
+import 'package:book/core/purchases/entitlements.dart';
+import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/onboarding/domain/paywall_pricing.dart';
 import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.dart';
 import 'package:book/features/onboarding/presentation/pages/paywall_page.dart';
+import 'package:book/features/onboarding/presentation/pages/purchase_thanks_page.dart';
 import 'package:book/features/onboarding/presentation/widgets/soft_pill_button.dart';
+
+/// A [PurchasesService] whose every RevenueCat call is a canned
+/// result instead of a real platform-channel round trip — the same
+/// role `FakeSessionService` plays for Supabase in
+/// `tutorial_flow_test.dart`.
+class FakePurchasesService extends PurchasesService {
+  FakePurchasesService({
+    this.offering,
+    this.purchaseResult,
+    this.purchaseError,
+    this.restoreResult,
+    this.restoreError,
+    this.hostedPaywallResult,
+  });
+
+  final Offering? offering;
+  final CustomerInfo? purchaseResult;
+  final PurchasesException? purchaseError;
+  final CustomerInfo? restoreResult;
+  final PurchasesException? restoreError;
+  final PaywallResult? hostedPaywallResult;
+
+  int purchaseCalls = 0;
+  Package? lastPurchasedPackage;
+  int restoreCalls = 0;
+  int hostedPaywallCalls = 0;
+
+  @override
+  Future<Offering?> get currentOffering async => offering;
+
+  @override
+  Future<CustomerInfo> purchase(Package package) async {
+    purchaseCalls++;
+    lastPurchasedPackage = package;
+    final error = purchaseError;
+    if (error != null) throw error;
+    return purchaseResult!;
+  }
+
+  @override
+  Future<CustomerInfo> restore() async {
+    restoreCalls++;
+    final error = restoreError;
+    if (error != null) throw error;
+    return restoreResult!;
+  }
+
+  @override
+  Future<PaywallResult> presentPaywallIfNeeded() async {
+    hostedPaywallCalls++;
+    return hostedPaywallResult ?? PaywallResult.notPresented;
+  }
+}
+
+const _fakeOfferingContext = PresentedOfferingContext('default', null, null);
+
+StoreProduct _fakeStoreProduct(String identifier, double price) {
+  return StoreProduct(
+    identifier,
+    'description',
+    'title',
+    price,
+    '\$${price.toStringAsFixed(2)}',
+    'USD',
+  );
+}
+
+Offering _fakeOffering({
+  double monthlyPrice = 4.99,
+  double yearlyPrice = 40,
+  bool includeNoTrialPackage = true,
+}) {
+  return Offering('default', 'Default offering', const {}, [
+    Package(
+      PackageIds.monthly,
+      PackageType.monthly,
+      _fakeStoreProduct(PackageIds.monthly, monthlyPrice),
+      _fakeOfferingContext,
+    ),
+    Package(
+      PackageIds.yearly,
+      PackageType.annual,
+      _fakeStoreProduct(PackageIds.yearly, yearlyPrice),
+      _fakeOfferingContext,
+    ),
+    if (includeNoTrialPackage)
+      Package(
+        PackageIds.yearlyNoTrial,
+        PackageType.custom,
+        _fakeStoreProduct(PackageIds.yearlyNoTrial, yearlyPrice),
+        _fakeOfferingContext,
+      ),
+  ]);
+}
+
+CustomerInfo _fakeCustomerInfo({required bool pro}) {
+  final entitlements = pro
+      ? {
+          Entitlements.cactusPro: const EntitlementInfo(
+            Entitlements.cactusPro,
+            true,
+            true,
+            '2024-01-01T00:00:00Z',
+            '2024-01-01T00:00:00Z',
+            PackageIds.yearly,
+            false,
+          ),
+        }
+      : const <String, EntitlementInfo>{};
+  return CustomerInfo(
+    EntitlementInfos(entitlements, entitlements),
+    const {},
+    const [],
+    const [],
+    const [],
+    '2024-01-01T00:00:00Z',
+    'fake-user-id',
+    const {},
+    '2024-01-01T00:00:00Z',
+  );
+}
 
 /// Every helper here uses fixed pumps rather than `pumpAndSettle` —
 /// harmless now that the feature list is static, but kept so a future
@@ -14,6 +141,14 @@ Future<void> settleFrames(WidgetTester tester) async {
   for (var i = 0; i < 6; i++) {
     await tester.pump(const Duration(milliseconds: 100));
   }
+}
+
+/// A genuine purchase now lands on [PurchaseThanksPage] before
+/// [OneMoreThingPage] — this taps its "got it" button.
+Future<void> continueFromThanksPage(WidgetTester tester) async {
+  expect(find.byType(PurchaseThanksPage), findsOneWidget);
+  await tester.tap(find.widgetWithText(SoftPillButton, 'got it'));
+  await settleFrames(tester);
 }
 
 Future<void> pumpPaywall(
@@ -168,6 +303,11 @@ void main() {
       await tester.tap(find.widgetWithText(SoftPillButton, 'start free trial'));
       await settleFrames(tester);
 
+      // No real package behind this plan (placeholder pricing, no
+      // `purchases` fake) — `_purchasePlan` takes its null-package
+      // shortcut straight to `_continue()`, not the real-purchase
+      // `_continueAfterPurchase()` path, so no `PurchaseThanksPage`
+      // appears here. See `real purchases` below for that path.
       expect(find.byType(OneMoreThingPage), findsOneWidget);
     });
   });
@@ -254,6 +394,186 @@ void main() {
         50,
       );
     });
+  });
+
+  group('real purchases', () {
+    Future<void> pumpWithPurchases(
+      WidgetTester tester,
+      FakePurchasesService purchases,
+    ) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: PaywallPage(purchases: purchases),
+        ),
+      );
+      await settleFrames(tester);
+    }
+
+    testWidgets('fetches the offering and shows real prices once loaded', (
+      tester,
+    ) async {
+      await pumpWithPurchases(
+        tester,
+        FakePurchasesService(offering: _fakeOffering()),
+      );
+
+      expect(find.textContaining("couldn't load pricing"), findsNothing);
+      expect(find.text('monthly'), findsOneWidget);
+      expect(find.text('yearly'), findsOneWidget);
+    });
+
+    testWidgets('a successful purchase with the entitlement active moves on', (
+      tester,
+    ) async {
+      final purchases = FakePurchasesService(
+        offering: _fakeOffering(),
+        purchaseResult: _fakeCustomerInfo(pro: true),
+      );
+      await pumpWithPurchases(tester, purchases);
+
+      await tester.tap(find.text('join now'));
+      await settleFrames(tester);
+
+      expect(purchases.purchaseCalls, 1);
+      // "join now" must buy the trial-free product, never the one
+      // `_startFreeTrial` is meant to be the only path to — see
+      // `PackageIds.yearlyNoTrial`'s doc comment.
+      expect(purchases.lastPurchasedPackage?.identifier, PackageIds.yearlyNoTrial);
+      await continueFromThanksPage(tester);
+      expect(find.byType(OneMoreThingPage), findsOneWidget);
+    });
+
+    testWidgets(
+      '"start free trial" buys the trial product, not the one "join now" uses',
+      (tester) async {
+        final purchases = FakePurchasesService(
+          offering: _fakeOffering(),
+          purchaseResult: _fakeCustomerInfo(pro: true),
+        );
+        await pumpWithPurchases(tester, purchases);
+
+        await tester.tap(find.text('not sure yet'));
+        await settleFrames(tester);
+        await tester.tap(find.widgetWithText(SoftPillButton, 'start free trial'));
+        await settleFrames(tester);
+
+        expect(purchases.purchaseCalls, 1);
+        expect(purchases.lastPurchasedPackage?.identifier, PackageIds.yearly);
+        await continueFromThanksPage(tester);
+      },
+    );
+
+    testWidgets(
+      '"join now" falls back to the trial product if no trial-free '
+      'product is configured yet',
+      (tester) async {
+        final purchases = FakePurchasesService(
+          offering: _fakeOffering(includeNoTrialPackage: false),
+          purchaseResult: _fakeCustomerInfo(pro: true),
+        );
+        await pumpWithPurchases(tester, purchases);
+
+        await tester.tap(find.text('join now'));
+        await settleFrames(tester);
+
+        expect(purchases.lastPurchasedPackage?.identifier, PackageIds.yearly);
+        await continueFromThanksPage(tester);
+      },
+    );
+
+    testWidgets(
+      'a purchase that leaves PRO inactive stays put with a message',
+      (tester) async {
+        final purchases = FakePurchasesService(
+          offering: _fakeOffering(),
+          purchaseResult: _fakeCustomerInfo(pro: false),
+        );
+        await pumpWithPurchases(tester, purchases);
+
+        await tester.tap(find.text('join now'));
+        await settleFrames(tester);
+
+        expect(find.textContaining("isn't active yet"), findsOneWidget);
+        expect(find.byType(OneMoreThingPage), findsNothing);
+      },
+    );
+
+    testWidgets('cancelling the native purchase sheet shows no error', (
+      tester,
+    ) async {
+      final purchases = FakePurchasesService(
+        offering: _fakeOffering(),
+        purchaseError: const PurchasesException('', userCancelled: true),
+      );
+      await pumpWithPurchases(tester, purchases);
+
+      await tester.tap(find.text('join now'));
+      await settleFrames(tester);
+
+      expect(find.byType(OneMoreThingPage), findsNothing);
+      // The button is findable and re-enabled — no lingering error text.
+      expect(find.text('join now'), findsOneWidget);
+    });
+
+    testWidgets('a failed purchase surfaces its message', (tester) async {
+      final purchases = FakePurchasesService(
+        offering: _fakeOffering(),
+        purchaseError: const PurchasesException(
+          "You're offline — connect to the internet and try again.",
+        ),
+      );
+      await pumpWithPurchases(tester, purchases);
+
+      await tester.tap(find.text('join now'));
+      await settleFrames(tester);
+
+      expect(
+        find.text("You're offline — connect to the internet and try again."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'restoring purchases moves on once it finds an active entitlement',
+      (tester) async {
+        final purchases = FakePurchasesService(
+          offering: _fakeOffering(),
+          restoreResult: _fakeCustomerInfo(pro: true),
+        );
+        await pumpWithPurchases(tester, purchases);
+
+        await tester.tap(find.text('restore purchases'));
+        await settleFrames(tester);
+
+        expect(purchases.restoreCalls, 1);
+        expect(find.byType(OneMoreThingPage), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'falls back to the hosted paywall when the offering fails to load',
+      (tester) async {
+        final purchases = FakePurchasesService(
+          offering: null,
+          hostedPaywallResult: PaywallResult.purchased,
+        );
+        await pumpWithPurchases(tester, purchases);
+
+        expect(find.textContaining("couldn't load pricing"), findsOneWidget);
+
+        await tester.tap(find.text('view plans'));
+        await settleFrames(tester);
+
+        expect(purchases.hostedPaywallCalls, 1);
+        expect(find.byType(OneMoreThingPage), findsOneWidget);
+      },
+    );
   });
 
   group('scaling', () {

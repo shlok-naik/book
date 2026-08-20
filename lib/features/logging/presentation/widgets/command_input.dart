@@ -49,10 +49,6 @@ class CommandInput extends StatefulWidget {
 
 class _CommandInputState extends State<CommandInput>
     with TickerProviderStateMixin {
-  /// Fixed height for the whole control, so neither the shake nor the
-  /// checkmark nor a long command can nudge the page's layout.
-  static const _height = 48.0;
-
   /// One controller drives the accept sequence; the two phases are cut
   /// out of it with intervals, so the checkmark can start before the
   /// line has finished crossing and the two read as a single gesture.
@@ -150,104 +146,113 @@ class _CommandInputState extends State<CommandInput>
   }
 
   /// Where the checkmark sits: just past the end of the typed text,
-  /// clamped so a command wider than the field parks it at the right
-  /// edge instead of pushing it out of view.
+  /// wherever that lands once the field's own wrapping breaks it across
+  /// lines — clamped so it never pushes past the right edge.
   ///
-  /// Measured with a [TextPainter] rather than laid out in a [Row]. A row
+  /// Measured with a [TextPainter] laid out at the same [maxWidth] the
+  /// field itself wraps at, rather than positioned in a [Row]. A row
   /// would have to take width away from the field to make room, moving
   /// the text — the exact thing this control exists to avoid — whereas a
   /// measurement that turns out a pixel off only misplaces the checkmark.
-  double _checkmarkLeft(double maxWidth) {
+  Offset _checkmarkOffset(double maxWidth) {
     final painter = TextPainter(
       text: TextSpan(text: _text.text, style: widget.style),
       textDirection: Directionality.of(context),
-      maxLines: 1,
-    )..layout();
-    final textWidth = painter.width;
+    )..layout(maxWidth: maxWidth);
+    final caret = painter.getOffsetForCaret(
+      TextPosition(offset: _text.text.length),
+      Rect.zero,
+    );
     painter.dispose();
 
-    return min(textWidth + _checkGap, maxWidth - _checkSize);
+    final left = min(caret.dx + _checkGap, maxWidth - _checkSize);
+    return Offset(left < 0 ? 0 : left, caret.dy);
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final style = widget.style;
-    // The text's own line box, so the checkmark centers against the text
-    // rather than against the taller control.
+    // The text's own line box, so the checkmark centers against the
+    // line it trails rather than against the taller control.
     final lineHeight = (style.fontSize ?? 24) * (style.height ?? 1);
 
-    return SizedBox(
-      width: double.infinity,
-      height: _height,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return AnimatedBuilder(
-            animation: Listenable.merge([_accept, _shake, _text]),
-            builder: (context, _) {
-              final shake = _shake.value;
-              final dx = shake == 0
-                  ? 0.0
-                  : sin(shake * pi * 6) * 10 * (1 - shake);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return AnimatedBuilder(
+          animation: Listenable.merge([_accept, _shake, _text]),
+          builder: (context, _) {
+            final shake = _shake.value;
+            final dx = shake == 0
+                ? 0.0
+                : sin(shake * pi * 6) * 10 * (1 - shake);
+            final checkmark = _checkmarkOffset(constraints.maxWidth);
 
-              return Transform.translate(
-                offset: Offset(dx, 0),
-                child: Stack(
-                  fit: StackFit.expand,
-                  clipBehavior: Clip.none,
-                  children: [
-                    TextField(
-                      controller: _text,
-                      focusNode: widget.focusNode,
-                      autofocus: true,
-                      // Single line on purpose: the control's height is
-                      // fixed, so a wrapping field would overflow it, and
-                      // re-wrapping mid-command would move the text.
-                      maxLines: 1,
-                      keyboardType: TextInputType.text,
-                      textInputAction: TextInputAction.done,
-                      textAlignVertical: TextAlignVertical.top,
-                      readOnly: _busy,
-                      showCursor: !_busy,
-                      onSubmitted: _submit,
-                      style: style,
-                      cursorColor: colors.accent,
-                      decoration: InputDecoration(
-                        hintText: widget.hintText,
-                        hintStyle: style.copyWith(
-                          color: colors.secondaryText,
+            return Transform.translate(
+              offset: Offset(dx, 0),
+              child: Stack(
+                fit: StackFit.expand,
+                clipBehavior: Clip.none,
+                children: [
+                  TextField(
+                    controller: _text,
+                    focusNode: widget.focusNode,
+                    autofocus: true,
+                    // Fills the control's whole (expanded) height and
+                    // wraps freely rather than scrolling — `expands`
+                    // requires both max/minLines to be null. Deliberately
+                    // NOT `TextInputType.multiline`: on Android that
+                    // swaps the keyboard's action key for a newline key,
+                    // so Enter/"done" would insert a line break instead
+                    // of calling `onSubmitted` — Flutter only makes that
+                    // swap automatically when `keyboardType` is left
+                    // unset, so keeping it explicitly `.text` here (with
+                    // `textInputAction: .done` still forcing the tick)
+                    // is what keeps Enter submitting instead of typing.
+                    expands: true,
+                    maxLines: null,
+                    minLines: null,
+                    keyboardType: TextInputType.text,
+                    textInputAction: TextInputAction.done,
+                    textAlignVertical: TextAlignVertical.top,
+                    readOnly: _busy,
+                    showCursor: !_busy,
+                    onSubmitted: _submit,
+                    style: style,
+                    cursorColor: colors.accent,
+                    decoration: InputDecoration(
+                      hintText: widget.hintText,
+                      hintStyle: style.copyWith(color: colors.secondaryText),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  // Overlaid, never laid out beside the field, so it
+                  // cannot take width from the text.
+                  Positioned(
+                    left: checkmark.dx,
+                    top: checkmark.dy,
+                    height: lineHeight,
+                    child: Center(
+                      child: Transform.scale(
+                        // elasticOut overshoots past 1 on the way in,
+                        // which is what gives the checkmark its pop.
+                        scale: _check.value,
+                        child: Icon(
+                          Icons.check_circle,
+                          size: _checkSize,
+                          color: colors.accent,
                         ),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
                       ),
                     ),
-                    // Overlaid, never laid out beside the field, so it
-                    // cannot take width from the text.
-                    Positioned(
-                      left: _checkmarkLeft(constraints.maxWidth),
-                      top: 0,
-                      height: lineHeight,
-                      child: Center(
-                        child: Transform.scale(
-                          // elasticOut overshoots past 1 on the way in,
-                          // which is what gives the checkmark its pop.
-                          scale: _check.value,
-                          child: Icon(
-                            Icons.check_circle,
-                            size: _checkSize,
-                            color: colors.accent,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
-      ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

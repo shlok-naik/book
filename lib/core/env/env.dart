@@ -6,6 +6,7 @@ abstract final class Env {
   static String get supabaseUrl => _require('SUPABASE_URL');
   static String get supabaseAnonKey => _require('SUPABASE_ANON_KEY');
   static String get googleBooksApiKey => _require('GOOGLE_BOOKS_API_KEY');
+  static String get revenueCatApiKey => _require('REVENUECAT_API_KEY');
 
   /// The Google Books volumes endpoint also serves anonymous requests
   /// (at a lower quota), so a missing key degrades to keyless search

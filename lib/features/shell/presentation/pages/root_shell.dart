@@ -3,7 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/theme_controller.dart';
 import '../../../library/presentation/pages/library_page.dart';
 import '../../../logging/presentation/pages/home_page.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
@@ -58,52 +57,11 @@ class _RootShellState extends State<RootShell> {
                     color: colors.secondaryText,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.xs),
-                const _DarkModeSwitch(),
               ],
             ),
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Debug-only toggle for forcing light/dark mode, independent of the
-/// system setting — lets us eyeball both themes without leaving the app.
-class _DarkModeSwitch extends StatelessWidget {
-  const _DarkModeSwitch();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: ThemeController.mode,
-      builder: (context, mode, _) {
-        final isDark = mode == ThemeMode.dark;
-        return GestureDetector(
-          onTap: ThemeController.toggle,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                isDark ? Icons.dark_mode : Icons.light_mode,
-                size: 14,
-                color: colors.secondaryText,
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              Text(
-                isDark ? 'dark' : 'light',
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 12,
-                  color: colors.secondaryText,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

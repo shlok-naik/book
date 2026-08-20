@@ -1,6 +1,10 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'core/purchases/purchases_service.dart';
 import 'core/supabase/supabase_service.dart';
 import 'core/theme/app_scroll_behavior.dart';
 import 'core/theme/app_theme.dart';
@@ -20,10 +24,17 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
   await SupabaseService.init();
-  // Always starts at onboarding while that flow is still under active
-  // development — flip to false once it's done, to let a returning
-  // session skip straight back into the app as normal.
-  runApp(const BookApp(alwaysShowOnboarding: true));
+  await PurchasesService.configure();
+  // A reader who already has a session from a previous launch should
+  // resolve to the same RevenueCat identity they purchased under, not
+  // a fresh anonymous one — sign-in/sign-up call this again themselves
+  // once a session is created mid-flow (see `SessionService`). Fire-
+  // and-forget: this must never hold up startup waiting on it.
+  final userId = Supabase.instance.client.auth.currentUser?.id;
+  if (userId != null) {
+    unawaited(const PurchasesService().identify(userId).catchError((_) {}));
+  }
+  runApp(const BookApp());
 }
 
 class BookApp extends StatefulWidget {
@@ -66,7 +77,8 @@ class _BookAppState extends State<BookApp> {
   late final LibraryController _library =
       widget.libraryController ?? _buildLibraryController();
 
-  late final SessionService _session = widget.sessionService ?? SessionService();
+  late final SessionService _session =
+      widget.sessionService ?? SessionService();
 
   late final OnboardingProfileRepository _profiles =
       widget.profileRepository ?? OnboardingProfileRepository();

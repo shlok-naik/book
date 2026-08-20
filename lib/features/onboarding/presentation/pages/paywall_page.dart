@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:purchases_flutter/purchases_flutter.dart' show Package;
+import 'package:purchases_ui_flutter/purchases_ui_flutter.dart'
+    show PaywallResult;
 
+import '../../../../core/purchases/entitlements.dart';
+import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -8,13 +13,15 @@ import '../../../../core/widgets/dotted_background.dart';
 import '../../domain/paywall_pricing.dart';
 import '../widgets/soft_pill_button.dart';
 import 'one_more_thing_page.dart';
+import 'purchase_thanks_page.dart';
 
 /// First finish-category screen: sprung right after an account exists
-/// (new sign-up or a returning sign-in). No real billing is wired up
-/// yet — the close button, "join now", and the sheet's "start free
-/// trial" all just move on to [OneMoreThingPage] — but the screen is
-/// real, and [pricing] is already validated the way it will need to be
-/// once a store SDK is feeding it.
+/// (new sign-up or a returning sign-in). "join now" and "start free
+/// trial" both purchase a real RevenueCat [Package] — see
+/// [PurchasesService] — and only move on to [OneMoreThingPage] once
+/// [PurchasesService.isPro] confirms [Entitlements.cactusPro] is
+/// actually active, rather than assuming a successful purchase implies
+/// entitlement.
 ///
 /// ## Layout
 ///
@@ -34,18 +41,29 @@ import 'one_more_thing_page.dart';
 ///   [SoftPillButton], the pill treatment every other onboarding
 ///   button wears — the CTA doesn't need a shape of its own to stand
 ///   out, just to be the only pill on screen;
-/// * "not sure yet" is a plain text link rather than a second pill —
-///   the close button already covers "I don't want this", so it only
-///   needs to be findable, not as visually loud as "join now";
+/// * "not sure yet" and "restore purchases" are plain text links
+///   rather than more pills — the close button already covers "I
+///   don't want this", so they only need to be findable, not as
+///   visually loud as "join now";
 /// * colors come from [AppColors] and spacing/radii from
 ///   [AppSpacing] / [AppRadius], so the screen follows the reader's
 ///   light/dark choice like the rest of the flow.
 class PaywallPage extends StatefulWidget {
-  const PaywallPage({super.key, this.pricing = PaywallPricing.placeholder});
+  const PaywallPage({super.key, this.pricing, this.purchases});
 
-  /// Prices to display. Validated before use — see [PaywallPricing]; an
-  /// invalid set renders [_PricingUnavailable] instead of the cards.
-  final PaywallPricing pricing;
+  /// Prices to display. Null — the normal production path — has
+  /// [_PaywallPageState] fetch the current RevenueCat offering itself
+  /// and derive real prices from its `monthly`/`yearly` packages (see
+  /// [PurchasesService.currentOffering] and [PackageIds]). Passing this
+  /// directly skips that fetch entirely — tests, and any call site that
+  /// already knows the price, use it this way.
+  final PaywallPricing? pricing;
+
+  /// Injection point for tests: a fake wrapping fake offerings/purchase
+  /// results instead of the real RevenueCat SDK. Null in the app —
+  /// [PurchasesService.configure] has already set up the real SDK by
+  /// the time this page is ever pushed (see `main.dart`).
+  final PurchasesService? purchases;
 
   @override
   State<PaywallPage> createState() => _PaywallPageState();
@@ -78,9 +96,80 @@ class _Metrics {
 }
 
 class _PaywallPageState extends State<PaywallPage> {
+  late final PurchasesService _purchases =
+      widget.purchases ?? const PurchasesService();
+
+  /// What [_PricingRow]/[_PricingUnavailable] render. Starts from
+  /// [widget.pricing] if the caller supplied one (skipping the fetch
+  /// below entirely); otherwise starts as the placeholder and is
+  /// replaced once [_loadOffering] resolves, same as any other
+  /// loading-then-loaded state in the app.
+  late PaywallPricing _pricing = widget.pricing ?? PaywallPricing.placeholder;
+
+  /// The real packages behind [_pricing] — null until [_loadOffering]
+  /// finds them (or forever, if the caller supplied [widget.pricing]
+  /// directly and there's nothing to purchase against).
+  Package? _monthlyPackage;
+
+  /// The trial-bearing yearly product ([PackageIds.yearly]) — bought
+  /// only via [_startFreeTrial], never via "join now" (see
+  /// [_yearlyNoTrialPackage]).
+  Package? _yearlyPackage;
+
+  /// The trial-free yearly product ([PackageIds.yearlyNoTrial]) — what
+  /// "join now" actually buys when yearly is selected. Optional: a
+  /// dashboard that hasn't set this up yet falls back to
+  /// [_yearlyPackage] in [_purchasePlan] rather than blocking checkout,
+  /// which does mean "join now" would grant the trial in that
+  /// fallback case — but that's the same behavior the app had before
+  /// this product existed, not a regression.
+  Package? _yearlyNoTrialPackage;
+
   /// Yearly leads on load — it's the better value, and the savings tag
   /// only has something to say while it's the selected plan.
   _Plan _plan = _Plan.yearly;
+
+  bool _busy = false;
+  String? _error;
+
+  static const _unavailable = PaywallPricing(
+    monthlyPerMonth: 0,
+    yearlyPerYear: 0,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.pricing == null) _loadOffering();
+  }
+
+  Future<void> _loadOffering() async {
+    try {
+      final offering = await _purchases.currentOffering;
+      final monthly = offering?.getPackage(PackageIds.monthly);
+      final yearly = offering?.getPackage(PackageIds.yearly);
+      final yearlyNoTrial = offering?.getPackage(PackageIds.yearlyNoTrial);
+      if (!mounted) return;
+      setState(() {
+        _monthlyPackage = monthly;
+        _yearlyPackage = yearly;
+        _yearlyNoTrialPackage = yearlyNoTrial;
+        // Both packages have to actually be there — a dashboard
+        // missing either one isn't a state the pricing row/toggle can
+        // render honestly, so it falls back to the same "couldn't
+        // load pricing" state as a network failure.
+        _pricing = (monthly != null && yearly != null)
+            ? PaywallPricing(
+                monthlyPerMonth: monthly.storeProduct.price,
+                yearlyPerYear: yearly.storeProduct.price,
+              )
+            : _unavailable;
+      });
+    } on PurchasesException {
+      if (!mounted) return;
+      setState(() => _pricing = _unavailable);
+    }
+  }
 
   void _continue() {
     Navigator.of(
@@ -88,7 +177,125 @@ class _PaywallPageState extends State<PaywallPage> {
     ).push(MaterialPageRoute(builder: (_) => const OneMoreThingPage()));
   }
 
+  /// Same destination as [_continue], but by way of [PurchaseThanksPage]
+  /// first — only a genuine new purchase earns the "welcome … PRO"
+  /// celebration; restoring a past purchase or backing out entirely
+  /// still goes straight through [_continue].
+  void _continueAfterPurchase() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PurchaseThanksPage(onContinue: _continue),
+      ),
+    );
+  }
+
   void _selectPlan(_Plan plan) => setState(() => _plan = plan);
+
+  /// Buys whichever package [plan] resolves to — the monthly product,
+  /// or [_yearlyNoTrialPackage] (never [_yearlyPackage]) for yearly, so
+  /// "join now" can't hand an eligible reader the trial [_startFreeTrial]
+  /// is meant to be the only path to. Falls back to [_yearlyPackage] if
+  /// the no-trial product hasn't been set up yet — see its doc comment.
+  Future<void> _purchasePlan(_Plan plan) {
+    final package = switch (plan) {
+      _Plan.monthly => _monthlyPackage,
+      _Plan.yearly => _yearlyNoTrialPackage ?? _yearlyPackage,
+    };
+    return _purchasePackage(package);
+  }
+
+  /// The one purchase [SoftPillButton] the "not sure yet" sheet
+  /// offers, and the only path that ever buys [_yearlyPackage] — see
+  /// its doc comment for why that has to stay separate from
+  /// [_purchasePlan]'s yearly branch.
+  Future<void> _startFreeTrial() => _purchasePackage(_yearlyPackage);
+
+  /// Buys [package] and, only once [PurchasesService.isPro] confirms
+  /// the purchase actually activated [Entitlements.cactusPro], moves
+  /// on. A null package means [widget.pricing] was supplied directly
+  /// with nothing real behind it (a test, a preview) — there's nothing
+  /// to purchase, so this just moves on the way the page always did
+  /// before billing existed.
+  Future<void> _purchasePackage(Package? package) async {
+    if (package == null) {
+      _continue();
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final info = await _purchases.purchase(package);
+      if (!mounted) return;
+      if (_purchases.isPro(info)) {
+        _continueAfterPurchase();
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error =
+            "That went through, but PRO isn't active yet — try "
+            'restoring purchases.';
+      });
+    } on PurchasesException catch (error) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      // A reader backing out of the native sheet isn't an error worth
+      // surfacing — just quietly re-enable the button.
+      if (!error.userCancelled) setState(() => _error = error.message);
+    }
+  }
+
+  Future<void> _restore() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final info = await _purchases.restore();
+      if (!mounted) return;
+      setState(() => _busy = false);
+      if (_purchases.isPro(info)) {
+        _continue();
+      } else {
+        setState(() => _error = 'No previous purchase found for this account.');
+      }
+    } on PurchasesException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = error.message;
+      });
+    }
+  }
+
+  /// The fallback for when this page's own pricing couldn't load —
+  /// RevenueCat's own dashboard-configured paywall, which fetches and
+  /// renders the offering itself rather than depending on the same
+  /// [_loadOffering] call that just failed.
+  Future<void> _viewHostedPaywall() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final result = await _purchases.presentPaywallIfNeeded();
+      if (!mounted) return;
+      setState(() => _busy = false);
+      if (result == PaywallResult.purchased ||
+          result == PaywallResult.restored) {
+        _continue();
+      }
+    } on PurchasesException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = error.message;
+      });
+    }
+  }
 
   /// The only place a trial is offered — or even mentioned. "join now"
   /// below never brings it up.
@@ -147,7 +354,10 @@ class _PaywallPageState extends State<PaywallPage> {
               label: 'start free trial',
               onPressed: () {
                 Navigator.of(context).pop();
-                _continue();
+                // The only call site that ever buys `_yearlyPackage` —
+                // see its doc comment for why "join now" deliberately
+                // buys a separate, trial-free product instead.
+                _startFreeTrial();
               },
             ),
           ],
@@ -159,8 +369,7 @@ class _PaywallPageState extends State<PaywallPage> {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final pricing = widget.pricing;
-    final priceable = pricing.isValid;
+    final priceable = _pricing.isValid;
 
     return Scaffold(
       backgroundColor: colors.background,
@@ -196,12 +405,20 @@ class _PaywallPageState extends State<PaywallPage> {
                           Expanded(child: _ChapterPager(metrics: m)),
                           _CommitBlock(
                             metrics: m,
-                            pricing: pricing,
+                            pricing: _pricing,
                             priceable: priceable,
                             plan: _plan,
+                            busy: _busy,
+                            error: _error,
                             onSelectPlan: _selectPlan,
                             onNotSureYet: _showNotSureSheet,
-                            onSubmit: priceable ? _continue : null,
+                            onSubmit: (priceable && !_busy)
+                                ? () => _purchasePlan(_plan)
+                                : null,
+                            onRestore: _busy ? null : _restore,
+                            onViewHostedPaywall: (!priceable && !_busy)
+                                ? _viewHostedPaywall
+                                : null,
                           ),
                         ],
                       );
@@ -582,26 +799,35 @@ class _PageDots extends StatelessWidget {
   }
 }
 
-/// Pricing cards, "not sure yet", and the CTA — the part of the screen
-/// that asks for a decision, pinned together at the bottom.
+/// Pricing cards, any purchase error, "not sure yet"/"restore
+/// purchases", and the CTA — the part of the screen that asks for a
+/// decision, pinned together at the bottom.
 class _CommitBlock extends StatelessWidget {
   const _CommitBlock({
     required this.metrics,
     required this.pricing,
     required this.priceable,
     required this.plan,
+    required this.busy,
+    required this.error,
     required this.onSelectPlan,
     required this.onNotSureYet,
     required this.onSubmit,
+    required this.onRestore,
+    required this.onViewHostedPaywall,
   });
 
   final _Metrics metrics;
   final PaywallPricing pricing;
   final bool priceable;
   final _Plan plan;
+  final bool busy;
+  final String? error;
   final ValueChanged<_Plan> onSelectPlan;
   final VoidCallback onNotSureYet;
   final VoidCallback? onSubmit;
+  final VoidCallback? onRestore;
+  final VoidCallback? onViewHostedPaywall;
 
   @override
   Widget build(BuildContext context) {
@@ -626,28 +852,68 @@ class _CommitBlock extends StatelessWidget {
               onSelectPlan: onSelectPlan,
             )
           else
-            const _PricingUnavailable(),
+            _PricingUnavailable(onViewPlans: onViewHostedPaywall),
+          if (error != null) ...[
+            SizedBox(height: metrics.gapSm),
+            Text(
+              error!,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 13 * metrics.scale,
+                color: colors.secondaryText,
+              ),
+            ),
+          ],
           SizedBox(height: metrics.gapMd),
-          SoftPillButton(label: 'join now', onPressed: onSubmit),
+          SoftPillButton(
+            label: busy ? 'joining…' : 'join now',
+            onPressed: onSubmit,
+          ),
           SizedBox(height: metrics.gapSm),
           // Deliberately not the trial CTA — that one only lives inside
-          // the sheet this opens. A plain text link rather than a
-          // second pill: the close button up top already covers "I
-          // don't want this", so this only needs to be findable, not
-          // as visually loud as "join now".
+          // the sheet this opens. Plain text links rather than more
+          // pills: the close button up top already covers "I don't
+          // want this", so these only need to be findable, not as
+          // visually loud as "join now".
           Center(
-            child: TextButton(
-              onPressed: onNotSureYet,
-              style: TextButton.styleFrom(
-                foregroundColor: colors.secondaryText,
-              ),
-              child: Text(
-                'not sure yet',
-                style: GoogleFonts.inter(
-                  fontSize: 14 * metrics.scale,
-                  fontWeight: FontWeight.w600,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                TextButton(
+                  onPressed: onNotSureYet,
+                  style: TextButton.styleFrom(
+                    foregroundColor: colors.secondaryText,
+                  ),
+                  child: Text(
+                    'not sure yet',
+                    style: GoogleFonts.inter(
+                      fontSize: 14 * metrics.scale,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-              ),
+                Text(
+                  '·',
+                  style: GoogleFonts.inter(
+                    fontSize: 14 * metrics.scale,
+                    color: colors.divider,
+                  ),
+                ),
+                TextButton(
+                  onPressed: onRestore,
+                  style: TextButton.styleFrom(
+                    foregroundColor: colors.secondaryText,
+                  ),
+                  child: Text(
+                    'restore purchases',
+                    style: GoogleFonts.inter(
+                      fontSize: 14 * metrics.scale,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -894,8 +1160,13 @@ class _PricingCard extends StatelessWidget {
 /// Shown in place of the pricing cards when [PaywallPricing.isValid] is
 /// false — a missing or malformed price is surfaced plainly rather than
 /// rendered as `$NaN/mo`, and the CTA above is disabled alongside it.
+/// [onViewPlans], when set, offers RevenueCat's own dashboard-hosted
+/// paywall as a working fallback — it fetches and renders the offering
+/// itself, sidestepping whatever made this page's own fetch fail.
 class _PricingUnavailable extends StatelessWidget {
-  const _PricingUnavailable();
+  const _PricingUnavailable({this.onViewPlans});
+
+  final VoidCallback? onViewPlans;
 
   @override
   Widget build(BuildContext context) {
@@ -910,21 +1181,43 @@ class _PricingUnavailable extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(color: colors.divider),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(Icons.info_outline, size: 20, color: colors.secondaryText),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(
-                "we couldn't load pricing right now. check your connection "
-                'and try again in a moment.',
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  height: 1.4,
-                  color: colors.secondaryText,
+            Row(
+              children: [
+                Icon(Icons.info_outline, size: 20, color: colors.secondaryText),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    "we couldn't load pricing right now. check your "
+                    'connection and try again in a moment.',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: colors.secondaryText,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (onViewPlans != null) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: onViewPlans,
+                  style: TextButton.styleFrom(foregroundColor: colors.accent),
+                  child: Text(
+                    'view plans',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),

@@ -53,6 +53,9 @@ class FakeSessionService extends SessionService {
   @override
   bool get isSignedIn => signedIn;
 
+  @override
+  String? get userId => signedIn ? 'fake-user-id' : null;
+
   int sendEmailConfirmationCalls = 0;
   OnboardingException? sendEmailConfirmationFailure;
 
@@ -76,12 +79,37 @@ class FakeSessionService extends SessionService {
     if (verifyEmailCodeFailure != null) throw verifyEmailCodeFailure!;
     signedIn = true;
   }
+
+  /// Overridden directly (rather than via `accountAge`) since the real
+  /// getter reaches for `Supabase.instance`, unavailable in these
+  /// widget tests. Every existing test walks a genuinely new signup,
+  /// so this defaults to false; the `WeKnowYouPage` branch itself is
+  /// covered separately with this flipped to true.
+  bool existingAccount = false;
+
+  @override
+  bool get isExistingAccount => existingAccount;
+
+  int signOutCalls = 0;
+
+  @override
+  Future<void> signOut() async {
+    signOutCalls++;
+    signedIn = false;
+  }
 }
 
 class FakeProfileRepository extends OnboardingProfileRepository {
   OnboardingProfileDraft? savedDraft;
   int saveProfileCalls = 0;
   OnboardingException? saveProfileFailure;
+
+  /// What `WeKnowYouPage` shows as "you're ... right?" — only reached
+  /// when `FakeSessionService.existingAccount` is true.
+  String? existingName;
+
+  @override
+  Future<String?> fetchName() async => existingName;
 
   @override
   Future<void> saveProfile(OnboardingProfileDraft draft) async {
@@ -268,9 +296,6 @@ void main() {
       await tapPill(tester, 'continue');
 
       expect(find.byType(FinishPage), findsOneWidget);
-      expect(_progressStep(tester), 5);
-      // The full sign-up path never takes a shortcut.
-      expect(tester.widget<FinishPage>(find.byType(FinishPage)).bypass, isNull);
 
       await tapPill(tester, "let's go");
 
@@ -324,14 +349,6 @@ void main() {
     expect(profiles.saveProfileCalls, 0);
 
     expect(find.byType(FinishPage), findsOneWidget);
-    expect(_progressStep(tester), 5);
-    // A returning reader takes the account -> finish shortcut (the
-    // tutorial and Q1 are still visited; only Q2 onward is skipped),
-    // shown as a second line alongside the ordinary one.
-    expect(tester.widget<FinishPage>(find.byType(FinishPage)).bypass, (
-      from: 3,
-      to: 5,
-    ));
   });
 
   testWidgets(

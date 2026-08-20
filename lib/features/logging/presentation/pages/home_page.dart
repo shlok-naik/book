@@ -160,16 +160,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               children: [
                 const Center(child: DatePill()),
                 const SizedBox(height: AppSpacing.lg),
-                CommandInput(
-                  focusNode: _focusNode,
-                  onSubmit: _run,
-                  style: GoogleFonts.jetBrainsMono(
-                    fontSize: 24,
-                    height: 1.5,
-                    color: colors.primaryText,
+                Expanded(
+                  child: CommandInput(
+                    focusNode: _focusNode,
+                    onSubmit: _run,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 24,
+                      height: 1.5,
+                      color: colors.primaryText,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 FadeTransition(
                   opacity: _messageOpacity,
                   child: message != null

@@ -41,6 +41,41 @@ class SessionService {
   /// True once a session exists.
   bool get isSignedIn => _client.auth.currentSession != null;
 
+  /// The signed-in reader's id, or null before any session exists —
+  /// the stable identifier to link a RevenueCat purchaser to (see
+  /// `PurchasesService.identify`), so entitlements follow them across
+  /// devices rather than staying pinned to one install.
+  String? get userId => _client.auth.currentUser?.id;
+
+  /// How old the just-verified account actually is — near-zero for a
+  /// brand new signup, much larger when the email already had an
+  /// account before this OTP verification. There's no dedicated
+  /// "does this email exist" API (Supabase deliberately doesn't expose
+  /// one, to avoid leaking account existence), so this is the only
+  /// signal available: `verifyEmailCode` succeeds identically either
+  /// way, but the resulting user's `createdAt` only predates "now" by a
+  /// few seconds for a genuinely new account.
+  Duration? get accountAge {
+    final createdAt = _client.auth.currentUser?.createdAt;
+    if (createdAt == null) return null;
+    return DateTime.now().toUtc().difference(DateTime.parse(createdAt).toUtc());
+  }
+
+  /// Whether the reader who just verified an OTP code already had an
+  /// account before doing so — see [accountAge]. Used on the "no, I
+  /// don't have an account" path to catch a reader who was wrong about
+  /// that (see `WeKnowYouPage`).
+  bool get isExistingAccount {
+    final age = accountAge;
+    return age != null && age > const Duration(seconds: 20);
+  }
+
+  /// Ends the current session — used when a reader on the "no" path
+  /// turns out to already have an account (see `WeKnowYouPage`) and
+  /// wants to back out and try a different email, rather than staying
+  /// signed into the account they weren't expecting.
+  Future<void> signOut() => _run(() => _client.auth.signOut());
+
   /// Generates a 6-digit OTP token and instructs Supabase to deliver it
   /// directly to the user's inbox using Resend. If the email doesn't exist yet,
   /// it provisions a new user record natively upon verification.
@@ -58,7 +93,8 @@ class SessionService {
   Future<void> verifyEmailCode({required String email, required String code}) {
     return _run(
       () => _client.auth.verifyOTP(
-        type: OtpType.email, // Crucial: Switch from 'emailChange' to 'email' for passwordless OTP workflows
+        type: OtpType
+            .email, // Crucial: Switch from 'emailChange' to 'email' for passwordless OTP workflows
         email: email,
         token: code,
       ),

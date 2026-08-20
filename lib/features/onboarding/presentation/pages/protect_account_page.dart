@@ -1,6 +1,9 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/onboarding_profile_repository.dart';
@@ -10,6 +13,7 @@ import '../widgets/half_sheet_scaffold.dart';
 import '../widgets/onboarding_text_field.dart';
 import '../widgets/soft_pill_button.dart';
 import 'reading_goal_page.dart';
+import 'we_know_you_page.dart';
 
 /// New-reader path, account step (step 3, right after Q1): passwordless
 /// email sign-up. "send code" asks Supabase to email a one-time code to
@@ -87,6 +91,35 @@ class _ProtectAccountPageState extends State<ProtectAccountPage> {
         email: _email.text.trim(),
         code: _code.text.trim(),
       );
+
+      // The "no" branch assumes a fresh account, but the email
+      // verified above may already belong to one — Supabase can't
+      // tell us that up front (see `SessionService.isExistingAccount`
+      // for why), only after the fact. Catching it here, rather than
+      // silently treating a stranger's account as a blank slate, is
+      // the whole reason `WeKnowYouPage` exists.
+      if (widget.session.isExistingAccount) {
+        String? existingName;
+        try {
+          existingName = await widget.profiles.fetchName();
+        } on OnboardingException {
+          existingName = null;
+        }
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => WeKnowYouPage(
+              session: widget.session,
+              profiles: widget.profiles,
+              draft: widget.draft,
+              name: existingName,
+            ),
+          ),
+        );
+        setState(() => _busy = false);
+        return;
+      }
+
       // The account itself is what matters most here — a reader who
       // successfully verified shouldn't get stuck on an error screen
       // just because saving the profile details failed, so this is
@@ -95,6 +128,13 @@ class _ProtectAccountPageState extends State<ProtectAccountPage> {
         await widget.profiles.saveProfile(widget.draft);
       } on OnboardingException {
         // Ignored — see above.
+      }
+      // Best-effort and fire-and-forget for the same reason: links
+      // this new account to a RevenueCat purchaser id, but never
+      // blocks onboarding on it completing.
+      final userId = widget.session.userId;
+      if (userId != null) {
+        unawaited(const PurchasesService().identify(userId).catchError((_) {}));
       }
       if (!mounted) return;
       Navigator.of(context).push(

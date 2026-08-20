@@ -45,6 +45,18 @@ class OnboardingProfileRepository {
     });
   }
 
+  /// The signed-in reader's stored name, or null if they never set one.
+  /// Only meaningful for an account that already existed before this
+  /// session — see `SessionService.isExistingAccount` — since a brand
+  /// new row's `name` column is blank until onboarding saves it.
+  Future<String?> fetchName() {
+    return _run(() async {
+      final row = await _client.from(_table).select('name').maybeSingle();
+      final name = row?['name'] as String?;
+      return (name == null || name.isEmpty) ? null : name;
+    });
+  }
+
   /// The average reading goal and reading time across every reader who
   /// has answered Q1/Q2 — via a `security definer` RPC so this works
   /// before the caller has an account of their own and without needing
