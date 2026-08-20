@@ -98,7 +98,7 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.xl,
-            AppSpacing.lg,
+            AppSpacing.md,
             AppSpacing.xl,
             AppSpacing.xxl,
           ),
@@ -107,8 +107,8 @@ class _ProfilePageState extends State<ProfilePage> {
             children: [
               Text(
                 'profile',
-                style: GoogleFonts.ebGaramond(
-                  fontSize: 28,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 20,
                   fontWeight: FontWeight.w600,
                   color: colors.primaryText,
                 ),
