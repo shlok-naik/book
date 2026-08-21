@@ -1,4 +1,46 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Minimalist AI Book Tracker
+
+Flutter app ("cactus") for tracking reading progress via natural-language commands, with a Supabase backend, Google Books lookup, Groq-powered NL parsing, and RevenueCat purchases.
+
+## Commands
+
+```bash
+flutter pub get                          # install dependencies
+flutter run                               # run on connected device/emulator
+flutter test                              # run all tests
+flutter test test/library/library_controller_test.dart   # run a single test file
+flutter analyze                           # static analysis (flutter_lints)
+```
+
+Requires a `.env` file at the repo root (see `.env.example` for the five required keys: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `GOOGLE_BOOKS_API_KEY`, `REVENUECAT_API_KEY`, `GROQ_API_KEY`). Loaded via `flutter_dotenv` in [lib/main.dart](lib/main.dart) and read through [lib/core/env/env.dart](lib/core/env/env.dart) — never read `dotenv.env` directly elsewhere.
+
+Database schema and RLS policies live in [supabase/schema.sql](supabase/schema.sql); it's idempotent (`create table if not exists` + explicit `alter`s), so re-running it against an existing Supabase project is safe.
+
+## Architecture
+
+### Composition root
+There is a single composition root: `_BookAppState` in [lib/main.dart](lib/main.dart). It builds `GoogleBooksApiClient`, `LibraryController` (with its `BookLookupService`, `UserBookRepository`, `ReadingEventRepository`), `SessionService`, and `OnboardingProfileRepository` once, then injects them downward. Every one of these has a nullable constructor-injection seam (`libraryController`, `sessionService`, `profileRepository` on `BookApp`) so tests can substitute fakes without touching Supabase/Google Books/Groq. Never instantiate an HTTP client or repository inside a widget — inject it from here (or thread it down from a caller that got it from here).
+
+### Feature-first layout
+Each feature under `lib/features/<name>/` is split into `data/` (repositories/API clients), `domain/` (models, business rules), and `presentation/` (`controllers/`, `pages/`, `widgets/`). `lib/core/` holds cross-feature concerns: `env/`, `supabase/`, `ai/` (Groq client), `purchases/` (RevenueCat), `theme/`, `widgets/`.
+
+- **library** — the reader's shelf. `LibraryController` (a `ChangeNotifier`) is the single mutation point for shelf state; it never talks to Supabase/Google Books directly, only through `BookLookupService` (cache-first: Supabase `books` table → Google Books API → write-back) and `UserBookRepository`. Every command (`start`/`update`/`finish`/`rate`/`delete`) is optimistic: local state updates and notifies immediately, then persists, rolling back on failure. Every successful command also fires-and-forgets a `ReadingEventRepository.log` call for the streaks page — a logging failure never affects the command's own success/failure result.
+- **logging** — the natural-language "+"/log page. `LogCommandParser` turns text into the five-command grammar (`start`/`update <page>`/`finish`/`rate <stars>`/`delete <title>`); `GroqClient` ([lib/core/ai/groq_client.dart](lib/core/ai/groq_client.dart)) is the "cactus pro" alternative that asks an LLM to split a free-form sentence into that same grammar before handing it to the identical parser — the two entry points converge on one command surface.
+- **streaks** — reads `reading_events` (grouped by local day) to render a GitHub-style dot grid; symbol precedence per day is finish > start > any other action.
+- **onboarding** — a linear page sequence ending in `paywall_page.dart` (RevenueCat) → celebration screens. `SessionService` decides whether `RootShell` or `WelcomePage` is the initial route.
+- **shell** — `RootShell` hosts the four top-level pages (profile, streaks, library, log) in an `IndexedStack` switched by a floating `BottomSwitcher`; log is the default tab.
+
+### Supabase model
+`user_id` columns default to `auth.uid()` at the database level (never set by app code) and RLS is what actually enforces per-reader isolation — anonymous Supabase Auth sessions still get a real `authenticated` role. `books` is a shared cache across all readers; `user_books`, `reading_events`, and `profiles` are private per-reader. A trigger (`handle_new_user`) creates a blank `profiles` row on first auth, so app code only ever `UPDATE`s it.
+
+### Theming
+`AppColors` is a `ThemeExtension` (light/dark instances in [lib/core/theme/app_colors.dart](lib/core/theme/app_colors.dart)) registered on `ThemeData.extensions` in [lib/core/theme/app_theme.dart](lib/core/theme/app_theme.dart); widgets read colors via `context.colors`, never a hardcoded hex. `ThemeController` (a `ValueListenable<ThemeMode>`) drives the `MaterialApp.themeMode` switch in `main.dart`.
+
+---
 
 ## 🎨 Design System: Mono & Teal
 

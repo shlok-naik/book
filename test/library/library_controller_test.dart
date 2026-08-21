@@ -1,11 +1,13 @@
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
+import 'package:book/features/library/data/reading_event_repository.dart';
 import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/library_exception.dart';
+import 'package:book/features/library/domain/reading_event.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -108,6 +110,19 @@ class FakeUserBookRepository extends UserBookRepository {
   }
 }
 
+/// In-memory `reading_events` log — records what [LibraryController] logs
+/// instead of reaching the real Supabase client, so controller tests
+/// never depend on network behaviour for the streaks-logging side effect
+/// either.
+class FakeReadingEventRepository extends ReadingEventRepository {
+  final List<({ReadingEventType type, String title})> logged = [];
+
+  @override
+  Future<void> log(ReadingEventType type, {required String title}) async {
+    logged.add((type: type, title: title));
+  }
+}
+
 /// Cache that always hits, so controller tests never depend on network
 /// behaviour (that is covered in book_lookup_service_test.dart).
 class AlwaysHitCache extends BookCacheRepository {
@@ -139,9 +154,11 @@ LibraryBook _entry(Book book, {int page = 0, bool finished = false}) {
 
 void main() {
   late FakeUserBookRepository userBooks;
+  late FakeReadingEventRepository events;
 
   LibraryController controllerWith(List<LibraryBook> rows, {Book? cached}) {
     userBooks = FakeUserBookRepository(rows);
+    events = FakeReadingEventRepository();
     return LibraryController(
       lookup: BookLookupService(
         cache: AlwaysHitCache(cached ?? _dune),
@@ -152,6 +169,7 @@ void main() {
         ),
       ),
       userBooks: userBooks,
+      events: events,
     );
   }
 
@@ -169,16 +187,18 @@ void main() {
       expect(controller.errorMessage, isNull);
     });
 
-    test('surfaces a failure as a retryable message, not an exception',
-        () async {
-      final controller = controllerWith([])
-        ..userBooksFailure = const NetworkException("You're offline");
+    test(
+      'surfaces a failure as a retryable message, not an exception',
+      () async {
+        final controller = controllerWith([])
+          ..userBooksFailure = const NetworkException("You're offline");
 
-      await controller.load();
+        await controller.load();
 
-      expect(controller.errorMessage, "You're offline");
-      expect(controller.isLoading, isFalse);
-    });
+        expect(controller.errorMessage, "You're offline");
+        expect(controller.isLoading, isFalse);
+      },
+    );
   });
 
   group('startBook', () {
@@ -196,6 +216,19 @@ void main() {
       expect(notifications, greaterThan(0));
     });
 
+    test('logs a start event and broadcasts it on loggedEvents', () async {
+      final controller = controllerWith([]);
+      final broadcast = <ReadingEvent>[];
+      controller.loggedEvents.listen(broadcast.add);
+
+      await controller.startBook('Dune');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events.logged, [(type: ReadingEventType.start, title: 'Dune')]);
+      expect(broadcast.single.type, ReadingEventType.start);
+      expect(broadcast.single.title, 'Dune');
+    });
+
     test('starting the same book twice fails the second time', () async {
       final controller = controllerWith([]);
 
@@ -208,6 +241,11 @@ void main() {
       // Still exactly one shelf entry — the repeat didn't duplicate it,
       // and didn't reset progress either.
       expect(controller.inProgress, hasLength(1));
+
+      await Future<void>.delayed(Duration.zero);
+      expect(events.logged, [
+        (type: ReadingEventType.start, title: 'Dune'),
+      ], reason: 'the rejected repeat must not log a second start');
     });
   });
 
@@ -222,6 +260,9 @@ void main() {
       expect(result.message, '"Dune" — pg 120');
       expect(controller.inProgress.single.currentPage, 120);
       expect(controller.inProgress.single.completion, closeTo(0.3, 0.001));
+
+      await Future<void>.delayed(Duration.zero);
+      expect(events.logged, [(type: ReadingEventType.update, title: 'Dune')]);
     });
 
     test('notifies synchronously enough for the UI to redraw before the '
@@ -249,6 +290,14 @@ void main() {
       expect(controller.inProgress, isEmpty);
       expect(controller.finished.single.book.title, 'Dune');
       expect(controller.finished.single.completion, 1);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        events.logged,
+        [(type: ReadingEventType.finish, title: 'Dune')],
+        reason:
+            'reaching the last page via update reads as a finish, not an update',
+      );
     });
 
     test('rejects a page past the end without writing', () async {
@@ -309,6 +358,13 @@ void main() {
         10,
         reason: 'screen must not show a page that never persisted',
       );
+
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        events.logged,
+        isEmpty,
+        reason: 'a rolled-back write must not log an event',
+      );
     });
   });
 
@@ -323,6 +379,9 @@ void main() {
       expect(controller.inProgress, isEmpty);
       expect(controller.finished.single.currentPage, 400);
       expect(controller.finished.single.completion, 1);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(events.logged, [(type: ReadingEventType.finish, title: 'Dune')]);
     });
 
     test('finishes a book with no known length', () async {
@@ -337,7 +396,9 @@ void main() {
 
     test('finishing an already-finished book fails instead of '
         're-confirming it', () async {
-      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
       await controller.load();
 
       final result = await controller.finishBook('Dune');
@@ -349,7 +410,9 @@ void main() {
 
   group('rateBook', () {
     test('rates a finished book and shows the star', () async {
-      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
       await controller.load();
 
       final result = await controller.rateBook('dune', 4.5);
@@ -357,21 +420,32 @@ void main() {
       expect(result.success, isTrue);
       expect(result.message, '"Dune" — 4.5★');
       expect(controller.finished.single.rating, 4.5);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(events.logged, [(type: ReadingEventType.rate, title: 'Dune')]);
     });
 
     test('rounds a rating to the nearest half star before saving', () async {
-      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
       await controller.load();
 
       final result = await controller.rateBook('Dune', 4.3);
 
       expect(result.success, isTrue);
-      expect(result.message, '"Dune" — 4.5★', reason: '4.3 is closer to 4.5 than 4.0');
+      expect(
+        result.message,
+        '"Dune" — 4.5★',
+        reason: '4.3 is closer to 4.5 than 4.0',
+      );
       expect(controller.finished.single.rating, 4.5);
     });
 
     test('formats a rounded whole rating without a trailing .0', () async {
-      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
       await controller.load();
 
       final result = await controller.rateBook('Dune', 4.2);
@@ -403,7 +477,9 @@ void main() {
     });
 
     test('rejects a rating outside 0.5-5 without writing', () async {
-      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
       await controller.load();
 
       final tooHigh = await controller.rateBook('Dune', 6);
@@ -415,7 +491,9 @@ void main() {
     });
 
     test('rolls back when the write fails', () async {
-      final controller = controllerWith([_entry(_dune, page: 400, finished: true)]);
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
       await controller.load();
       userBooks.failure = const NetworkException("You're offline");
 
@@ -442,6 +520,9 @@ void main() {
       expect(controller.inProgress, isEmpty);
       expect(controller.finished, isEmpty);
       expect(userBooks.deletedIds, ['progress-book-1']);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(events.logged, [(type: ReadingEventType.delete, title: 'Dune')]);
     });
 
     test('removes it immediately, before the delete persists', () async {
@@ -484,8 +565,7 @@ void main() {
       );
     });
 
-    test('leaves the finished book untouched by an unrelated delete',
-        () async {
+    test('leaves the finished book untouched by an unrelated delete', () async {
       final controller = controllerWith([
         _entry(_dune, page: 10),
         _entry(_untitledLength, finished: true),

@@ -1,16 +1,58 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../library/domain/reading_event.dart';
+import '../../../library/presentation/library_scope.dart';
+import '../controllers/streaks_controller.dart';
 import '../widgets/day_detail_sheet.dart';
 import '../widgets/month_dot_grid.dart';
 
 /// The year, broken into months, each a grid of day-dots — a structured
 /// take on the inspiration's single 365-dot grid, for reading streaks.
-/// Tapping a day opens a smaller sheet for that date.
-class StreaksPage extends StatelessWidget {
+/// Tapping a day opens a smaller sheet for that date. Each dot's shape
+/// reflects the strongest shelf command logged that day — see
+/// [StreaksController] and `DaySymbol`.
+class StreaksPage extends StatefulWidget {
   const StreaksPage({super.key});
+
+  @override
+  State<StreaksPage> createState() => _StreaksPageState();
+}
+
+class _StreaksPageState extends State<StreaksPage> {
+  /// Built lazily in [didChangeDependencies], not [initState] — it needs
+  /// [LibraryScope.of], which isn't safe to call until this widget is in
+  /// the tree. Guards the one-time setup below so it runs exactly once
+  /// per page, no matter how many times dependencies change afterwards.
+  StreaksController? _controller;
+
+  StreamSubscription<ReadingEvent>? _eventSubscription;
+
+  /// Loads the year once, then subscribes to [LibraryController]'s own
+  /// event stream so a fresh shelf command updates the grid directly
+  /// ([StreaksController.applyEvent]) instead of re-fetching the whole
+  /// year from Supabase on every command.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_controller != null) return;
+
+    final library = LibraryScope.of(context);
+    final controller = _controller = StreaksController(events: library.events);
+    controller.load(DateTime.now().year);
+    _eventSubscription = library.loggedEvents.listen(controller.applyEvent);
+  }
+
+  @override
+  void dispose() {
+    _eventSubscription?.cancel();
+    _controller?.dispose();
+    super.dispose();
+  }
 
   /// Shared by every month block — the gap above its dot row (from the
   /// label) and the gap below it (to the next month's label) match.
@@ -32,6 +74,7 @@ class StreaksPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final year = DateTime.now().year;
     final colors = context.colors;
+    final controller = _controller;
 
     return Scaffold(
       body: SafeArea(
@@ -68,15 +111,29 @@ class StreaksPage extends StatelessWidget {
                 // own sm bottom padding stacked on top of it, so lg
                 // (24) is the true total, not md alone.
                 const SizedBox(height: AppSpacing.lg),
-                for (var i = 1; i <= 12; i++) ...[
-                  if (i > 1) const SizedBox(height: _rowGap),
-                  MonthDotGrid(
-                    month: i,
-                    year: year,
-                    labelGap: _rowGap,
-                    onDayTap: (date) => showDayDetailSheet(context, date),
+                if (controller != null)
+                  AnimatedBuilder(
+                    animation: controller,
+                    builder: (context, _) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (var i = 1; i <= 12; i++) ...[
+                          if (i > 1) const SizedBox(height: _rowGap),
+                          MonthDotGrid(
+                            month: i,
+                            year: year,
+                            labelGap: _rowGap,
+                            symbolFor: controller.symbolFor,
+                            onDayTap: (date) => showDayDetailSheet(
+                              context,
+                              date,
+                              events: controller.eventsFor(date),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                ],
               ],
             ),
           ),

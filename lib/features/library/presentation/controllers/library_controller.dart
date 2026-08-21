@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
+import '../../data/reading_event_repository.dart';
 import '../../data/user_book_repository.dart';
 import '../../domain/book.dart';
 import '../../domain/book_lookup_service.dart';
 import '../../domain/library_book.dart';
 import '../../domain/library_exception.dart';
+import '../../domain/reading_event.dart';
 import '../../domain/user_book.dart';
 
 /// Outcome of a library command, in a form the log page can show.
@@ -24,13 +28,59 @@ class LibraryActionResult {
 /// Google Books itself — all I/O goes through the injected service and
 /// repository, which is what makes the whole feature mockable in tests.
 class LibraryController extends ChangeNotifier {
-  LibraryController({required this.lookup, required this.userBooks});
+  LibraryController({
+    required this.lookup,
+    required this.userBooks,
+    ReadingEventRepository? events,
+  }) : events = events ?? ReadingEventRepository();
 
   /// Cache-first title resolution (Supabase → Google Books → write-back).
   final BookLookupService lookup;
 
   /// Progress reads/writes.
   final UserBookRepository userBooks;
+
+  /// Per-command history for the streaks page. Optional at construction
+  /// (defaults to a real repository) so existing callers/tests that only
+  /// care about shelf state don't have to know this exists.
+  final ReadingEventRepository events;
+
+  final _loggedEvents = StreamController<ReadingEvent>.broadcast();
+
+  /// Every [ReadingEvent] that has actually been persisted, in the order
+  /// it landed. The streaks feature listens to this to update its own
+  /// state directly — this stream carries only the one thing that
+  /// changed, unlike this class's own [notifyListeners] (a "the shelf
+  /// changed somehow" signal that would otherwise force a full-year
+  /// Supabase refetch on every single shelf command).
+  Stream<ReadingEvent> get loggedEvents => _loggedEvents.stream;
+
+  /// Records [type] without letting a logging failure affect the shelf
+  /// command it came from — the pill has already reported success or
+  /// failure by the time this runs, so nothing here can change that.
+  ///
+  /// Broadcasts on [loggedEvents] once the write actually lands — not
+  /// before, so a listener never learns about an event that failed to
+  /// persist.
+  void _logEvent(ReadingEventType type, String title) {
+    final event = ReadingEvent(
+      type: type,
+      occurredAt: DateTime.now().toUtc(),
+      title: title,
+    );
+    unawaited(
+      events
+          .log(type, title: title)
+          .then((_) => _loggedEvents.add(event))
+          .catchError((_) {}),
+    );
+  }
+
+  @override
+  void dispose() {
+    _loggedEvents.close();
+    super.dispose();
+  }
 
   List<LibraryBook> _books = const [];
   bool _isLoading = false;
@@ -90,6 +140,7 @@ class LibraryController extends ChangeNotifier {
           '"${book.title}" is already on your shelf.',
         );
       }
+      _logEvent(ReadingEventType.start, book.title);
       return LibraryActionResult.success('Started "${book.title}"');
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
@@ -125,6 +176,11 @@ class LibraryController extends ChangeNotifier {
       successMessage: finished
           ? 'Finished "${entry.book.title}"'
           : '"${entry.book.title}" — pg $page',
+      // Reaching the last page via `update` still reads as a finish on
+      // the streaks page — the closed circle it earns there matches the
+      // "Finished ..." pill this same call just showed.
+      loggedAs: finished ? ReadingEventType.finish : ReadingEventType.update,
+      title: entry.book.title,
     );
   }
 
@@ -152,6 +208,8 @@ class LibraryController extends ChangeNotifier {
         finishedAt: DateTime.now().toUtc(),
       ),
       successMessage: 'Finished "${entry.book.title}"',
+      loggedAs: ReadingEventType.finish,
+      title: entry.book.title,
     );
   }
 
@@ -188,13 +246,19 @@ class LibraryController extends ChangeNotifier {
     }
 
     final previous = entry;
-    _upsertLocal(entry.copyWith(progress: entry.progress.copyWith(rating: rounded)));
+    _upsertLocal(
+      entry.copyWith(progress: entry.progress.copyWith(rating: rounded)),
+    );
     notifyListeners();
 
     try {
-      final saved = await userBooks.rate(userBookId: entry.progress.id, rating: rounded);
+      final saved = await userBooks.rate(
+        userBookId: entry.progress.id,
+        rating: rounded,
+      );
       _upsertLocal(entry.copyWith(progress: saved));
       notifyListeners();
+      _logEvent(ReadingEventType.rate, entry.book.title);
       return LibraryActionResult.success(
         '"${entry.book.title}" — ${_formatStars(rounded)}★',
       );
@@ -230,6 +294,7 @@ class LibraryController extends ChangeNotifier {
 
     try {
       await userBooks.delete(entry.id);
+      _logEvent(ReadingEventType.delete, entry.book.title);
       return LibraryActionResult.success('Removed "${entry.book.title}"');
     } on LibraryException catch (error) {
       _upsertLocal(entry);
@@ -245,6 +310,8 @@ class LibraryController extends ChangeNotifier {
     LibraryBook entry,
     UserBook updated, {
     required String successMessage,
+    required ReadingEventType loggedAs,
+    required String title,
   }) async {
     final previous = entry;
     _upsertLocal(entry.copyWith(progress: updated));
@@ -258,6 +325,7 @@ class LibraryController extends ChangeNotifier {
       );
       _upsertLocal(entry.copyWith(progress: saved));
       notifyListeners();
+      _logEvent(loggedAs, title);
       return LibraryActionResult.success(successMessage);
     } on LibraryException catch (error) {
       _upsertLocal(previous);

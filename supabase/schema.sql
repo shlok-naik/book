@@ -16,6 +16,8 @@
 --                created automatically the moment a reader's account
 --                exists (see the trigger below), so the app only ever
 --                UPDATEs it, never has to decide between insert/upsert.
+--   reading_events — one row per shelf command that actually took effect,
+--                for the streaks page. See the table's own comment below.
 
 create extension if not exists "pgcrypto";
 
@@ -136,6 +138,50 @@ create policy "user_books: delete own"
   on public.user_books for delete
   to authenticated
   using (auth.uid() = user_id);
+
+-- --------------------------------------------------------- reading_events
+-- One row per shelf command that actually took effect (start/update/
+-- finish/rate/delete) — LibraryController logs one on every successful
+-- mutation. The streaks page groups these by local day to pick a symbol
+-- for each: a line for update/rate/delete, a hollow circle for start, a
+-- closed circle for finish, with finish overpowering start overpowering
+-- a line on any day that has more than one.
+create table if not exists public.reading_events (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid()
+                references auth.users (id) on delete cascade,
+  action      text not null
+                check (action in ('start', 'update', 'finish', 'rate', 'delete')),
+  -- The book the command was about, so the day-detail sheet's list can
+  -- read "started Dune" rather than just "started". Not a book_id
+  -- reference on purpose: the event should still read fine after the
+  -- book itself is deleted from the shelf.
+  title       text,
+  occurred_at timestamptz not null default now()
+);
+
+-- Re-running this file against a database that already has
+-- `reading_events` (created before `title` existed) needs an explicit
+-- ALTER — `create table if not exists` won't touch an existing table.
+alter table public.reading_events add column if not exists title text;
+
+create index if not exists reading_events_user_id_occurred_at_idx
+  on public.reading_events (user_id, occurred_at);
+
+alter table public.reading_events enable row level security;
+
+drop policy if exists "reading_events: select own" on public.reading_events;
+drop policy if exists "reading_events: insert own" on public.reading_events;
+
+create policy "reading_events: select own"
+  on public.reading_events for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+create policy "reading_events: insert own"
+  on public.reading_events for insert
+  to authenticated
+  with check (auth.uid() = user_id);
 
 -- -------------------------------------------------------------- profiles
 create table if not exists public.profiles (

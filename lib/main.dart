@@ -11,6 +11,7 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'features/library/data/book_cache_repository.dart';
 import 'features/library/data/google_books_api_client.dart';
+import 'features/library/data/reading_event_repository.dart';
 import 'features/library/data/user_book_repository.dart';
 import 'features/library/domain/book_lookup_service.dart';
 import 'features/library/presentation/controllers/library_controller.dart';
@@ -105,6 +106,7 @@ class _BookAppState extends State<BookApp> {
         googleBooks: googleBooks,
       ),
       userBooks: UserBookRepository(),
+      events: ReadingEventRepository(),
     );
   }
 
