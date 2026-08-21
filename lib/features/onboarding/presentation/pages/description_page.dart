@@ -78,6 +78,9 @@ class _DescriptionPageState extends State<DescriptionPage> {
             label: 'continue',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
+                settings: const RouteSettings(
+                  name: 'onboarding_protect_account',
+                ),
                 builder: (_) => ProtectAccountPage(
                   session: widget.session,
                   profiles: widget.profiles,

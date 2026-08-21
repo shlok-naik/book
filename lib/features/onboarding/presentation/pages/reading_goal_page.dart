@@ -58,9 +58,12 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
       source: 'ReadingGoalPage',
       message: 'Could not save the reading goal answer.',
     );
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const PaywallPage()));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: 'onboarding_paywall'),
+        builder: (_) => const PaywallPage(),
+      ),
+    );
   }
 
   @override

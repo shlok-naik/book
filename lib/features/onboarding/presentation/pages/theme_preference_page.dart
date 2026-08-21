@@ -101,6 +101,9 @@ class ThemePreferencePage extends StatelessWidget {
                 label: 'continue',
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
+                    settings: const RouteSettings(
+                      name: 'onboarding_have_we_met',
+                    ),
                     builder: (_) => HaveWeMetPage(
                       session: session,
                       profiles: profiles,

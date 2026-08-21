@@ -72,6 +72,11 @@ Haptics go through `AppHaptics` ([lib/core/feedback/app_haptics.dart](lib/core/f
 
 The app is portrait-only, declared in the Android manifest, the iOS plist *and* `SystemChrome` — the streaks page fits a whole year on one screen and has nowhere to put December in landscape. That page scrolls only when it must (large accessibility text sizes), never otherwise.
 
+### Analytics
+`AppAnalytics` ([lib/core/analytics/app_analytics.dart](lib/core/analytics/app_analytics.dart)) rides on the Firebase app `CrashReporter.attach()` initializes, and follows the same inert-until-attached rule for the same reason. Screen views come from `RouteSettings` names through a navigator observer on `MaterialApp` — **a new onboarding page needs a `settings: const RouteSettings(name: ...)` on its route or it disappears from the funnel silently**. Paywall/purchase outcomes are explicit calls instead, and distinguish cancelled from store_error from entitlement_inactive, since those three call for completely different fixes.
+
+Hard rule: **no reader-authored content is ever sent** — no titles, authors, commands, profile answers or emails. Parameters are screen names or enum-like constants only.
+
 ### Theming
 `AppColors` is a `ThemeExtension` (light/dark instances in [lib/core/theme/app_colors.dart](lib/core/theme/app_colors.dart)) registered on `ThemeData.extensions` in [lib/core/theme/app_theme.dart](lib/core/theme/app_theme.dart); widgets read colors via `context.colors`, never a hardcoded hex. `ThemeController` (a `ValueListenable<ThemeMode>`) drives the `MaterialApp.themeMode` switch in `main.dart`.
 

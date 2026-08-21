@@ -63,7 +63,10 @@ class HaveWeMetPage extends StatelessWidget {
           SoftPillButton(
             label: 'yes',
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => SignInPage(session: session)),
+              MaterialPageRoute(
+                settings: const RouteSettings(name: 'onboarding_sign_in'),
+                builder: (_) => SignInPage(session: session),
+              ),
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
@@ -72,6 +75,7 @@ class HaveWeMetPage extends StatelessWidget {
             tint: colors.secondaryText,
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
+                settings: const RouteSettings(name: 'onboarding_name'),
                 builder: (_) => NamePage(
                   session: session,
                   profiles: profiles,

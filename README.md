@@ -196,6 +196,31 @@ Store Connect's privacy questions and Play's Data Safety form.
 
 ---
 
+## Analytics
+
+Firebase Analytics, in
+[`lib/core/analytics/app_analytics.dart`](lib/core/analytics/app_analytics.dart).
+It exists to answer one question: **where in onboarding do people stop.**
+Eight screens run before anyone sees a price, and without this a reader
+who quit at the reading-goal question looks identical to one who never
+opened the app.
+
+Screen views come from each route's `RouteSettings` name via a navigator
+observer — not from a line in every page's `initState`. **When you add an
+onboarding screen, give its `MaterialPageRoute` a `settings:` name**, or it
+silently vanishes from the funnel. Paywall and purchase events are explicit
+calls, because "saw an offer" and "acted on it" are the two numbers worth
+being exact about; `paywall_viewed` fires only once real prices render, so
+a reader who hit the "couldn't load pricing" state is not counted as having
+seen one.
+
+**Nothing the reader wrote is ever sent** — no book titles, authors, typed
+commands, profile answers, or email. Every parameter is a screen name or an
+enum-like constant. If a value came from a text field, it does not go here.
+Events are tied to the same opaque Supabase UUID that tags crash reports.
+
+---
+
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push

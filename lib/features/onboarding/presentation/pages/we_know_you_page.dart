@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/analytics/app_analytics.dart';
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/diagnostics/crash_reporter.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -58,9 +59,12 @@ class WeKnowYouPage extends StatelessWidget {
   final String? name;
 
   void _signInAsExisting(BuildContext context) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const FinishPage()));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: 'onboarding_finish'),
+        builder: (_) => const FinishPage(),
+      ),
+    );
   }
 
   Future<void> _backToHaveWeMet(BuildContext context) async {
@@ -70,6 +74,7 @@ class WeKnowYouPage extends StatelessWidget {
       await session.signOut();
       // Reports from here on belong to nobody in particular again.
       CrashReporter.identify(null);
+      AppAnalytics.identify(null);
     } on Object catch (error, stackTrace) {
       AppLogger.warning(
         'WeKnowYouPage',
@@ -81,6 +86,7 @@ class WeKnowYouPage extends StatelessWidget {
     if (!context.mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
+        settings: const RouteSettings(name: 'onboarding_have_we_met'),
         builder: (_) =>
             HaveWeMetPage(session: session, profiles: profiles, draft: draft),
       ),

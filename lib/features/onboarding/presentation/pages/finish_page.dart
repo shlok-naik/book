@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/analytics/app_analytics.dart';
 import '../../../../core/theme/app_colors.dart';
-
 import '../../../shell/presentation/pages/root_shell.dart';
 import '../widgets/celebration_page.dart';
 
@@ -25,10 +25,18 @@ class FinishPage extends StatelessWidget {
           'now start to add your library or import it from elsewhere and '
           'most importantly: start reading.',
       buttonLabel: "let's go",
-      onContinue: () => Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const RootShell()),
-        (route) => false,
-      ),
+      onContinue: () {
+        // The funnel's denominator: everything above this is a step
+        // someone might not have taken.
+        AppAnalytics.onboardingCompleted();
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'root_shell'),
+            builder: (_) => const RootShell(),
+          ),
+          (route) => false,
+        );
+      },
     );
   }
 }

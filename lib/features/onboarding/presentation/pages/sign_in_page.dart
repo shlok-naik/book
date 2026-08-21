@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/analytics/app_analytics.dart';
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/diagnostics/crash_reporter.dart';
 import '../../../../core/purchases/purchases_service.dart';
@@ -98,6 +99,7 @@ class _SignInPageState extends State<SignInPage> {
       final userId = widget.session.userId;
       if (userId != null) {
         CrashReporter.identify(userId);
+        AppAnalytics.identify(userId);
         reportingFailure(
           const PurchasesService().identify(userId),
           source: 'SignInPage',
@@ -105,9 +107,12 @@ class _SignInPageState extends State<SignInPage> {
         );
       }
       if (!mounted) return;
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const FinishPage()));
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: 'onboarding_finish'),
+          builder: (_) => const FinishPage(),
+        ),
+      );
     } on OnboardingException catch (error) {
       if (!mounted) return;
       setState(() {

@@ -4,6 +4,7 @@ import 'package:purchases_flutter/purchases_flutter.dart' show Package;
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart'
     show PaywallResult;
 
+import '../../../../core/analytics/app_analytics.dart';
 import '../../../../core/purchases/entitlements.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -165,6 +166,11 @@ class _PaywallPageState extends State<PaywallPage> {
               )
             : _unavailable;
       });
+      // Deliberately not fired on navigation to this page: a reader who
+      // arrived and got the "couldn't load pricing" state never saw an
+      // offer, and counting them as having seen the paywall would make
+      // every conversion rate below it wrong.
+      if (monthly != null && yearly != null) AppAnalytics.paywallViewed();
     } on PurchasesException {
       if (!mounted) return;
       setState(() => _pricing = _unavailable);
@@ -172,9 +178,12 @@ class _PaywallPageState extends State<PaywallPage> {
   }
 
   void _continue() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const OneMoreThingPage()));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: 'onboarding_one_more_thing'),
+        builder: (_) => const OneMoreThingPage(),
+      ),
+    );
   }
 
   /// Same destination as [_continue], but by way of [PurchaseThanksPage]
@@ -184,12 +193,16 @@ class _PaywallPageState extends State<PaywallPage> {
   void _continueAfterPurchase() {
     Navigator.of(context).push(
       MaterialPageRoute(
+        settings: const RouteSettings(name: 'onboarding_purchase_thanks'),
         builder: (_) => PurchaseThanksPage(onContinue: _continue),
       ),
     );
   }
 
-  void _selectPlan(_Plan plan) => setState(() => _plan = plan);
+  void _selectPlan(_Plan plan) {
+    AppAnalytics.paywallPlanSelected(plan.name);
+    setState(() => _plan = plan);
+  }
 
   /// Buys whichever package [plan] resolves to — the monthly product,
   /// or [_yearlyNoTrialPackage] (never [_yearlyPackage]) for yearly, so
@@ -230,9 +243,14 @@ class _PaywallPageState extends State<PaywallPage> {
       final info = await _purchases.purchase(package);
       if (!mounted) return;
       if (_purchases.isPro(info)) {
+        // Counted on the entitlement actually being active, not on the
+        // store call returning — the two come apart often enough that
+        // the branch below exists for it.
+        AppAnalytics.purchaseCompleted(package.identifier);
         _continueAfterPurchase();
         return;
       }
+      AppAnalytics.purchaseFailed('entitlement_inactive');
       setState(() {
         _busy = false;
         _error =
@@ -242,6 +260,12 @@ class _PaywallPageState extends State<PaywallPage> {
     } on PurchasesException catch (error) {
       if (!mounted) return;
       setState(() => _busy = false);
+      // Backing out is its own outcome, not a failure — worth telling
+      // apart in the funnel, since a wall of cancellations and a wall of
+      // store errors call for completely different fixes.
+      AppAnalytics.purchaseFailed(
+        error.userCancelled ? 'cancelled' : 'store_error',
+      );
       // A reader backing out of the native sheet isn't an error worth
       // surfacing — just quietly re-enable the button.
       if (!error.userCancelled) setState(() => _error = error.message);
@@ -258,6 +282,7 @@ class _PaywallPageState extends State<PaywallPage> {
       if (!mounted) return;
       setState(() => _busy = false);
       if (_purchases.isPro(info)) {
+        AppAnalytics.purchaseRestored();
         _continue();
       } else {
         setState(() => _error = 'No previous purchase found for this account.');
@@ -284,8 +309,13 @@ class _PaywallPageState extends State<PaywallPage> {
       final result = await _purchases.presentPaywallIfNeeded();
       if (!mounted) return;
       setState(() => _busy = false);
-      if (result == PaywallResult.purchased ||
-          result == PaywallResult.restored) {
+      if (result == PaywallResult.purchased) {
+        // RevenueCat's own hosted paywall picks the package, so there is
+        // no local identifier to attribute this to.
+        AppAnalytics.purchaseCompleted('hosted_paywall');
+        _continue();
+      } else if (result == PaywallResult.restored) {
+        AppAnalytics.purchaseRestored();
         _continue();
       }
     } on PurchasesException catch (error) {

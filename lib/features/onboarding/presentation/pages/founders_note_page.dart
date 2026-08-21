@@ -62,9 +62,12 @@ class FoundersNotePage extends StatelessWidget {
           const SizedBox(height: AppSpacing.lg),
           SoftPillButton(
             label: 'continue',
-            onPressed: () => Navigator.of(
-              context,
-            ).push(MaterialPageRoute(builder: (_) => const FinishPage())),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                settings: const RouteSettings(name: 'onboarding_finish'),
+                builder: (_) => const FinishPage(),
+              ),
+            ),
           ),
         ],
       ),

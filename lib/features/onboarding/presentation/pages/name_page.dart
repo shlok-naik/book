@@ -64,6 +64,7 @@ class _NamePageState extends State<NamePage> {
             label: 'continue',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
+                settings: const RouteSettings(name: 'onboarding_description'),
                 builder: (_) => DescriptionPage(
                   session: widget.session,
                   profiles: widget.profiles,

@@ -32,6 +32,7 @@ class NaturalLanguageTutorialPage extends StatelessWidget {
       description: const _TutorialCopy(),
       onContinue: () => Navigator.of(context).push(
         MaterialPageRoute(
+          settings: const RouteSettings(name: 'onboarding_theme_preference'),
           builder: (_) =>
               ThemePreferencePage(session: session, profiles: profiles),
         ),

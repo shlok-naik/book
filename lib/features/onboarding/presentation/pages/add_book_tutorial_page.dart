@@ -37,6 +37,7 @@ class AddBookTutorialPage extends StatelessWidget {
       description: const _TutorialCopy(),
       onContinue: () => Navigator.of(context).push(
         MaterialPageRoute(
+          settings: const RouteSettings(name: 'onboarding_nl_tutorial'),
           builder: (_) =>
               NaturalLanguageTutorialPage(session: session, profiles: profiles),
         ),

@@ -57,7 +57,6 @@ class DefaultFirebaseOptions {
     projectId: 'cactus0201',
     storageBucket: 'cactus0201.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBX9vU_1-lq0EeZWQajCpsYbU2l7pwtNKs',
     appId: '1:306087285:ios:5c3c2518b9b014f256bf3c',
@@ -66,7 +65,6 @@ class DefaultFirebaseOptions {
     storageBucket: 'cactus0201.firebasestorage.app',
     iosBundleId: 'com.shloknaik.cactus',
   );
-
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyBX9vU_1-lq0EeZWQajCpsYbU2l7pwtNKs',
     appId: '1:306087285:ios:070e7d6f0114437556bf3c',

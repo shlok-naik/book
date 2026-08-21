@@ -43,9 +43,12 @@ class OneMoreThingPage extends StatelessWidget {
           const SizedBox(height: AppSpacing.lg),
           SoftPillButton(
             label: 'continue',
-            onPressed: () => Navigator.of(
-              context,
-            ).push(MaterialPageRoute(builder: (_) => const FoundersNotePage())),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                settings: const RouteSettings(name: 'onboarding_founders_note'),
+                builder: (_) => const FoundersNotePage(),
+              ),
+            ),
           ),
         ],
       ),

@@ -90,6 +90,7 @@ class _WelcomePageState extends State<WelcomePage>
   void _start() {
     Navigator.of(context).push(
       MaterialPageRoute(
+        settings: const RouteSettings(name: 'onboarding_add_book_tutorial'),
         builder: (_) => AddBookTutorialPage(
           session: widget.session,
           profiles: widget.profiles,

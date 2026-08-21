@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'core/analytics/app_analytics.dart';
 import 'core/diagnostics/app_logger.dart';
 import 'core/diagnostics/crash_reporter.dart';
 import 'core/env/env.dart';
@@ -89,7 +90,9 @@ Future<void> _bootstrap() async {
   // of startup is itself reported. Never awaited for its own sake — see
   // [CrashReporter.attach] on why a telemetry failure must not stop the
   // app from starting.
-  await CrashReporter.attach();
+  // Analytics rides on the same Firebase app the crash reporter
+  // initializes, so it only attaches once that has actually succeeded.
+  if (await CrashReporter.attach()) AppAnalytics.attach();
 
   final missing = Env.missingKeys;
   if (missing.isNotEmpty) {
@@ -137,6 +140,7 @@ Future<void> _bootstrap() async {
   final userId = Supabase.instance.client.auth.currentUser?.id;
   if (userId != null) {
     CrashReporter.identify(userId);
+    AppAnalytics.identify(userId);
     reportingFailure(
       const PurchasesService().identify(userId),
       source: 'main',
@@ -267,6 +271,9 @@ class _BookAppState extends State<BookApp> {
               darkTheme: AppTheme.dark,
               themeMode: themeMode,
               scrollBehavior: AppScrollBehavior(),
+              // Screen views come from each route's own name rather than a
+              // line in every page's initState — see [AppAnalytics].
+              navigatorObservers: AppAnalytics.navigatorObservers,
               home: (_signedIn && !widget.alwaysShowOnboarding)
                   ? const RootShell()
                   : WelcomePage(session: _session, profiles: _profiles),
