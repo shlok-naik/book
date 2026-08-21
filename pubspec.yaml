@@ -40,6 +40,8 @@ dependencies:
   http: ^1.6.0
   purchases_flutter: ^10.9.1
   purchases_ui_flutter: ^10.9.1
+  firebase_core: ^4.13.0
+  firebase_crashlytics: ^5.2.7
 
 dev_dependencies:
   flutter_test:

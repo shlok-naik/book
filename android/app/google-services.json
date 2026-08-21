@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "306087285",
+    "project_id": "cactus0201",
+    "storage_bucket": "cactus0201.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:306087285:android:b0ad8d0f5aabf34156bf3c",
+        "android_client_info": {
+          "package_name": "com.shloknaik.cactus"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCX692kSARNXoM84m7GT74lyTx0nZdRF5o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

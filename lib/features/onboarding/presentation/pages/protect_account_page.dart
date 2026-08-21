@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
+import '../../../../core/diagnostics/crash_reporter.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -133,6 +134,7 @@ class _ProtectAccountPageState extends State<ProtectAccountPage> {
       // blocks onboarding on it completing.
       final userId = widget.session.userId;
       if (userId != null) {
+        CrashReporter.identify(userId);
         reportingFailure(
           const PurchasesService().identify(userId),
           source: 'ProtectAccountPage',

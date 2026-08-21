@@ -160,8 +160,39 @@ See [CLAUDE.md](CLAUDE.md) for the full guide. In short:
   else gets one.
 - **Logging goes through `AppLogger`**
   ([`lib/core/diagnostics/app_logger.dart`](lib/core/diagnostics/app_logger.dart)),
-  not `print`/`debugPrint` — it survives release builds and gives a crash
-  reporter a single place to attach.
+  not `print`/`debugPrint` — it survives release builds, and
+  [`CrashReporter`](lib/core/diagnostics/crash_reporter.dart) attaches
+  Crashlytics to it in one place rather than at every call site.
+
+---
+
+## Crash reporting
+
+Firebase Crashlytics, attached at `AppLogger.sink` — see
+[`lib/core/diagnostics/crash_reporter.dart`](lib/core/diagnostics/crash_reporter.dart).
+Warnings report as non-fatal, errors as fatal (that is what feeds
+crash-free-users); debug and info never leave the device.
+
+**Do not follow Firebase's own Flutter setup guide for the error
+handlers.** It tells you to assign
+`FirebaseCrashlytics.instance.recordFlutterFatalError` to
+`FlutterError.onError`. [`main.dart`](lib/main.dart) already owns that
+handler, `PlatformDispatcher.onError` and the guarded zone, and forwards
+all three into `AppLogger` — adding Firebase's on top double-reports
+every framework error.
+
+Collection is off in debug builds. To verify the pipeline end to end,
+temporarily flip the `setCrashlyticsCollectionEnabled` call and force a
+crash.
+
+R8 obfuscates release builds, and the Crashlytics Gradle plugin uploads
+the mapping file automatically so Android traces stay readable. **Don't
+add `--obfuscate`** to the Flutter build: Crashlytics cannot symbolize
+obfuscated *Dart* traces, which would need `--split-debug-info` and
+`flutter symbolize` by hand.
+
+Crashlytics collects device identifiers, so it has to be declared in App
+Store Connect's privacy questions and Play's Data Safety form.
 
 ---
 

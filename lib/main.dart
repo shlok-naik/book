@@ -8,6 +8,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/diagnostics/app_logger.dart';
+import 'core/diagnostics/crash_reporter.dart';
 import 'core/env/env.dart';
 import 'core/purchases/purchases_service.dart';
 import 'core/supabase/supabase_service.dart';
@@ -84,6 +85,12 @@ Future<void> _bootstrap() async {
     }
   }
 
+  // Attached before anything that can fail, so a crash during the rest
+  // of startup is itself reported. Never awaited for its own sake — see
+  // [CrashReporter.attach] on why a telemetry failure must not stop the
+  // app from starting.
+  await CrashReporter.attach();
+
   final missing = Env.missingKeys;
   if (missing.isNotEmpty) {
     // A misconfigured build fails here, once, with the list of what is
@@ -129,6 +136,7 @@ Future<void> _bootstrap() async {
   // and-forget: this must never hold up startup waiting on it.
   final userId = Supabase.instance.client.auth.currentUser?.id;
   if (userId != null) {
+    CrashReporter.identify(userId);
     reportingFailure(
       const PurchasesService().identify(userId),
       source: 'main',

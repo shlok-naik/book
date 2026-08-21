@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
+import '../../../../core/diagnostics/crash_reporter.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/onboarding_profile_repository.dart';
@@ -67,6 +68,8 @@ class WeKnowYouPage extends StatelessWidget {
     // a sign-out that failed must not strand the reader on this screen.
     try {
       await session.signOut();
+      // Reports from here on belong to nobody in particular again.
+      CrashReporter.identify(null);
     } on Object catch (error, stackTrace) {
       AppLogger.warning(
         'WeKnowYouPage',
