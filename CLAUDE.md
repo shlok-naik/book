@@ -13,12 +13,28 @@ flutter pub get                          # install dependencies
 flutter run                               # run on connected device/emulator
 flutter test                              # run all tests
 flutter test test/library/library_controller_test.dart   # run a single test file
-flutter analyze                           # static analysis (flutter_lints)
+flutter analyze --fatal-infos --fatal-warnings   # static analysis — must be zero issues
+dart format .                             # CI fails on unformatted code
 ```
 
-Requires a `.env` file at the repo root (see `.env.example` for the five required keys: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `GOOGLE_BOOKS_API_KEY`, `REVENUECAT_API_KEY`, `GROQ_API_KEY`). Loaded via `flutter_dotenv` in [lib/main.dart](lib/main.dart) and read through [lib/core/env/env.dart](lib/core/env/env.dart) — never read `dotenv.env` directly elsewhere.
+CI (`.github/workflows/ci.yml`) runs format, analyze, test, and a Deno
+type-check of the edge functions on every push and PR. The analyzer rule
+set in `analysis_options.yaml` is deliberately stricter than
+`flutter_lints`' default — `unawaited_futures`, `discarded_futures` and
+`use_build_context_synchronously` are promoted to errors — so treat a new
+hint as a defect, not noise.
 
-Database schema and RLS policies live in [supabase/schema.sql](supabase/schema.sql); it's idempotent (`create table if not exists` + explicit `alter`s), so re-running it against an existing Supabase project is safe.
+### Configuration
+Resolved by [lib/core/env/env.dart](lib/core/env/env.dart) — never read `dotenv.env` directly anywhere else. Two sources, in order: compile-time `--dart-define`s (how release builds are configured), then a local `.env` file (development only — it is bundled as a Flutter asset, so everything in it ships readable). Required: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REVENUECAT_API_KEY`. Optional: `GOOGLE_BOOKS_API_KEY` (missing degrades to keyless search).
+
+**No secret goes in either source** — both reach the device. The Groq API key used to live here and therefore shipped inside every build; it is now a Supabase project secret held by the `parse-command` edge function. If you find yourself adding a key that must stay private, it belongs on the server, not in `Env`.
+
+A build missing a required key renders `StartupFailureApp` naming what is absent, rather than throwing at whichever screen first touches it.
+
+### Database
+Schema lives in [supabase/migrations/](supabase/migrations), applied in filename order — **not** a single re-runnable `schema.sql` (the old one truncated `user_books` on every run). Never edit an applied migration; add a new one with `supabase migration new <name>`, then `supabase db push`. Check `supabase db lint` or the dashboard advisors afterwards.
+
+Edge functions live in [supabase/functions/](supabase/functions) and deploy with `supabase functions deploy <name>`; their secrets are set with `supabase secrets set KEY=...`.
 
 ## Architecture
 
@@ -29,13 +45,23 @@ There is a single composition root: `_BookAppState` in [lib/main.dart](lib/main.
 Each feature under `lib/features/<name>/` is split into `data/` (repositories/API clients), `domain/` (models, business rules), and `presentation/` (`controllers/`, `pages/`, `widgets/`). `lib/core/` holds cross-feature concerns: `env/`, `supabase/`, `ai/` (Groq client), `purchases/` (RevenueCat), `theme/`, `widgets/`.
 
 - **library** — the reader's shelf. `LibraryController` (a `ChangeNotifier`) is the single mutation point for shelf state; it never talks to Supabase/Google Books directly, only through `BookLookupService` (cache-first: Supabase `books` table → Google Books API → write-back) and `UserBookRepository`. Every command (`start`/`update`/`finish`/`rate`/`delete`) is optimistic: local state updates and notifies immediately, then persists, rolling back on failure. Every successful command also fires-and-forgets a `ReadingEventRepository.log` call for the streaks page — a logging failure never affects the command's own success/failure result.
-- **logging** — the natural-language "+"/log page. `LogCommandParser` turns text into the five-command grammar (`start`/`update <page>`/`finish`/`rate <stars>`/`delete <title>`); `GroqClient` ([lib/core/ai/groq_client.dart](lib/core/ai/groq_client.dart)) is the "cactus pro" alternative that asks an LLM to split a free-form sentence into that same grammar before handing it to the identical parser — the two entry points converge on one command surface.
+- **logging** — the natural-language "+"/log page. `LogCommandParser` turns text into the five-command grammar (`start`/`update <page>`/`finish`/`rate <stars>`/`delete <title>`); `AiCommandParser` ([lib/core/ai/ai_command_parser.dart](lib/core/ai/ai_command_parser.dart)) is the "cactus pro" alternative that asks an LLM to split a free-form sentence into that same grammar before handing it to the identical parser — the two entry points converge on one command surface. The real implementation calls the `parse-command` edge function; the model provider's key never reaches the device.
 - **streaks** — reads `reading_events` (grouped by local day) to render a GitHub-style dot grid; symbol precedence per day is finish > start > any other action.
 - **onboarding** — a linear page sequence ending in `paywall_page.dart` (RevenueCat) → celebration screens. `SessionService` decides whether `RootShell` or `WelcomePage` is the initial route.
 - **shell** — `RootShell` hosts the four top-level pages (profile, streaks, library, log) in an `IndexedStack` switched by a floating `BottomSwitcher`; log is the default tab.
 
 ### Supabase model
-`user_id` columns default to `auth.uid()` at the database level (never set by app code) and RLS is what actually enforces per-reader isolation — anonymous Supabase Auth sessions still get a real `authenticated` role. `books` is a shared cache across all readers; `user_books`, `reading_events`, and `profiles` are private per-reader. A trigger (`handle_new_user`) creates a blank `profiles` row on first auth, so app code only ever `UPDATE`s it.
+`user_id` columns default to `auth.uid()` at the database level (never set by app code) and RLS is what actually enforces per-reader isolation — anonymous Supabase Auth sessions still get a real `authenticated` role. Every policy calls `(select auth.uid())`, not the bare function, so the planner evaluates it once per query rather than once per row.
+
+- `books` — the shared Google Books cache. Readable by any signed-in reader, **writable by none**: the sole write path is the `cache_book()` security-definer function, because a table-level insert/update grant would also let any reader rewrite or delete rows out from under everyone else.
+- `user_books`, `reading_events`, `profiles` — private per reader. `user_books.updated_at` is maintained by the `user_books_touch_updated_at` trigger, never sent from the client (the shelf is ordered by it, so a skewed device clock could otherwise pin its own rows to one end forever).
+- `ai_requests` — the AI rate-limit ledger. RLS enabled with *no policies at all*, deliberately: it is reachable only through `claim_ai_request()`, so a reader cannot clear their own history to reset their limit.
+- A trigger (`handle_new_user`) creates a blank `profiles` row on first auth, so app code only ever `UPDATE`s it. Its `EXECUTE` grant is revoked from `anon`/`authenticated` — it is a trigger function, not an API.
+
+### Errors, logging and startup
+Repositories translate driver failures into exceptions carrying a message already safe to show (`LibraryException`, `OnboardingException`, `AiCommandException`); controllers turn those into result objects. The UI never renders a raw driver error — and never silently swallows one either: a load that failed must look different from a load that came back empty (see `StreaksController.errorMessage`).
+
+All diagnostics go through `AppLogger` ([lib/core/diagnostics/app_logger.dart](lib/core/diagnostics/app_logger.dart)) — never `print`/`debugPrint`, which are compiled out of release builds. For fire-and-forget work use `reportingFailure(...)` rather than `unawaited(x.catchError((_) {}))`, so the failure is recorded instead of dropped. `main` installs `FlutterError.onError`, `PlatformDispatcher.instance.onError` and a guarded zone, so attaching a crash reporter is a matter of setting `AppLogger.sink` once.
 
 ### Theming
 `AppColors` is a `ThemeExtension` (light/dark instances in [lib/core/theme/app_colors.dart](lib/core/theme/app_colors.dart)) registered on `ThemeData.extensions` in [lib/core/theme/app_theme.dart](lib/core/theme/app_theme.dart); widgets read colors via `context.colors`, never a hardcoded hex. `ThemeController` (a `ValueListenable<ThemeMode>`) drives the `MaterialApp.themeMode` switch in `main.dart`.

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/diagnostics/app_logger.dart';
 import '../../../library/data/reading_event_repository.dart';
+import '../../../library/domain/library_exception.dart';
 import '../../../library/domain/reading_event.dart';
 import '../../domain/day_symbol.dart';
 
@@ -15,8 +17,13 @@ class StreaksController extends ChangeNotifier {
   Map<DateTime, List<ReadingEvent>> _byDay = const {};
   bool _isLoading = false;
   int? _loadedYear;
+  String? _errorMessage;
 
   bool get isLoading => _isLoading;
+
+  /// Set when the last [load] failed, so the page can say so and offer a
+  /// retry instead of rendering an empty year as if it were real.
+  String? get errorMessage => _errorMessage;
 
   static DateTime _dayKey(DateTime date) =>
       DateTime(date.year, date.month, date.day);
@@ -52,8 +59,25 @@ class StreaksController extends ChangeNotifier {
       }
       _byDay = grouped;
       _loadedYear = year;
-    } catch (error) {
-      debugPrint('StreaksController.load failed: $error');
+      _errorMessage = null;
+    } on LibraryException catch (error) {
+      // Surfaced rather than swallowed: an empty grid and a failed load
+      // used to look identical to the reader, so a Supabase outage read
+      // as "you have never logged anything".
+      _errorMessage = error.message;
+      AppLogger.error(
+        'StreaksController',
+        'Loading streak history failed.',
+        error: error,
+      );
+    } on Object catch (error, stackTrace) {
+      _errorMessage = "We couldn't load your streak history.";
+      AppLogger.error(
+        'StreaksController',
+        'Loading streak history failed unexpectedly.',
+        error: error,
+        stackTrace: stackTrace,
+      );
     } finally {
       _isLoading = false;
       notifyListeners();

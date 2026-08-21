@@ -1,6 +1,3 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
@@ -30,6 +27,8 @@ import 'package:book/features/onboarding/presentation/pages/sign_in_page.dart';
 import 'package:book/features/onboarding/presentation/pages/theme_preference_page.dart';
 import 'package:book/features/onboarding/presentation/widgets/onboarding_progress_dots.dart';
 import 'package:book/features/onboarding/presentation/widgets/soft_pill_button.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 

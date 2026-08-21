@@ -1,14 +1,19 @@
-import 'dart:async' show unawaited;
+import 'dart:async';
+
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'core/diagnostics/app_logger.dart';
+import 'core/env/env.dart';
 import 'core/purchases/purchases_service.dart';
 import 'core/supabase/supabase_service.dart';
 import 'core/theme/app_scroll_behavior.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
+import 'core/widgets/startup_failure_page.dart';
 import 'features/library/data/book_cache_repository.dart';
 import 'features/library/data/google_books_api_client.dart';
 import 'features/library/data/reading_event_repository.dart';
@@ -22,19 +27,121 @@ import 'features/onboarding/presentation/pages/welcome_page.dart';
 import 'features/shell/presentation/pages/root_shell.dart';
 
 Future<void> main() async {
+  // Everything runs inside one guarded zone so an async error raised
+  // outside a Flutter callback — a stray `Future` in a repository, say —
+  // reaches [AppLogger] rather than the console alone. Combined with the
+  // two handlers below, no failure anywhere in the app escapes
+  // unreported once a crash-reporting sink is attached.
+  runZonedGuarded(_bootstrap, (error, stackTrace) {
+    AppLogger.error(
+      'main',
+      'Uncaught asynchronous error.',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  });
+}
+
+Future<void> _bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: '.env');
-  await SupabaseService.init();
-  await PurchasesService.configure();
+
+  FlutterError.onError = (details) {
+    AppLogger.error(
+      'FlutterError',
+      details.summary.toString(),
+      error: details.exception,
+      stackTrace: details.stack,
+    );
+    // Keep the red-screen/console behaviour developers rely on; the
+    // handler above is additive, not a replacement.
+    FlutterError.presentError(details);
+  };
+
+  // Errors from the engine itself (platform channels, gesture
+  // dispatch) that never pass through FlutterError.
+  PlatformDispatcher.instance.onError = (error, stackTrace) {
+    AppLogger.error(
+      'PlatformDispatcher',
+      'Uncaught platform error.',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    return true;
+  };
+
+  // `.env` is a development convenience, not a requirement — a release
+  // build configured through --dart-define has no such file and must
+  // still start. See [Env].
+  try {
+    await dotenv.load(fileName: '.env');
+  } on Object catch (error) {
+    AppLogger.info(
+      'main',
+      'No .env file loaded ($error); using --dart-define.',
+    );
+  }
+
+  final missing = Env.missingKeys;
+  if (missing.isNotEmpty) {
+    // A misconfigured build fails here, once, with the list of what is
+    // missing — rather than at whichever screen first happens to touch
+    // one of these and throwing an opaque StateError at the reader.
+    AppLogger.error('main', 'Missing configuration: ${missing.join(', ')}.');
+    runApp(StartupFailureApp(missingKeys: missing));
+    return;
+  }
+
+  if (Env.isLeakingConfigInRelease) {
+    AppLogger.warning(
+      'main',
+      'Release build is reading configuration from the bundled .env asset. '
+          'Build with --dart-define instead so nothing is readable inside '
+          'the shipped bundle.',
+    );
+  }
+
+  try {
+    await SupabaseService.init();
+  } on Object catch (error, stackTrace) {
+    AppLogger.error(
+      'main',
+      'Supabase failed to initialize.',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    runApp(const StartupFailureApp(missingKeys: []));
+    return;
+  }
+
+  // Purchases are not load-bearing for launch: a reader whose
+  // RevenueCat configuration fails should still get their library, just
+  // without entitlement state. Previously this could take the whole
+  // startup down.
+  try {
+    await PurchasesService.configure();
+  } on Object catch (error, stackTrace) {
+    AppLogger.error(
+      'main',
+      'RevenueCat failed to configure; continuing without entitlements.',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
   // A reader who already has a session from a previous launch should
-  // resolve to the same RevenueCat identity they purchased under, not
-  // a fresh anonymous one — sign-in/sign-up call this again themselves
+  // resolve to the same RevenueCat identity they purchased under, not a
+  // fresh anonymous one — sign-in/sign-up call this again themselves
   // once a session is created mid-flow (see `SessionService`). Fire-
   // and-forget: this must never hold up startup waiting on it.
   final userId = Supabase.instance.client.auth.currentUser?.id;
   if (userId != null) {
-    unawaited(const PurchasesService().identify(userId).catchError((_) {}));
+    reportingFailure(
+      const PurchasesService().identify(userId),
+      source: 'main',
+      message: 'Could not restore the RevenueCat identity at startup.',
+    );
   }
+
   runApp(const BookApp());
 }
 
@@ -64,7 +171,7 @@ class BookApp extends StatefulWidget {
   final OnboardingProfileRepository? profileRepository;
 
   /// When true, ignores an existing session and always starts at
-  /// [WelcomePage] — see the comment on [main] for why this is on there.
+  /// [WelcomePage].
   final bool alwaysShowOnboarding;
 
   @override

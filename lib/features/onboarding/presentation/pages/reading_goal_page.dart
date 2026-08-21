@@ -1,8 +1,7 @@
-import 'dart:async' show unawaited;
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/onboarding_profile_repository.dart';
@@ -54,7 +53,11 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
     // Best-effort, same as the account step's own save — a reader who
     // answered this shouldn't get stuck here just because the write
     // failed, so this doesn't block moving on to the paywall.
-    unawaited(widget.profiles.saveProfile(draft).catchError((_) {}));
+    reportingFailure(
+      widget.profiles.saveProfile(draft),
+      source: 'ReadingGoalPage',
+      message: 'Could not save the reading goal answer.',
+    );
     Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const PaywallPage()));

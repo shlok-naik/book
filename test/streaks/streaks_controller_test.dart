@@ -1,4 +1,5 @@
 import 'package:book/features/library/data/reading_event_repository.dart';
+import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
 import 'package:book/features/streaks/domain/day_symbol.dart';
 import 'package:book/features/streaks/presentation/controllers/streaks_controller.dart';
@@ -14,6 +15,20 @@ class FakeReadingEventRepository extends ReadingEventRepository {
 
   @override
   Future<List<ReadingEvent>> fetchForYear(int year) async => List.of(rows);
+}
+
+/// A source that only ever fails — for the "we could not find out"
+/// branch, which must not be confused with "there is nothing here".
+class FailingReadingEventRepository extends ReadingEventRepository {
+  FailingReadingEventRepository(this.failure);
+
+  final Object failure;
+
+  // `Future.error` rather than `throw`, so [failure] can be an Error as
+  // well as an Exception — the controller has to cope with both, and
+  // `only_throw_errors` rightly objects to throwing a bare Object.
+  @override
+  Future<List<ReadingEvent>> fetchForYear(int year) => Future.error(failure);
 }
 
 ReadingEvent _event(
@@ -138,4 +153,69 @@ void main() {
       expect(controller.symbolFor(DateTime(2026, 6, 1)), isNull);
     });
   });
+
+  group('a failed load', () {
+    test('exposes the failure message instead of an empty year', () async {
+      final controller = StreaksController(
+        events: FailingReadingEventRepository(
+          const NetworkException("We couldn't load your streak history."),
+        ),
+      );
+
+      await controller.load(2026);
+
+      expect(controller.errorMessage, "We couldn't load your streak history.");
+      expect(controller.isLoading, isFalse);
+    });
+
+    test(
+      'reports a message for an error that is not a LibraryException',
+      () async {
+        final controller = StreaksController(
+          events: FailingReadingEventRepository(StateError('boom')),
+        );
+
+        await controller.load(2026);
+
+        expect(controller.errorMessage, isNotNull);
+      },
+    );
+
+    test('can be retried — the failed year is not marked as loaded', () async {
+      final controller = StreaksController(
+        events: _FailOnceThenSucceed([
+          _event(
+            ReadingEventType.finish,
+            DateTime.utc(2026, 3, 5),
+            title: 'Dune',
+          ),
+        ]),
+      );
+
+      await controller.load(2026);
+      expect(controller.errorMessage, isNotNull);
+
+      await controller.load(2026);
+      expect(controller.errorMessage, isNull);
+      expect(controller.symbolFor(DateTime(2026, 3, 5)), isNotNull);
+    });
+  });
+}
+
+/// Fails the first fetch and succeeds afterwards — what a transient
+/// outage looks like from the page's "try again" button.
+class _FailOnceThenSucceed extends ReadingEventRepository {
+  _FailOnceThenSucceed(this.rows);
+
+  final List<ReadingEvent> rows;
+  bool _failed = false;
+
+  @override
+  Future<List<ReadingEvent>> fetchForYear(int year) async {
+    if (!_failed) {
+      _failed = true;
+      throw const NetworkException('Offline.');
+    }
+    return List.of(rows);
+  }
 }

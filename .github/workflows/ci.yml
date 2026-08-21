@@ -1,0 +1,75 @@
+name: CI
+
+# Every push and every pull request runs the same three gates the
+# project holds itself to locally: formatting, static analysis at zero
+# issues, and the full test suite.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A new push to the same branch makes the in-flight run irrelevant.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    name: Analyze & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # Keep CI on the same Flutter the team develops against.
+          flutter-version: 3.44.7
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        # `--fatal-infos` is the point of the strict rule set in
+        # analysis_options.yaml: an info-level hint that nobody has to
+        # fix is a rule that is not really enabled.
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Test
+        # The app reads its configuration through --dart-define first and
+        # falls back to `.env`; neither exists here, and no test needs
+        # one — anything that would touch Supabase is faked. See
+        # test/core/env_test.dart.
+        run: flutter test --coverage
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+
+  edge-functions:
+    name: Type-check edge functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Check
+        # The functions run on Deno in production, so a type error here
+        # is a runtime 500 there — worth catching before deploy rather
+        # than in the logs.
+        run: deno check supabase/functions/**/index.ts

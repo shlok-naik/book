@@ -35,14 +35,22 @@ class ParsedLogCommand {
 
 abstract final class LogCommandParser {
   static final _startPattern = RegExp(r'^start\s+(.+)$', caseSensitive: false);
-  static final _updatePattern =
-      RegExp(r'^update\s+(.+?)\s+(\d+)$', caseSensitive: false);
-  static final _finishPattern = RegExp(r'^finish\s+(.+)$', caseSensitive: false);
+  static final _updatePattern = RegExp(
+    r'^update\s+(.+?)\s+(\d+)$',
+    caseSensitive: false,
+  );
+  static final _finishPattern = RegExp(
+    r'^finish\s+(.+)$',
+    caseSensitive: false,
+  );
   static final _ratePattern = RegExp(
     r'^rate\s+(.+?)\s+(\d+(?:\.\d+)?)$',
     caseSensitive: false,
   );
-  static final _deletePattern = RegExp(r'^delete\s+(.+)$', caseSensitive: false);
+  static final _deletePattern = RegExp(
+    r'^delete\s+(.+)$',
+    caseSensitive: false,
+  );
 
   static const _firstWordPattern = r'^(\S+)';
   static const _keywords = ['start', 'update', 'finish', 'rate', 'delete'];
@@ -163,14 +171,18 @@ abstract final class LogCommandParser {
     var bestSimilarity = 0.0;
     for (final keyword in _keywords) {
       final distance = _levenshtein(word, keyword);
-      final maxLength = word.length > keyword.length ? word.length : keyword.length;
+      final maxLength = word.length > keyword.length
+          ? word.length
+          : keyword.length;
       final similarity = maxLength == 0 ? 0.0 : 1 - (distance / maxLength);
       if (similarity > bestSimilarity) {
         bestSimilarity = similarity;
         best = keyword;
       }
     }
-    return (best != null && bestSimilarity >= _similarityThreshold) ? best : null;
+    return (best != null && bestSimilarity >= _similarityThreshold)
+        ? best
+        : null;
   }
 
   static int _levenshtein(String a, String b) {
@@ -189,7 +201,11 @@ abstract final class LogCommandParser {
         final deletion = dp[i - 1][j] + 1;
         final insertion = dp[i][j - 1] + 1;
         final substitution = dp[i - 1][j - 1] + cost;
-        dp[i][j] = [deletion, insertion, substitution].reduce((x, y) => x < y ? x : y);
+        dp[i][j] = [
+          deletion,
+          insertion,
+          substitution,
+        ].reduce((x, y) => x < y ? x : y);
       }
     }
     return dp[rows - 1][cols - 1];

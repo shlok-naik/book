@@ -1,0 +1,15 @@
+# Supabase CLI configuration. `supabase link --project-ref <ref>` points
+# this directory at the hosted project; `supabase db push` applies
+# everything in `migrations/`, and `supabase functions deploy` ships
+# `functions/`.
+project_id = "book"
+
+[db]
+# Match the hosted project so `supabase start` reproduces it locally.
+major_version = 17
+
+[functions.parse-command]
+# The reader's own Supabase session authenticates the call, and the
+# per-reader rate limit in `claim_ai_request()` depends on it — so an
+# unauthenticated request must never reach the model provider.
+verify_jwt = true

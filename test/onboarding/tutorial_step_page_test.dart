@@ -1,8 +1,7 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/onboarding/presentation/pages/tutorial_step_page.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('shows the top content, heading, description, and button', (

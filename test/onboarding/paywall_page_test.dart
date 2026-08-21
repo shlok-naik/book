@@ -1,9 +1,3 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
-import 'package:purchases_ui_flutter/purchases_ui_flutter.dart'
-    show PaywallResult;
-
 import 'package:book/core/purchases/entitlements.dart';
 import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
@@ -12,6 +6,11 @@ import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.
 import 'package:book/features/onboarding/presentation/pages/paywall_page.dart';
 import 'package:book/features/onboarding/presentation/pages/purchase_thanks_page.dart';
 import 'package:book/features/onboarding/presentation/widgets/soft_pill_button.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:purchases_ui_flutter/purchases_ui_flutter.dart'
+    show PaywallResult;
 
 /// A [PurchasesService] whose every RevenueCat call is a canned
 /// result instead of a real platform-channel round trip — the same
@@ -444,7 +443,10 @@ void main() {
       // "join now" must buy the trial-free product, never the one
       // `_startFreeTrial` is meant to be the only path to — see
       // `PackageIds.yearlyNoTrial`'s doc comment.
-      expect(purchases.lastPurchasedPackage?.identifier, PackageIds.yearlyNoTrial);
+      expect(
+        purchases.lastPurchasedPackage?.identifier,
+        PackageIds.yearlyNoTrial,
+      );
       await continueFromThanksPage(tester);
       expect(find.byType(OneMoreThingPage), findsOneWidget);
     });
@@ -460,7 +462,9 @@ void main() {
 
         await tester.tap(find.text('not sure yet'));
         await settleFrames(tester);
-        await tester.tap(find.widgetWithText(SoftPillButton, 'start free trial'));
+        await tester.tap(
+          find.widgetWithText(SoftPillButton, 'start free trial'),
+        );
         await settleFrames(tester);
 
         expect(purchases.purchaseCalls, 1);
@@ -469,23 +473,20 @@ void main() {
       },
     );
 
-    testWidgets(
-      '"join now" falls back to the trial product if no trial-free '
-      'product is configured yet',
-      (tester) async {
-        final purchases = FakePurchasesService(
-          offering: _fakeOffering(includeNoTrialPackage: false),
-          purchaseResult: _fakeCustomerInfo(pro: true),
-        );
-        await pumpWithPurchases(tester, purchases);
+    testWidgets('"join now" falls back to the trial product if no trial-free '
+        'product is configured yet', (tester) async {
+      final purchases = FakePurchasesService(
+        offering: _fakeOffering(includeNoTrialPackage: false),
+        purchaseResult: _fakeCustomerInfo(pro: true),
+      );
+      await pumpWithPurchases(tester, purchases);
 
-        await tester.tap(find.text('join now'));
-        await settleFrames(tester);
+      await tester.tap(find.text('join now'));
+      await settleFrames(tester);
 
-        expect(purchases.lastPurchasedPackage?.identifier, PackageIds.yearly);
-        await continueFromThanksPage(tester);
-      },
-    );
+      expect(purchases.lastPurchasedPackage?.identifier, PackageIds.yearly);
+      await continueFromThanksPage(tester);
+    });
 
     testWidgets(
       'a purchase that leaves PRO inactive stays put with a message',

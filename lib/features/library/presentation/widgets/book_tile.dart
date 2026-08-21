@@ -50,7 +50,11 @@ class BookTile extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.sm),
         if (completion != null) ...[
-          _ProgressBar(value: completion, color: colors.accent, track: colors.divider),
+          _ProgressBar(
+            value: completion,
+            color: colors.accent,
+            track: colors.divider,
+          ),
           const SizedBox(height: AppSpacing.xs),
         ],
         Text(

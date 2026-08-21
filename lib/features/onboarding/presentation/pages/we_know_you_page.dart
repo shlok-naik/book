@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/onboarding_profile_repository.dart';
@@ -62,7 +63,18 @@ class WeKnowYouPage extends StatelessWidget {
   }
 
   Future<void> _backToHaveWeMet(BuildContext context) async {
-    await session.signOut().catchError((_) {});
+    // Best-effort: the point is to get back to the email question, and
+    // a sign-out that failed must not strand the reader on this screen.
+    try {
+      await session.signOut();
+    } on Object catch (error, stackTrace) {
+      AppLogger.warning(
+        'WeKnowYouPage',
+        'Signing out before retrying with another email failed.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
     if (!context.mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -93,7 +105,9 @@ class WeKnowYouPage extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            name != null ? "you're $name right?" : "this is already you, right?",
+            name != null
+                ? "you're $name right?"
+                : 'this is already you, right?',
             style: GoogleFonts.inter(
               fontSize: 14,
               height: 1.5,

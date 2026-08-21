@@ -114,31 +114,88 @@ class _StreaksPageState extends State<StreaksPage> {
                 if (controller != null)
                   AnimatedBuilder(
                     animation: controller,
-                    builder: (context, _) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (var i = 1; i <= 12; i++) ...[
-                          if (i > 1) const SizedBox(height: _rowGap),
-                          MonthDotGrid(
-                            month: i,
-                            year: year,
-                            labelGap: _rowGap,
-                            symbolFor: controller.symbolFor,
-                            onDayTap: (date) => showDayDetailSheet(
-                              context,
-                              date,
-                              events: controller.eventsFor(date),
+                    builder: (context, _) {
+                      // A failed load takes the place of the grid rather
+                      // than sitting above it: with nothing loaded the
+                      // grid is twelve rows of empty days, which reads
+                      // as "you have never logged anything" — the exact
+                      // wrong thing to show when the truth is that we
+                      // could not find out.
+                      final error = controller.errorMessage;
+                      if (error != null) {
+                        return _LoadFailure(
+                          message: error,
+                          onRetry: () => controller.load(year),
+                        );
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (var i = 1; i <= 12; i++) ...[
+                            if (i > 1) const SizedBox(height: _rowGap),
+                            MonthDotGrid(
+                              month: i,
+                              year: year,
+                              labelGap: _rowGap,
+                              symbolFor: controller.symbolFor,
+                              onDayTap: (date) => showDayDetailSheet(
+                                context,
+                                date,
+                                events: controller.eventsFor(date),
+                              ),
                             ),
-                          ),
+                          ],
                         ],
-                      ],
-                    ),
+                      );
+                    },
                   ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// What the streaks page shows instead of the year when it could not be
+/// loaded: what went wrong, and the one thing worth offering — another
+/// attempt.
+class _LoadFailure extends StatelessWidget {
+  const _LoadFailure({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          message,
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            height: 1.5,
+            color: colors.secondaryText,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        GestureDetector(
+          onTap: onRetry,
+          behavior: HitTestBehavior.opaque,
+          child: Text(
+            'try again',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: colors.accent,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

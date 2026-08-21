@@ -1,17 +1,19 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
+import 'package:book/features/library/data/reading_event_repository.dart';
 import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
 import 'package:book/features/library/domain/library_book.dart';
+import 'package:book/features/library/domain/library_exception.dart';
+import 'package:book/features/library/domain/reading_event.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
 import 'package:book/features/onboarding/data/session_service.dart';
 import 'package:book/main.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -104,7 +106,26 @@ class _AlwaysSignedIn extends SessionService {
   bool get isSignedIn => true;
 }
 
-LibraryController _newLibraryController() {
+/// A reading-event log that never touches Supabase. [failure], when
+/// set, is what [fetchForYear] throws — the streaks page renders quite
+/// differently when its year could not be loaded at all, and that
+/// difference is worth testing.
+class _FakeReadingEventRepository extends ReadingEventRepository {
+  _FakeReadingEventRepository({this.failure});
+
+  final LibraryException? failure;
+
+  @override
+  Future<void> log(ReadingEventType type, {required String title}) async {}
+
+  @override
+  Future<List<ReadingEvent>> fetchForYear(int year) async {
+    if (failure != null) throw failure!;
+    return const [];
+  }
+}
+
+LibraryController _newLibraryController({LibraryException? eventsFailure}) {
   return LibraryController(
     lookup: BookLookupService(
       cache: _AlwaysHitCache(),
@@ -113,6 +134,7 @@ LibraryController _newLibraryController() {
       ),
     ),
     userBooks: _InMemoryUserBookRepository(),
+    events: _FakeReadingEventRepository(failure: eventsFailure),
   );
 }
 
@@ -162,27 +184,34 @@ void main() {
     await finishAccept(tester);
   }
 
-  testWidgets('Log page is the default view, with a text box that confirms on submit',
-      (WidgetTester tester) async {
+  testWidgets(
+    'Log page is the default view, with a text box that confirms on submit',
+    (WidgetTester tester) async {
+      await useDeviceSize(tester);
+      await tester.pumpWidget(
+        BookApp(
+          libraryController: _newLibraryController(),
+          sessionService: _AlwaysSignedIn(),
+        ),
+      );
+
+      expect(find.byType(TextField), findsOneWidget);
+
+      await submit(tester, 'start Dune');
+      expect(find.text('Started "Dune"'), findsOneWidget);
+    },
+  );
+
+  testWidgets('recognizes update, finish, and rate commands', (
+    WidgetTester tester,
+  ) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
-
-    expect(find.byType(TextField), findsOneWidget);
-
-    await submit(tester, 'start Dune');
-    expect(find.text('Started "Dune"'), findsOneWidget);
-  });
-
-  testWidgets('recognizes update, finish, and rate commands',
-      (WidgetTester tester) async {
-    await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        sessionService: _AlwaysSignedIn(),
+      ),
+    );
 
     await submit(tester, 'start Dune');
     expect(find.text('Started "Dune"'), findsOneWidget);
@@ -197,14 +226,16 @@ void main() {
     expect(find.text('"Dune" — 5★'), findsOneWidget);
   });
 
-  testWidgets(
-      'strikes the command through in place, then clears the field',
-      (WidgetTester tester) async {
+  testWidgets('strikes the command through in place, then clears the field', (
+    WidgetTester tester,
+  ) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        sessionService: _AlwaysSignedIn(),
+      ),
+    );
 
     await send(tester, 'start Dune');
 
@@ -220,61 +251,69 @@ void main() {
   });
 
   testWidgets(
-      'the struck-through text keeps the exact size and position it had '
-      'while being typed', (WidgetTester tester) async {
-    await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
-
-    final editable = find.byType(EditableText);
-    TextStyle styleNow() => tester.widget<EditableText>(editable).style;
-
-    await tester.enterText(find.byType(TextField), 'start Dune');
-    await tester.pump();
-    final typedRect = tester.getRect(editable);
-    final typedStyle = styleNow();
-
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pump();
-    await tester.pump();
-
-    // Sampled across the strike — start, middle, and end — because a
-    // swap-in stand-in widget would only betray itself on the frames
-    // where it is actually mounted.
-    for (final elapsed in const [0, 150, 300, 550]) {
-      await tester.pump(Duration(milliseconds: elapsed));
-      expect(
-        tester.getRect(editable),
-        typedRect,
-        reason: 'text moved or resized ${elapsed}ms into the strike',
+    'the struck-through text keeps the exact size and position it had '
+    'while being typed',
+    (WidgetTester tester) async {
+      await useDeviceSize(tester);
+      await tester.pumpWidget(
+        BookApp(
+          libraryController: _newLibraryController(),
+          sessionService: _AlwaysSignedIn(),
+        ),
       );
-      expect(styleNow().fontSize, typedStyle.fontSize);
-      expect(styleNow().height, typedStyle.height);
-      expect(styleNow().color, typedStyle.color);
-    }
 
-    await finishAccept(tester);
-  });
+      final editable = find.byType(EditableText);
+      TextStyle styleNow() => tester.widget<EditableText>(editable).style;
 
-  testWidgets('the strikethrough grows across the text as it animates',
-      (WidgetTester tester) async {
+      await tester.enterText(find.byType(TextField), 'start Dune');
+      await tester.pump();
+      final typedRect = tester.getRect(editable);
+      final typedStyle = styleNow();
+
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.pump();
+
+      // Sampled across the strike — start, middle, and end — because a
+      // swap-in stand-in widget would only betray itself on the frames
+      // where it is actually mounted.
+      for (final elapsed in const [0, 150, 300, 550]) {
+        await tester.pump(Duration(milliseconds: elapsed));
+        expect(
+          tester.getRect(editable),
+          typedRect,
+          reason: 'text moved or resized ${elapsed}ms into the strike',
+        );
+        expect(styleNow().fontSize, typedStyle.fontSize);
+        expect(styleNow().height, typedStyle.height);
+        expect(styleNow().color, typedStyle.color);
+      }
+
+      await finishAccept(tester);
+    },
+  );
+
+  testWidgets('the strikethrough grows across the text as it animates', (
+    WidgetTester tester,
+  ) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        sessionService: _AlwaysSignedIn(),
+      ),
+    );
 
     // Counts characters carrying a lineThrough decoration in whatever
     // the field is currently rendering — the strike's actual extent.
     int struckCharacters() {
-      final span = tester.widget<EditableText>(
-        find.byType(EditableText),
-      ).controller.buildTextSpan(
-        context: tester.element(find.byType(EditableText)),
-        withComposing: false,
-      );
+      final span = tester
+          .widget<EditableText>(find.byType(EditableText))
+          .controller
+          .buildTextSpan(
+            context: tester.element(find.byType(EditableText)),
+            withComposing: false,
+          );
       var struck = 0;
       span.visitChildren((visited) {
         if (visited is TextSpan &&
@@ -300,13 +339,16 @@ void main() {
     await finishAccept(tester);
   });
 
-  testWidgets('keeps the field and shakes for an unrecognized command',
-      (WidgetTester tester) async {
+  testWidgets('keeps the field and shakes for an unrecognized command', (
+    WidgetTester tester,
+  ) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        sessionService: _AlwaysSignedIn(),
+      ),
+    );
 
     await tester.enterText(find.byType(TextField), 'gibberish');
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -317,39 +359,45 @@ void main() {
   });
 
   testWidgets(
-      'keeps the field and shakes for a recognized command that fails to '
-      'apply — e.g. starting a book already on the shelf',
-      (WidgetTester tester) async {
+    'keeps the field and shakes for a recognized command that fails to '
+    'apply — e.g. starting a book already on the shelf',
+    (WidgetTester tester) async {
+      await useDeviceSize(tester);
+      await tester.pumpWidget(
+        BookApp(
+          libraryController: _newLibraryController(),
+          sessionService: _AlwaysSignedIn(),
+        ),
+      );
+
+      await submit(tester, 'start Dune');
+      expect(find.text('Started "Dune"'), findsOneWidget);
+
+      // Same book again — the second start is a no-op, not a success.
+      await send(tester, 'start Dune');
+
+      expect(find.text('"Dune" is already on your shelf.'), findsOneWidget);
+      // The text stays put for correcting, and no strike runs over it.
+      expect(find.text('start Dune'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(
+        find.text('start Dune'),
+        findsOneWidget,
+        reason: 'a rejected command must not be struck through or cleared',
+      );
+    },
+  );
+
+  testWidgets('refuses to rate a book that is not finished yet', (
+    WidgetTester tester,
+  ) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
-
-    await submit(tester, 'start Dune');
-    expect(find.text('Started "Dune"'), findsOneWidget);
-
-    // Same book again — the second start is a no-op, not a success.
-    await send(tester, 'start Dune');
-
-    expect(find.text('"Dune" is already on your shelf.'), findsOneWidget);
-    // The text stays put for correcting, and no strike runs over it.
-    expect(find.text('start Dune'), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 800));
-    expect(
-      find.text('start Dune'),
-      findsOneWidget,
-      reason: 'a rejected command must not be struck through or cleared',
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        sessionService: _AlwaysSignedIn(),
+      ),
     );
-  });
-
-  testWidgets('refuses to rate a book that is not finished yet',
-      (WidgetTester tester) async {
-    await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
 
     await submit(tester, 'start Dune');
     await send(tester, 'rate Dune 5');
@@ -360,43 +408,73 @@ void main() {
   });
 
   testWidgets(
-      'clears the confirmation pill on its own after a few seconds, for '
-      'both success and error', (WidgetTester tester) async {
+    'clears the confirmation pill on its own after a few seconds, for '
+    'both success and error',
+    (WidgetTester tester) async {
+      await useDeviceSize(tester);
+      await tester.pumpWidget(
+        BookApp(
+          libraryController: _newLibraryController(),
+          sessionService: _AlwaysSignedIn(),
+        ),
+      );
+
+      await submit(tester, 'start Dune');
+      expect(find.text('Started "Dune"'), findsOneWidget);
+      // Let the lifetime timer fire, then pump incrementally so the
+      // fade-out animation it kicks off actually ticks to completion.
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(find.text('Started "Dune"'), findsNothing);
+
+      await tester.enterText(find.byType(TextField), 'gibberish');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(find.textContaining('Not recognized'), findsOneWidget);
+      // Let the lifetime timer fire, then pump incrementally so the
+      // fade-out animation it kicks off actually ticks to completion.
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Not recognized'), findsNothing);
+    },
+  );
+
+  testWidgets('Streaks page is reachable and grouped by month', (
+    WidgetTester tester,
+  ) async {
     await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
-
-    await submit(tester, 'start Dune');
-    expect(find.text('Started "Dune"'), findsOneWidget);
-    // Let the lifetime timer fire, then pump incrementally so the
-    // fade-out animation it kicks off actually ticks to completion.
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
-    expect(find.text('Started "Dune"'), findsNothing);
-
-    await tester.enterText(find.byType(TextField), 'gibberish');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pump();
-    expect(find.textContaining('Not recognized'), findsOneWidget);
-    // Let the lifetime timer fire, then pump incrementally so the
-    // fade-out animation it kicks off actually ticks to completion.
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Not recognized'), findsNothing);
-  });
-
-  testWidgets('Streaks page is reachable and grouped by month',
-      (WidgetTester tester) async {
-    await useDeviceSize(tester);
-    await tester.pumpWidget(BookApp(
-      libraryController: _newLibraryController(),
-      sessionService: _AlwaysSignedIn(),
-    ));
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        sessionService: _AlwaysSignedIn(),
+      ),
+    );
     await goToStreaksPage(tester);
 
     expect(find.text('january'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });
+
+  testWidgets(
+    'Streaks page says so when the year could not be loaded, rather than '
+    'drawing an empty one',
+    (WidgetTester tester) async {
+      await useDeviceSize(tester);
+      await tester.pumpWidget(
+        BookApp(
+          libraryController: _newLibraryController(
+            eventsFailure: const NetworkException('You are offline.'),
+          ),
+          sessionService: _AlwaysSignedIn(),
+        ),
+      );
+      await goToStreaksPage(tester);
+
+      // An empty grid would be indistinguishable from "you have never
+      // logged anything", so the months must not be drawn at all.
+      expect(find.text('january'), findsNothing);
+      expect(find.text('You are offline.'), findsOneWidget);
+      expect(find.text('try again'), findsOneWidget);
+    },
+  );
 }

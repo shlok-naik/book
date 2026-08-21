@@ -1,6 +1,5 @@
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:book/features/logging/domain/log_command_parser.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('LogCommandParser', () {

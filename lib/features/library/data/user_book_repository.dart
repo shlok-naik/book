@@ -42,28 +42,25 @@ class UserBookRepository {
   /// under us) are skipped rather than failing the load — one orphan
   /// must not blank the entire library.
   Future<List<LibraryBook>> fetchLibrary() {
-    return runSupabase(
-      () async {
-        final rows = await _client
-            .from(_table)
-            .select(_withBook)
-            .order('updated_at', ascending: false);
+    return runSupabase(() async {
+      final rows = await _client
+          .from(_table)
+          .select(_withBook)
+          .order('updated_at', ascending: false);
 
-        final library = <LibraryBook>[];
-        for (final row in rows) {
-          final bookRow = row['book'];
-          if (bookRow is! Map<String, dynamic>) continue;
-          library.add(
-            LibraryBook(
-              book: Book.fromRow(bookRow),
-              progress: UserBook.fromRow(row),
-            ),
-          );
-        }
-        return library;
-      },
-      friendlyMessage: "We couldn't load your library.",
-    );
+      final library = <LibraryBook>[];
+      for (final row in rows) {
+        final bookRow = row['book'];
+        if (bookRow is! Map<String, dynamic>) continue;
+        library.add(
+          LibraryBook(
+            book: Book.fromRow(bookRow),
+            progress: UserBook.fromRow(row),
+          ),
+        );
+      }
+      return library;
+    }, friendlyMessage: "We couldn't load your library.");
   }
 
   /// Starts (or re-opens) a book at page 0.
@@ -75,31 +72,28 @@ class UserBookRepository {
   /// happened, so `LibraryController.startBook` can treat a repeat
   /// `start` as the no-op it is rather than reporting a fresh success.
   Future<StartOutcome> start(String bookId) {
-    return runSupabase(
-      () async {
-        final existing = await _client
-            .from(_table)
-            .select()
-            .eq('book_id', bookId)
-            .maybeSingle();
-        if (existing != null) {
-          return StartOutcome(UserBook.fromRow(existing), alreadyExists: true);
-        }
+    return runSupabase(() async {
+      final existing = await _client
+          .from(_table)
+          .select()
+          .eq('book_id', bookId)
+          .maybeSingle();
+      if (existing != null) {
+        return StartOutcome(UserBook.fromRow(existing), alreadyExists: true);
+      }
 
-        final row = await _client
-            .from(_table)
-            .insert({
-              'book_id': bookId,
-              'current_page': 0,
-              'status': ReadingStatus.reading.wireValue,
-              'started_at': DateTime.now().toUtc().toIso8601String(),
-            })
-            .select()
-            .single();
-        return StartOutcome(UserBook.fromRow(row), alreadyExists: false);
-      },
-      friendlyMessage: "We couldn't add that book to your library.",
-    );
+      final row = await _client
+          .from(_table)
+          .insert({
+            'book_id': bookId,
+            'current_page': 0,
+            'status': ReadingStatus.reading.wireValue,
+            'started_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .select()
+          .single();
+      return StartOutcome(UserBook.fromRow(row), alreadyExists: false);
+    }, friendlyMessage: "We couldn't add that book to your library.");
   }
 
   /// Persists a new page count, and the finished flag it may imply.
@@ -115,28 +109,29 @@ class UserBookRepository {
       throw const InvalidInputException("A page number can't be negative.");
     }
 
-    return runSupabase(
-      () async {
-        final now = DateTime.now().toUtc().toIso8601String();
-        final row = await _client
-            .from(_table)
-            .update({
-              'current_page': currentPage,
-              'status': finished
-                  ? ReadingStatus.finished.wireValue
-                  : ReadingStatus.reading.wireValue,
-              // Clearing finished_at when a finished book is re-opened
-              // keeps the column honest.
-              'finished_at': finished ? now : null,
-              'updated_at': now,
-            })
-            .eq('id', userBookId)
-            .select()
-            .single();
-        return UserBook.fromRow(row);
-      },
-      friendlyMessage: "We couldn't save your progress.",
-    );
+    return runSupabase(() async {
+      final now = DateTime.now().toUtc().toIso8601String();
+      final row = await _client
+          .from(_table)
+          .update({
+            'current_page': currentPage,
+            'status': finished
+                ? ReadingStatus.finished.wireValue
+                : ReadingStatus.reading.wireValue,
+            // Clearing finished_at when a finished book is re-opened
+            // keeps the column honest.
+            'finished_at': finished ? now : null,
+            // `updated_at` is deliberately absent: a database trigger
+            // (`user_books_touch_updated_at`) sets it from the server
+            // clock. The shelf is ordered by that column, so letting
+            // the client supply it let a device with a skewed clock
+            // pin its own rows to the top or bottom of the ordering.
+          })
+          .eq('id', userBookId)
+          .select()
+          .single();
+      return UserBook.fromRow(row);
+    }, friendlyMessage: "We couldn't save your progress.");
   }
 
   /// Persists a rating — `rate <book> <stars>`.
@@ -148,26 +143,20 @@ class UserBookRepository {
   /// fast instead of round-tripping to Supabase first.
   Future<UserBook> rate({required String userBookId, required double rating}) {
     if (rating <= 0 || rating > 5) {
-      throw const InvalidInputException(
-        'Ratings are between 0.5 and 5 stars.',
-      );
+      throw const InvalidInputException('Ratings are between 0.5 and 5 stars.');
     }
 
-    return runSupabase(
-      () async {
-        final row = await _client
-            .from(_table)
-            .update({
-              'rating': rating,
-              'updated_at': DateTime.now().toUtc().toIso8601String(),
-            })
-            .eq('id', userBookId)
-            .select()
-            .single();
-        return UserBook.fromRow(row);
-      },
-      friendlyMessage: "We couldn't save that rating.",
-    );
+    return runSupabase(() async {
+      final row = await _client
+          .from(_table)
+          // As in `updateProgress`, `updated_at` is left to the
+          // database trigger rather than sent from here.
+          .update({'rating': rating})
+          .eq('id', userBookId)
+          .select()
+          .single();
+      return UserBook.fromRow(row);
+    }, friendlyMessage: "We couldn't save that rating.");
   }
 
   /// Removes a book from the shelf — `delete <book>`.
@@ -177,11 +166,8 @@ class UserBookRepository {
   /// another lookup that happens to match the same volume) is still a
   /// hit instead of re-fetching from Google Books.
   Future<void> delete(String userBookId) {
-    return runSupabase<void>(
-      () async {
-        await _client.from(_table).delete().eq('id', userBookId);
-      },
-      friendlyMessage: "We couldn't remove that book.",
-    );
+    return runSupabase<void>(() async {
+      await _client.from(_table).delete().eq('id', userBookId);
+    }, friendlyMessage: "We couldn't remove that book.");
   }
 }

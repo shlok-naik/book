@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../../../core/ai/groq_client.dart';
+import '../../../../core/ai/ai_command_parser.dart';
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -47,11 +47,12 @@ class _SlidingGradientTransform extends GradientTransform {
 /// keeps the input's "never move the text" guarantee from depending on
 /// anything the page does.
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.groq});
+  const HomePage({super.key, this.aiParser});
 
   /// Injection point for tests: a fake wrapping fixed extractions
-  /// instead of a real Groq call. Null in the app.
-  final GroqClient? groq;
+  /// instead of a real call to the `parse-command` edge function. Null
+  /// in the app.
+  final AiCommandParser? aiParser;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -64,11 +65,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   static const _messageFadeOut = Duration(milliseconds: 400);
 
   final _focusNode = FocusNode();
-  late final GroqClient _groq = widget.groq ?? GroqClient();
-
-  /// Only dispose a client we built ourselves — an injected one belongs
-  /// to the caller.
-  bool get _ownsGroq => widget.groq == null;
+  late final AiCommandParser _ai =
+      widget.aiParser ?? const EdgeFunctionCommandParser();
 
   String? _message;
   Timer? _messageTimer;
@@ -78,7 +76,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// ever populated on the "cactus pro" AI path, never the manual one.
   List<_Instruction>? _instructions;
 
-  /// True from the moment a sentence is handed to Groq until it comes
+  /// True from the moment a sentence is handed to the AI until it comes
   /// back (however that turns out) — [build] uses this to tint
   /// [CommandInput]'s still-visible typed text with [_aiGradient]
   /// while it's genuinely waiting on a response, never before or after.
@@ -115,7 +113,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void dispose() {
     _focusNode.dispose();
-    if (_ownsGroq) _groq.dispose();
     _messageOpacity.dispose();
     _instructionsOpacity.dispose();
     _thinkingGradient.dispose();
@@ -124,7 +121,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   /// Routes a submitted line to whichever mode is active — the manual
-  /// parser, or (on "cactus pro") Groq's natural-language extraction.
+  /// parser, or (on "cactus pro") the AI's natural-language extraction.
   /// Read at submit time rather than cached, so a mid-session plan
   /// switch takes effect on the very next command.
   Future<bool> _run(String command) {
@@ -133,7 +130,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   /// Parses [command] and applies it — the one place that decision gets
   /// made, used identically by [_runManual] (on the whole typed line)
-  /// and [_runAi] (on each line Groq extracts). Every caller pops
+  /// and [_runAi] (on each line the AI extracts). Every caller pops
   /// [message] into the same pill regardless of which of the two ways a
   /// line can be refused it hit: syntax the parser doesn't recognize,
   /// or syntax it does recognize but that the library rejects (offline,
@@ -164,13 +161,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return result.success;
   }
 
-  /// Sends a free-form sentence to Groq and, once it comes back, swaps
+  /// Sends a free-form sentence to the AI and, once it comes back, swaps
   /// the typed sentence out for the extracted lines themselves —
   /// [build] renders [_instructions] in the exact spot and exact style
   /// [CommandInput] occupied, so the paragraph reads as if it just
   /// turned into those commands rather than sitting alongside them. A
   /// sentence with nothing recognizable in it still comes back as one
-  /// line — [GroqClient]'s own prompt asks for the literal word
+  /// line — the edge function's own prompt asks for the literal word
   /// "gibberish" in that case rather than an empty list — so that line
   /// goes through the same swap and the same unrecognized-command path
   /// as any other, instead of needing a special case here.
@@ -181,7 +178,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// running the lines is now entirely [_instructions]' and
   /// [InstructionRow]'s job.
   ///
-  /// A Groq failure itself (not a line inside it — the extraction call
+  /// An AI failure itself (not a line inside it — the extraction call
   /// itself) is reported through the same pill and rejects the line
   /// outright, before anything is even attempted — [CommandInput] is
   /// still there to shake in that case, never a silent fallback to
@@ -191,8 +188,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _thinkingGradient.repeat();
     final List<String> commands;
     try {
-      commands = await _groq.extractCommands(command);
-    } on GroqException catch (error) {
+      commands = await _ai.extractCommands(command);
+    } on AiCommandException catch (error) {
       _thinkingGradient.stop();
       if (!mounted) return false;
       setState(() => _aiThinking = false);
@@ -202,7 +199,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _thinkingGradient.stop();
     if (!mounted) return false;
 
-    // The prompt asks Groq for a literal "gibberish" line rather than
+    // The prompt asks for a literal "gibberish" line rather than
     // an empty list when it finds nothing — this is a defensive fallback
     // for the rare reply that doesn't comply, not the normal path.
     final effectiveCommands = commands.isEmpty ? const ['gibberish'] : commands;
@@ -331,7 +328,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
   }
 
-  /// The one type style shared by [CommandInput] and, once Groq's
+  /// The one type style shared by [CommandInput] and, once the AI's
   /// extracted lines replace it, every [InstructionRow] — so a command
   /// reads exactly like it was typed there itself, just swapped in
   /// rather than edited into.

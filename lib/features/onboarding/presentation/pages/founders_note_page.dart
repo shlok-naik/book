@@ -41,9 +41,9 @@ class FoundersNotePage extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            "i built cactus cuz every other tracker made reading feel "
-            "like math homework (lol). thanks for giving it a try - i "
-            "hope you love it as much as i do.",
+            'i built cactus cuz every other tracker made reading feel '
+            'like math homework (lol). thanks for giving it a try - i '
+            'hope you love it as much as i do.',
             style: GoogleFonts.inter(
               fontSize: 14,
               height: 1.5,

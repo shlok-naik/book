@@ -28,17 +28,14 @@ class BookCacheRepository {
   Future<Book?> findByGoogleBooksId(String googleBooksId) {
     if (googleBooksId.trim().isEmpty) return Future.value(null);
 
-    return runSupabase(
-      () async {
-        final row = await _client
-            .from(_table)
-            .select()
-            .eq('google_books_id', googleBooksId.trim())
-            .maybeSingle();
-        return row == null ? null : Book.fromRow(row);
-      },
-      friendlyMessage: "We couldn't check your saved books.",
-    );
+    return runSupabase(() async {
+      final row = await _client
+          .from(_table)
+          .select()
+          .eq('google_books_id', googleBooksId.trim())
+          .maybeSingle();
+      return row == null ? null : Book.fromRow(row);
+    }, friendlyMessage: "We couldn't check your saved books.");
   }
 
   /// Cache lookup by what the user actually typed.
@@ -53,21 +50,18 @@ class BookCacheRepository {
     final trimmedTitle = title.trim();
     if (trimmedTitle.isEmpty) return Future.value(null);
 
-    return runSupabase(
-      () async {
-        final exact = await _selectFirst(
-          titlePattern: escapeLikePattern(trimmedTitle),
-          author: author,
-        );
-        if (exact != null) return exact;
+    return runSupabase(() async {
+      final exact = await _selectFirst(
+        titlePattern: escapeLikePattern(trimmedTitle),
+        author: author,
+      );
+      if (exact != null) return exact;
 
-        return _selectFirst(
-          titlePattern: '${escapeLikePattern(trimmedTitle)}%',
-          author: author,
-        );
-      },
-      friendlyMessage: "We couldn't check your saved books.",
-    );
+      return _selectFirst(
+        titlePattern: '${escapeLikePattern(trimmedTitle)}%',
+        author: author,
+      );
+    }, friendlyMessage: "We couldn't check your saved books.");
   }
 
   Future<Book?> _selectFirst({
@@ -89,9 +83,14 @@ class BookCacheRepository {
   /// Writes a Google Books volume into the cache and returns the stored
   /// row (we need Supabase's generated `id` to hang progress off).
   ///
-  /// Upserts on `google_books_id` so a concurrent write — two "start"
-  /// commands for the same book racing — resolves to one row instead of
-  /// raising a unique-constraint error.
+  /// Goes through the `cache_book` database function rather than a
+  /// direct upsert, because `books` is not client-writable: it is a
+  /// cache *shared* by every reader, so a table-level insert/update
+  /// grant would also let any one of them rewrite or delete rows out
+  /// from under everyone else. The function upserts on
+  /// `google_books_id` — so a concurrent write (two "start" commands
+  /// for the same book racing) resolves to one row rather than raising
+  /// a unique-constraint error — and can do nothing else.
   Future<Book> cache(GoogleBook volume) {
     if (volume.id.trim().isEmpty) {
       throw const RemoteDataException(
@@ -100,23 +99,19 @@ class BookCacheRepository {
       );
     }
 
-    return runSupabase(
-      () async {
-        final row = await _client
-            .from(_table)
-            .upsert({
-              'google_books_id': volume.id.trim(),
-              'title': volume.title,
-              'author': volume.authorLine,
-              'cover_url': volume.thumbnailUrl,
-              'page_count': volume.pageCount,
-              'description': volume.description,
-            }, onConflict: 'google_books_id')
-            .select()
-            .single();
-        return Book.fromRow(row);
-      },
-      friendlyMessage: "We couldn't save that book to your library.",
-    );
+    return runSupabase(() async {
+      final row = await _client.rpc<Map<String, dynamic>>(
+        'cache_book',
+        params: {
+          'p_google_books_id': volume.id.trim(),
+          'p_title': volume.title,
+          'p_author': volume.authorLine,
+          'p_cover_url': volume.thumbnailUrl,
+          'p_page_count': volume.pageCount,
+          'p_description': volume.description,
+        },
+      );
+      return Book.fromRow(row);
+    }, friendlyMessage: "We couldn't save that book to your library.");
   }
 }

@@ -1,9 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:book/core/theme/app_colors.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/onboarding/presentation/widgets/onboarding_progress_dots.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('fills dots up to currentStep and leaves the rest hollow', (

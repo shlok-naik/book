@@ -49,3 +49,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Agent tooling caches — local to whoever is running the assistant.
+.agents/
+.claude/skills/
+skills-lock.json

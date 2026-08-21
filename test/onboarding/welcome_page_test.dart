@@ -1,6 +1,3 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
@@ -15,6 +12,8 @@ import 'package:book/features/onboarding/data/onboarding_profile_repository.dart
 import 'package:book/features/onboarding/data/session_service.dart';
 import 'package:book/features/onboarding/presentation/pages/add_book_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/welcome_page.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -68,20 +67,28 @@ void main() {
   }
 
   testWidgets('shows the "cactus" wordmark', (tester) async {
-    await tester.pumpWidget(harness(WelcomePage(
-        session: FakeSessionService(),
-        profiles: OnboardingProfileRepository(),
-      )));
+    await tester.pumpWidget(
+      harness(
+        WelcomePage(
+          session: FakeSessionService(),
+          profiles: OnboardingProfileRepository(),
+        ),
+      ),
+    );
     await settle(tester);
 
     expect(find.text('cactus'), findsOneWidget);
   });
 
   testWidgets('shows the description once settled', (tester) async {
-    await tester.pumpWidget(harness(WelcomePage(
-        session: FakeSessionService(),
-        profiles: OnboardingProfileRepository(),
-      )));
+    await tester.pumpWidget(
+      harness(
+        WelcomePage(
+          session: FakeSessionService(),
+          profiles: OnboardingProfileRepository(),
+        ),
+      ),
+    );
     await settle(tester);
 
     expect(
@@ -96,10 +103,14 @@ void main() {
 
   testWidgets('shows the start button once settled, and tapping it opens '
       'the first tutorial step', (tester) async {
-    await tester.pumpWidget(harness(WelcomePage(
-        session: FakeSessionService(),
-        profiles: OnboardingProfileRepository(),
-      )));
+    await tester.pumpWidget(
+      harness(
+        WelcomePage(
+          session: FakeSessionService(),
+          profiles: OnboardingProfileRepository(),
+        ),
+      ),
+    );
     await settle(tester);
 
     expect(find.text('start'), findsOneWidget);

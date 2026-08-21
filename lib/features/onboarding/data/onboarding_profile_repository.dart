@@ -14,7 +14,8 @@ import 'session_service.dart' show OnboardingException;
 class OnboardingProfileRepository {
   /// As in `SessionService`/`UserBookRepository`, the client is resolved
   /// lazily so this can exist before `Supabase.initialize` has run.
-  OnboardingProfileRepository({SupabaseClient? client}) : _injectedClient = client;
+  OnboardingProfileRepository({SupabaseClient? client})
+    : _injectedClient = client;
 
   final SupabaseClient? _injectedClient;
 
@@ -35,7 +36,9 @@ class OnboardingProfileRepository {
       if (draft.readingMinutesPerDay != null) {
         values['reading_minutes_per_day'] = draft.readingMinutesPerDay;
       }
-      if (draft.name != null && draft.name!.isNotEmpty) values['name'] = draft.name;
+      if (draft.name != null && draft.name!.isNotEmpty) {
+        values['name'] = draft.name;
+      }
       if (draft.description != null && draft.description!.isNotEmpty) {
         values['description'] = draft.description;
       }

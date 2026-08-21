@@ -66,6 +66,11 @@ class PurchasesService {
     final existing = _customerInfoController;
     if (existing != null) return existing.stream;
 
+    // The controller's lifetime is its listeners': `onCancel` below both
+    // detaches the SDK callback and drops the static reference, so
+    // nothing is left holding it open. The analyzer cannot see that
+    // through the static field, hence the ignore.
+    // ignore: close_sinks
     late final StreamController<CustomerInfo> controller;
     void listener(CustomerInfo info) => controller.add(info);
 

@@ -1,28 +1,90 @@
-# This file configures the analyzer, which statically analyzes Dart code to
-# check for errors, warnings, and lints.
+# Static analysis for the cactus app.
 #
-# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
-# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
-# invoked from the command line by running `flutter analyze`.
+# `flutter analyze` must stay at zero issues — CI treats any info-level
+# hint as a failure (see .github/workflows/ci.yml), so a rule enabled
+# here is a rule the codebase actually holds to. Prefer fixing code over
+# adding an `// ignore:`; if a rule genuinely does not suit the project,
+# turn it off here with a comment saying why, so the decision is visible.
 
-# The following line activates a set of recommended lints for Flutter apps,
-# packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
-linter:
-  # The lint rules applied to this project can be customized in the
-  # section below to disable rules from the `package:flutter_lints/flutter.yaml`
-  # included above or to enable additional rules. A list of all available lints
-  # and their documentation is published at https://dart.dev/lints.
-  #
-  # Instead of disabling a lint rule for the entire project in the
-  # section below, it can also be suppressed for a single line of code
-  # or a specific dart file by using the `// ignore: name_of_lint` and
-  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
-  # producing the lint.
-  rules:
-    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+analyzer:
+  # A few things flutter_lints reports as hints are, in an app, real
+  # defects — promote them so they cannot be merged past.
+  errors:
+    # Awaiting an unrelated Future by accident, or forgetting to await
+    # one at all, is the most common source of "it worked on my machine"
+    # races in this codebase's optimistic command paths.
+    unawaited_futures: error
+    discarded_futures: error
+    # A dangling `BuildContext` across an await is a crash waiting for a
+    # slow network.
+    use_build_context_synchronously: error
+    # Dead code and unused members are usually the residue of a
+    # half-finished change.
+    unused_element: error
+    unused_field: error
+    unused_import: error
+    unused_local_variable: error
+    # TODOs are fine; silently shipping one that the analyzer flagged is
+    # not what this is about, so keep them merely informational.
+    todo: ignore
 
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - build/**
+
+linter:
+  rules:
+    # ---------------------------------------------------------- safety
+    always_declare_return_types: true
+    avoid_dynamic_calls: true
+    avoid_empty_else: true
+    avoid_slow_async_io: true
+    avoid_type_to_string: true
+    cancel_subscriptions: true
+    close_sinks: true
+    # Deliberately off: the house style cross-references types from
+    # other files in doc comments (`[LibraryController]` from a widget,
+    # say) without importing them just to satisfy the linker. The links
+    # are for a human reader, and adding ~30 unused-at-runtime imports to
+    # make them resolve would be worse code.
+    comment_references: false
+    literal_only_boolean_expressions: true
+    no_adjacent_strings_in_list: true
+    only_throw_errors: true
+    test_types_in_equals: true
+    throw_in_finally: true
+    unnecessary_statements: true
+    # `print` bypasses AppLogger, and is compiled out of release builds
+    # anyway — see lib/core/diagnostics/app_logger.dart.
+    avoid_print: true
+
+    # ------------------------------------------------------ correctness
+    always_use_package_imports: false # relative imports are the house style
+    avoid_returning_null_for_void: true
+    prefer_final_in_for_each: true
+    prefer_final_locals: false # `var` is fine for genuinely re-assigned locals
+    unnecessary_await_in_return: true
+    unnecessary_null_aware_assignments: true
+    unnecessary_parenthesis: true
+    use_super_parameters: true
+
+    # ------------------------------------------------------------ style
+    directives_ordering: true
+    prefer_single_quotes: true
+    require_trailing_commas: true
+    sort_child_properties_last: true
+    sized_box_for_whitespace: true
+    use_colored_box: true
+    use_decorated_box: true
+    use_named_constants: true
+    use_string_buffers: true
+
+    # ------------------------------------------------------------- docs
+    # Public API of the app is small and the codebase documents *why*
+    # rather than *what*, so a blanket "every member needs a doc" rule
+    # would produce noise, not documentation.
+    public_member_api_docs: false
+    slash_for_doc_comments: true

@@ -121,7 +121,9 @@ class _Base extends StatelessWidget {
         decoration: BoxDecoration(
           color: colors.accent.withValues(alpha: 0.22),
           shape: shape,
-          borderRadius: shape == BoxShape.rectangle ? BorderRadius.circular(AppRadius.pill) : null,
+          borderRadius: shape == BoxShape.rectangle
+              ? BorderRadius.circular(AppRadius.pill)
+              : null,
         ),
         child: child,
       ),

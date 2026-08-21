@@ -105,7 +105,10 @@ void main() {
     );
   }
 
-  Future<void> pumpPage(WidgetTester tester, LibraryController controller) async {
+  Future<void> pumpPage(
+    WidgetTester tester,
+    LibraryController controller,
+  ) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.625;
     addTearDown(tester.view.resetPhysicalSize);
@@ -122,8 +125,9 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('shows in-progress books with their progress readout',
-      (tester) async {
+  testWidgets('shows in-progress books with their progress readout', (
+    tester,
+  ) async {
     await pumpPage(tester, controllerFor([_entry(_dune, page: 120)]));
 
     expect(find.text('reading'), findsOneWidget);
@@ -134,8 +138,9 @@ void main() {
     expect(find.text('finished'), findsNothing);
   });
 
-  testWidgets('separates finished books into their own section',
-      (tester) async {
+  testWidgets('separates finished books into their own section', (
+    tester,
+  ) async {
     await pumpPage(
       tester,
       controllerFor([
@@ -150,8 +155,9 @@ void main() {
     expect(find.text('Pale Fire'), findsWidgets);
   });
 
-  testWidgets('a book that reaches its last page moves sections live',
-      (tester) async {
+  testWidgets('a book that reaches its last page moves sections live', (
+    tester,
+  ) async {
     final controller = controllerFor([_entry(_dune, page: 120)]);
     await pumpPage(tester, controller);
     expect(find.text('finished'), findsNothing);
@@ -165,8 +171,7 @@ void main() {
     expect(find.text('finished'), findsNWidgets(2));
   });
 
-  testWidgets('shows a star rating on a rated finished book',
-      (tester) async {
+  testWidgets('shows a star rating on a rated finished book', (tester) async {
     await pumpPage(
       tester,
       controllerFor([_entry(_dune, page: 400, finished: true, rating: 3.5)]),
@@ -181,8 +186,9 @@ void main() {
     expect(find.text('3.5'), findsOneWidget);
   });
 
-  testWidgets('shows no stars on a finished book that was never rated',
-      (tester) async {
+  testWidgets('shows no stars on a finished book that was never rated', (
+    tester,
+  ) async {
     await pumpPage(
       tester,
       controllerFor([_entry(_dune, page: 400, finished: true)]),
@@ -193,8 +199,9 @@ void main() {
     expect(find.byIcon(Icons.star_border), findsNothing);
   });
 
-  testWidgets('falls back to a placeholder when a book has no cover',
-      (tester) async {
+  testWidgets('falls back to a placeholder when a book has no cover', (
+    tester,
+  ) async {
     await pumpPage(tester, controllerFor([_entry(_noCover, page: 10)]));
 
     // The placeholder renders the title/author itself, so the tile keeps
@@ -203,8 +210,9 @@ void main() {
     expect(find.text('Pale Fire'), findsNWidgets(2));
   });
 
-  testWidgets('shows a friendly message and a retry when the load fails',
-      (tester) async {
+  testWidgets('shows a friendly message and a retry when the load fails', (
+    tester,
+  ) async {
     await pumpPage(
       tester,
       controllerFor([], failure: const NetworkException("You're offline")),
@@ -214,8 +222,7 @@ void main() {
     expect(find.text('Try again'), findsOneWidget);
   });
 
-  testWidgets('invites the first book when the shelf is empty',
-      (tester) async {
+  testWidgets('invites the first book when the shelf is empty', (tester) async {
     await pumpPage(tester, controllerFor([]));
 
     expect(find.textContaining('Nothing here yet'), findsOneWidget);

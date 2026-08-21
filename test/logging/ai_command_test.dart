@@ -1,7 +1,4 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-
-import 'package:book/core/ai/groq_client.dart';
+import 'package:book/core/ai/ai_command_parser.dart';
 import 'package:book/core/purchases/plan_controller.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
@@ -19,6 +16,8 @@ import 'package:book/features/logging/presentation/pages/home_page.dart';
 import 'package:book/features/logging/presentation/widgets/command_input.dart';
 import 'package:book/features/logging/presentation/widgets/confirmation_pill.dart';
 import 'package:book/features/logging/presentation/widgets/instruction_row.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -99,13 +98,13 @@ LibraryController _newLibraryController() {
   );
 }
 
-/// Stands in for a real Groq call — returns [commands] (or throws
-/// [failure]) without touching the network.
-class FakeGroqClient extends GroqClient {
-  FakeGroqClient({this.commands = const [], this.failure});
+/// Stands in for a real `parse-command` call — returns [commands] (or
+/// throws [failure]) without touching the network.
+class FakeAiCommandParser implements AiCommandParser {
+  FakeAiCommandParser({this.commands = const [], this.failure});
 
   final List<String> commands;
-  final GroqException? failure;
+  final AiCommandException? failure;
   int extractCommandsCalls = 0;
 
   @override
@@ -134,77 +133,58 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  testWidgets(
-    'a sentence is swapped for its extracted commands, which run in '
-    'order and clear back to an empty input',
-    (tester) async {
-      await useDeviceSize(tester);
-      final groq = FakeGroqClient(
-        commands: const ['start Dune', 'update Dune 120'],
-      );
-      final library = _newLibraryController();
-      await tester.pumpWidget(
-        _harness(HomePage(groq: groq), library),
-      );
+  testWidgets('a sentence is swapped for its extracted commands, which run in '
+      'order and clear back to an empty input', (tester) async {
+    await useDeviceSize(tester);
+    final ai = FakeAiCommandParser(
+      commands: const ['start Dune', 'update Dune 120'],
+    );
+    final library = _newLibraryController();
+    await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
 
-      await tester.enterText(
-        find.byType(TextField),
-        "I started Dune and I'm on page 120",
-      );
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      await tester.pump();
+    await tester.enterText(
+      find.byType(TextField),
+      "I started Dune and I'm on page 120",
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    await tester.pump();
 
-      expect(groq.extractCommandsCalls, 1);
-      // The typed sentence is gone the moment extraction succeeds —
-      // CommandInput itself is swapped out, not just cleared — and the
-      // extracted commands take its place, each an InstructionRow
-      // rendered with RichText (not a plain Text) in that same style.
-      expect(find.byType(CommandInput), findsNothing);
-      expect(
-        find.text("I started Dune and I'm on page 120"),
-        findsNothing,
-      );
-      expect(
-        find.text('start Dune', findRichText: true),
-        findsOneWidget,
-      );
-      expect(
-        find.text('update Dune 120', findRichText: true),
-        findsOneWidget,
-      );
+    expect(ai.extractCommandsCalls, 1);
+    // The typed sentence is gone the moment extraction succeeds —
+    // CommandInput itself is swapped out, not just cleared — and the
+    // extracted commands take its place, each an InstructionRow
+    // rendered with RichText (not a plain Text) in that same style.
+    expect(find.byType(CommandInput), findsNothing);
+    expect(find.text("I started Dune and I'm on page 120"), findsNothing);
+    expect(find.text('start Dune', findRichText: true), findsOneWidget);
+    expect(find.text('update Dune 120', findRichText: true), findsOneWidget);
 
-      // First command's action resolves and its checkmark/strike plays,
-      // then the second starts.
-      await tester.pump(const Duration(milliseconds: 800));
-      await tester.pump(const Duration(milliseconds: 800));
+    // First command's action resolves and its checkmark/strike plays,
+    // then the second starts.
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump(const Duration(milliseconds: 800));
 
-      // Both done — the list sits for a few seconds (the confirmation
-      // pill's own lifetime), then fades out and a fresh, empty
-      // CommandInput comes right back in its place.
-      await tester.pump(const Duration(seconds: 3));
-      await tester.pumpAndSettle();
-      expect(find.text('start Dune', findRichText: true), findsNothing);
-      expect(
-        find.text('update Dune 120', findRichText: true),
-        findsNothing,
-      );
-      expect(find.byType(CommandInput), findsOneWidget);
-    },
-  );
+    // Both done — the list sits for a few seconds (the confirmation
+    // pill's own lifetime), then fades out and a fresh, empty
+    // CommandInput comes right back in its place.
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('start Dune', findRichText: true), findsNothing);
+    expect(find.text('update Dune 120', findRichText: true), findsNothing);
+    expect(find.byType(CommandInput), findsOneWidget);
+  });
 
   testWidgets(
     'a failing command does not block the rest, and any success crosses '
     'out the whole sentence',
     (tester) async {
       await useDeviceSize(tester);
-      final groq = FakeGroqClient(
+      final ai = FakeAiCommandParser(
         commands: const ['finish Dune', 'start Mockingbird'],
       );
       final library = _newLibraryController();
-      await tester.pumpWidget(
-        _harness(HomePage(groq: groq), library),
-      );
+      await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
 
       await tester.enterText(
         find.byType(TextField),
@@ -258,66 +238,60 @@ void main() {
     },
   );
 
+  testWidgets('an unrecognized extracted line runs through the exact same '
+      'unrecognized-command path a manual line would', (tester) async {
+    await useDeviceSize(tester);
+    // The AI returning "read Dune" would be its own extraction mistake
+    // (not one of the five real commands) — [_runCommand] treats it
+    // exactly like a manual typo: the parser's own suggestion pops
+    // the pill, same as it would for a typed line.
+    final ai = FakeAiCommandParser(commands: const ['read Dune']);
+    final library = _newLibraryController();
+    await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
+
+    await tester.enterText(find.byType(TextField), 'I read some of Dune');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump(const Duration(milliseconds: 800));
+
+    expect(
+      find.widgetWithText(
+        ConfirmationPill,
+        LogCommandParser.parse('read Dune').message,
+      ),
+      findsOneWidget,
+    );
+
+    // A failure pauses on its own pill for a full read (this is the
+    // only line, so the loop itself doesn't finish until this
+    // elapses), then the list fades out after its own further hold —
+    // two full pill lifetimes altogether, plus the fade itself.
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('read Dune', findRichText: true), findsNothing);
+
+    // The typed sentence was already swapped out for the extracted
+    // line the moment the AI returned it — once that line's own run
+    // finishes (whether it succeeded or not), a fresh, empty
+    // CommandInput comes back rather than the original text.
+    expect(find.text('I read some of Dune'), findsNothing);
+    expect(find.byType(CommandInput), findsOneWidget);
+  });
+
   testWidgets(
-    'an unrecognized extracted line runs through the exact same '
-    'unrecognized-command path a manual line would',
+    'an AI failure shows the error pill and never falls back to manual parsing',
     (tester) async {
       await useDeviceSize(tester);
-      // Groq returning "read Dune" would be its own extraction mistake
-      // (not one of the five real commands) — [_runCommand] treats it
-      // exactly like a manual typo: the parser's own suggestion pops
-      // the pill, same as it would for a typed line.
-      final groq = FakeGroqClient(commands: const ['read Dune']);
-      final library = _newLibraryController();
-      await tester.pumpWidget(_harness(HomePage(groq: groq), library));
-
-      await tester.enterText(find.byType(TextField), 'I read some of Dune');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 800));
-      await tester.pump(const Duration(milliseconds: 800));
-
-      expect(
-        find.widgetWithText(
-          ConfirmationPill,
-          LogCommandParser.parse('read Dune').message,
+      final ai = FakeAiCommandParser(
+        failure: const AiCommandException(
+          "You're offline — connect and try again.",
         ),
-        findsOneWidget,
-      );
-
-      // A failure pauses on its own pill for a full read (this is the
-      // only line, so the loop itself doesn't finish until this
-      // elapses), then the list fades out after its own further hold —
-      // two full pill lifetimes altogether, plus the fade itself.
-      await tester.pump(const Duration(seconds: 3));
-      await tester.pump(const Duration(seconds: 3));
-      await tester.pumpAndSettle();
-      expect(
-        find.text('read Dune', findRichText: true),
-        findsNothing,
-      );
-
-      // The typed sentence was already swapped out for the extracted
-      // line the moment Groq returned it — once that line's own run
-      // finishes (whether it succeeded or not), a fresh, empty
-      // CommandInput comes back rather than the original text.
-      expect(find.text('I read some of Dune'), findsNothing);
-      expect(find.byType(CommandInput), findsOneWidget);
-    },
-  );
-
-  testWidgets(
-    'a Groq failure shows the error pill and never falls back to manual parsing',
-    (tester) async {
-      await useDeviceSize(tester);
-      final groq = FakeGroqClient(
-        failure: const GroqException("You're offline — connect and try again."),
       );
       final library = _newLibraryController();
-      await tester.pumpWidget(
-        _harness(HomePage(groq: groq), library),
-      );
+      await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
 
       await tester.enterText(find.byType(TextField), 'start Dune');
       await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -338,13 +312,13 @@ void main() {
     'fails the same way any other unrecognized line does',
     (tester) async {
       await useDeviceSize(tester);
-      // The prompt asks Groq itself to return ["gibberish"] rather than
+      // The prompt asks the model itself to return ["gibberish"] rather than
       // [] when it finds nothing — this fake stands in for the rare
       // reply that doesn't comply, proving the defensive fallback in
       // `_runAi` covers it the exact same way.
-      final groq = FakeGroqClient(commands: const []);
+      final ai = FakeAiCommandParser(commands: const []);
       final library = _newLibraryController();
-      await tester.pumpWidget(_harness(HomePage(groq: groq), library));
+      await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
 
       await tester.enterText(find.byType(TextField), 'good morning');
       await tester.testTextInput.receiveAction(TextInputAction.done);

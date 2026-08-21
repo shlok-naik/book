@@ -128,7 +128,8 @@ class _InstructionRowState extends State<InstructionRow>
     final colors = context.colors;
     // The text's own line box, so the checkmark centers against the
     // line it trails — matches CommandInput's own.
-    final lineHeight = (widget.style.fontSize ?? 24) * (widget.style.height ?? 1);
+    final lineHeight =
+        (widget.style.fontSize ?? 24) * (widget.style.height ?? 1);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -145,9 +146,10 @@ class _InstructionRowState extends State<InstructionRow>
           return AnimatedBuilder(
             animation: Listenable.merge([_accept, _shake]),
             builder: (context, _) {
-              final struck = (widget.text.length * _strike.value)
-                  .round()
-                  .clamp(0, widget.text.length);
+              final struck = (widget.text.length * _strike.value).round().clamp(
+                0,
+                widget.text.length,
+              );
               final shake = _shake.value;
               final dx = shake == 0
                   ? 0.0

@@ -13,10 +13,7 @@ abstract final class AppTheme {
     final base = ThemeData(brightness: brightness, useMaterial3: true);
 
     final textTheme = base.textTheme
-        .apply(
-          bodyColor: colors.primaryText,
-          displayColor: colors.primaryText,
-        )
+        .apply(bodyColor: colors.primaryText, displayColor: colors.primaryText)
         .copyWith(
           displayLarge: GoogleFonts.fraunces(
             fontSize: 40,

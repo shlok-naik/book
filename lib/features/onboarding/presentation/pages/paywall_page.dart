@@ -694,7 +694,7 @@ class _ChapterPage extends StatelessWidget {
         horizontal: AppSpacing.lg,
         vertical: metrics.gapSm,
       ),
-      child: Container(
+      child: DecoratedBox(
         decoration: BoxDecoration(
           color: colors.background,
           borderRadius: BorderRadius.circular(AppRadius.lg),

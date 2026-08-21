@@ -138,8 +138,7 @@ class _BookGrid extends StatelessWidget {
         builder: (context, constraints) {
           final width = constraints.crossAxisExtent - AppSpacing.xl * 2;
           final columns = (width / _maxTileWidth).ceil().clamp(2, 5);
-          final tileWidth =
-              (width - AppSpacing.md * (columns - 1)) / columns;
+          final tileWidth = (width - AppSpacing.md * (columns - 1)) / columns;
           final tileHeight = tileWidth / BookCover.aspectRatio + _textExtent;
 
           return SliverGrid(

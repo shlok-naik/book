@@ -24,7 +24,11 @@ enum ReadingEventType {
 /// A row of the Supabase `reading_events` table: one shelf command that
 /// actually took effect, and when.
 class ReadingEvent {
-  const ReadingEvent({required this.type, required this.occurredAt, this.title});
+  const ReadingEvent({
+    required this.type,
+    required this.occurredAt,
+    this.title,
+  });
 
   final ReadingEventType type;
   final DateTime occurredAt;

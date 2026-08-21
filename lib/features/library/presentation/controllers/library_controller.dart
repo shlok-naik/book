@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/diagnostics/app_logger.dart';
 import '../../data/reading_event_repository.dart';
 import '../../data/user_book_repository.dart';
 import '../../domain/book.dart';
@@ -68,11 +69,10 @@ class LibraryController extends ChangeNotifier {
       occurredAt: DateTime.now().toUtc(),
       title: title,
     );
-    unawaited(
-      events
-          .log(type, title: title)
-          .then((_) => _loggedEvents.add(event))
-          .catchError((_) {}),
+    reportingFailure(
+      events.log(type, title: title).then((_) => _loggedEvents.add(event)),
+      source: 'LibraryController',
+      message: 'Could not record a "${type.wireValue}" reading event.',
     );
   }
 
@@ -115,7 +115,11 @@ class LibraryController extends ChangeNotifier {
       _errorMessage = null;
     } on LibraryException catch (error) {
       _errorMessage = error.message;
-      debugPrint('LibraryController.load failed: $error');
+      AppLogger.error(
+        'LibraryController',
+        'Loading the shelf failed.',
+        error: error,
+      );
     } finally {
       _isLoading = false;
       notifyListeners();

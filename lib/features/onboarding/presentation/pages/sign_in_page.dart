@@ -1,8 +1,7 @@
-import 'dart:async' show unawaited;
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -97,7 +96,11 @@ class _SignInPageState extends State<SignInPage> {
       // only matters for entitlements to sync across their devices.
       final userId = widget.session.userId;
       if (userId != null) {
-        unawaited(const PurchasesService().identify(userId).catchError((_) {}));
+        reportingFailure(
+          const PurchasesService().identify(userId),
+          source: 'SignInPage',
+          message: 'Could not link this account to its RevenueCat identity.',
+        );
       }
       if (!mounted) return;
       Navigator.of(
