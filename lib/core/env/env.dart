@@ -11,11 +11,13 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 ///    so nothing has to be shipped as a readable asset and CI can inject
 ///    them from its own secret store without a file ever existing on
 ///    disk.
-/// 2. **A local `.env` file**, for development convenience. This is
-///    bundled as a Flutter asset (see `pubspec.yaml`), which means
-///    anything in it is readable by anyone who unzips a release build —
-///    so it is a dev-time fallback only, and `--dart-define` must win
-///    where both are present.
+/// 2. **A local `.env` file**, for development convenience — and *only*
+///    in debug and profile builds. It is bundled as a Flutter asset (see
+///    `pubspec.yaml`), so anything in it is readable by anyone who
+///    unzips a build; a release build therefore refuses to read it at
+///    all. That is a deliberate trade: a release missing a
+///    `--dart-define` fails loudly at startup rather than quietly
+///    shipping with configuration baked into a readable file.
 ///
 /// Neither source is a place for a *secret*: everything here reaches the
 /// device, so everything here is public by construction. That is fine
@@ -86,6 +88,10 @@ abstract final class Env {
   /// neither has it.
   static String? _lookup(String key, String defined) {
     if (defined.isNotEmpty) return defined;
+    // Release builds are --dart-define-only. Enforced here rather than
+    // only at the `dotenv.load` call site, so there is exactly one place
+    // that decides, and no later caller can reintroduce the fallback.
+    if (kReleaseMode) return null;
     try {
       final value = dotenv.env[key];
       return (value == null || value.isEmpty) ? null : value;
@@ -105,11 +111,9 @@ abstract final class Env {
     );
   }
 
-  /// True when a *release* build is still leaning on the bundled `.env`
-  /// for at least one required key. Worth shouting about at startup:
-  /// `.env` ships as an asset, so anything it supplies is readable by
-  /// anyone who unzips the build.
-  static bool get isLeakingConfigInRelease =>
-      kReleaseMode &&
-      requiredKeys.any((key) => (_compileTimeValues[key] ?? '').isEmpty);
+  /// Whether `.env` is consulted at all. False in release — see the
+  /// class doc. Exposed so startup can say which source it is running
+  /// on, and so a test can assert the release rule rather than trusting
+  /// the comment.
+  static bool get isDotEnvFallbackAvailable => !kReleaseMode;
 }

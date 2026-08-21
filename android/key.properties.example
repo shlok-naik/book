@@ -1,0 +1,14 @@
+# Copy to `android/key.properties` on the machine that produces release
+# builds. Never commit the real file or the .jks it points at.
+#
+# Generate a keystore once, and keep it somewhere you cannot lose it —
+# Play will not accept an app update signed with a different key:
+#
+#   keytool -genkey -v -keystore ~/cactus-upload.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+
+storePassword=<the keystore password>
+keyPassword=<the key password>
+keyAlias=upload
+# Absolute path, or relative to the `android/` directory.
+storeFile=/absolute/path/to/cactus-upload.jks

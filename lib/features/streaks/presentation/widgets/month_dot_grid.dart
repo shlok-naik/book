@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/day_symbol.dart';
 import 'day_symbol_mark.dart';
@@ -9,6 +10,12 @@ import 'day_symbol_mark.dart';
 /// calendar-width grid — the structured, per-month take on the
 /// inspiration's single continuous 365-dot grid. Tapping anywhere in the
 /// row opens the nearest day (the dots are too small to hit individually).
+///
+/// For a screen reader the row is not one target but [daysInMonth] of
+/// them, each announcing its own date and what was logged that day. The
+/// "nearest day" trick is a *visual* affordance for a 5.5pt dot; someone
+/// navigating by swipe needs the days themselves, and the dots being too
+/// small to see is exactly why they cannot aim at one.
 ///
 /// Every day sits on one continuous horizontal line — a line-only day is
 /// just that line at full strength, a start is a hollow circle sitting
@@ -91,6 +98,7 @@ class MonthDotGrid extends StatelessWidget {
                         0,
                         daysInMonth - 1,
                       );
+                AppHaptics.selection();
                 onDayTap(DateTime(year, month, index + 1));
               },
               child: SizedBox(
@@ -111,18 +119,15 @@ class MonthDotGrid extends StatelessWidget {
                       children: [
                         for (var i = 0; i < daysInMonth; i++) ...[
                           if (i > 0) SizedBox(width: gap < 0 ? 0 : gap),
-                          SizedBox(
-                            width: _dotDiameter,
-                            height: _dotDiameter,
-                            child: Center(
-                              child: DaySymbolMark(
-                                symbol: symbolFor?.call(
-                                  DateTime(year, month, i + 1),
-                                ),
-                                diameter: _dotDiameter,
-                                color: colors.accent,
-                              ),
+                          _Day(
+                            date: DateTime(year, month, i + 1),
+                            monthName: _monthNames[month - 1],
+                            symbol: symbolFor?.call(
+                              DateTime(year, month, i + 1),
                             ),
+                            diameter: _dotDiameter,
+                            color: colors.accent,
+                            onTap: onDayTap,
                           ),
                         ],
                       ],
@@ -134,6 +139,54 @@ class MonthDotGrid extends StatelessWidget {
           },
         ),
       ],
+    );
+  }
+}
+
+/// A single day's mark, plus the screen-reader node that makes it
+/// reachable. The visible hit target stays the parent row's "nearest
+/// day" gesture — this adds a semantics-only action so assistive
+/// technology can open a specific day directly rather than having to
+/// land a tap within a few points of it.
+class _Day extends StatelessWidget {
+  const _Day({
+    required this.date,
+    required this.monthName,
+    required this.symbol,
+    required this.diameter,
+    required this.color,
+    required this.onTap,
+  });
+
+  final DateTime date;
+  final String monthName;
+  final DaySymbol? symbol;
+  final double diameter;
+  final Color color;
+  final ValueChanged<DateTime> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final happened = symbol?.spokenDescription ?? 'nothing logged';
+
+    return Semantics(
+      button: true,
+      label: '$monthName ${date.day}, $happened',
+      onTap: () {
+        AppHaptics.selection();
+        onTap(date);
+      },
+      child: SizedBox(
+        width: diameter,
+        height: diameter,
+        child: Center(
+          child: DaySymbolMark(
+            symbol: symbol,
+            diameter: diameter,
+            color: color,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -11,6 +11,11 @@ import '../../domain/library_book.dart';
 /// The readout adapts to what we know. With a page count it's a teal bar
 /// plus a percentage; without one (Google Books frequently omits it) it
 /// degrades to "page N" with no bar, rather than faking a denominator.
+///
+/// To a screen reader the tile is one node, not six. Read as separate
+/// fragments a shelf becomes "Dune", "Frank Herbert", "34/300 · 11%",
+/// then five unlabelled star icons — technically complete and useless to
+/// listen to. [_spokenSummary] says the same thing as one sentence.
 class BookTile extends StatelessWidget {
   const BookTile({super.key, required this.entry, required this.cover});
 
@@ -25,53 +30,91 @@ class BookTile extends StatelessWidget {
     final colors = context.colors;
     final completion = entry.completion;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        cover,
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          entry.book.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.fraunces(
-            fontSize: 14,
-            height: 1.2,
-            fontWeight: FontWeight.w600,
-            color: colors.primaryText,
+    return Semantics(
+      container: true,
+      label: _spokenSummary(),
+      excludeSemantics: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          cover,
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            entry.book.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.fraunces(
+              fontSize: 14,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              color: colors.primaryText,
+            ),
           ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          entry.book.author,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.inter(fontSize: 11, color: colors.secondaryText),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        if (completion != null) ...[
-          _ProgressBar(
-            value: completion,
-            color: colors.accent,
-            track: colors.divider,
-          ),
-          const SizedBox(height: AppSpacing.xs),
-        ],
-        Text(
-          _progressLabel(),
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 11,
-            color: entry.isFinished ? colors.accent : colors.secondaryText,
-          ),
-        ),
-        // Only ever set on a finished book (LibraryController.rateBook
-        // enforces that), so no separate isFinished check is needed here.
-        if (entry.rating != null) ...[
           const SizedBox(height: 2),
-          _StarRating(rating: entry.rating!, color: colors.accent),
+          Text(
+            entry.book.author,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(fontSize: 11, color: colors.secondaryText),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          if (completion != null) ...[
+            _ProgressBar(
+              value: completion,
+              color: colors.accent,
+              track: colors.divider,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+          ],
+          Text(
+            _progressLabel(),
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 11,
+              color: entry.isFinished ? colors.accent : colors.secondaryText,
+            ),
+          ),
+          // Only ever set on a finished book (LibraryController.rateBook
+          // enforces that), so no separate isFinished check is needed here.
+          if (entry.rating != null) ...[
+            const SizedBox(height: 2),
+            _StarRating(rating: entry.rating!, color: colors.accent),
+          ],
         ],
-      ],
+      ),
     );
+  }
+
+  /// The whole tile as one sentence. Deliberately not the same string as
+  /// [_progressLabel]: "34/300 · 11%" is a compact glyph for the eye, and
+  /// a screen reader would say it as "thirty-four slash three hundred
+  /// middle dot eleven percent".
+  String _spokenSummary() {
+    final buffer = StringBuffer('${entry.book.title} by ${entry.book.author}.');
+
+    if (entry.isFinished) {
+      buffer.write(' Finished.');
+    } else {
+      final total = entry.pageCount;
+      if (entry.currentPage == 0) {
+        buffer.write(' Not started.');
+      } else if (total == null) {
+        buffer.write(' On page ${entry.currentPage}.');
+      } else {
+        final percent = ((entry.completion ?? 0) * 100).round();
+        buffer.write(' Page ${entry.currentPage} of $total, $percent percent.');
+      }
+    }
+
+    final rating = entry.rating;
+    if (rating != null) {
+      // "4 stars", not "4.0 stars".
+      final stars = rating == rating.roundToDouble()
+          ? rating.toStringAsFixed(0)
+          : rating.toString();
+      buffer.write(' Rated $stars out of 5.');
+    }
+
+    return buffer.toString();
   }
 
   String _progressLabel() {

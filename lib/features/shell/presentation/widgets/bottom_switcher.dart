@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -26,6 +27,13 @@ class BottomSwitcher extends StatelessWidget {
     Icons.local_fire_department_outlined,
     Icons.menu_book_outlined,
   ];
+
+  /// What each slot is called to a screen reader. An icon-only tab bar
+  /// is invisible to VoiceOver/TalkBack without these — the icons carry
+  /// the entire meaning of the app's primary navigation.
+  static const _groupLabels = ['Profile', 'Streak', 'Library'];
+  static const _addLabel = 'Log reading';
+
   static const _addIndex = 3;
 
   static const _tintInset = AppSpacing.xs;
@@ -33,6 +41,15 @@ class BottomSwitcher extends StatelessWidget {
   static const _iconSpacing = AppSpacing.md;
   static const _slotSize = _SwitcherItem.selectedSize;
   static const _outerHeight = _slotSize + (_itemGap + _tintInset) * 2;
+
+  /// Tapping the tab you are already on is not a move, so it gets no
+  /// haptic — the pattern has to mean "you went somewhere" every time or
+  /// it means nothing.
+  void _select(int next) {
+    if (next == index) return;
+    AppHaptics.selection();
+    onChanged(next);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,8 +71,9 @@ class BottomSwitcher extends StatelessWidget {
                   if (i > 0) const SizedBox(width: _iconSpacing),
                   _SwitcherItem(
                     icon: _groupIcons[i],
+                    label: _groupLabels[i],
                     selected: index == i,
-                    onTap: () => onChanged(i),
+                    onTap: () => _select(i),
                   ),
                 ],
               ],
@@ -70,9 +88,10 @@ class BottomSwitcher extends StatelessWidget {
             padding: const EdgeInsets.all(_itemGap),
             child: _SwitcherItem(
               icon: Icons.add,
+              label: _addLabel,
               selected: index == _addIndex,
               circular: true,
-              onTap: () => onChanged(_addIndex),
+              onTap: () => _select(_addIndex),
             ),
           ),
         ),
@@ -134,12 +153,16 @@ class _Base extends StatelessWidget {
 class _SwitcherItem extends StatelessWidget {
   const _SwitcherItem({
     required this.icon,
+    required this.label,
     required this.selected,
     required this.onTap,
     this.circular = false,
   });
 
   final IconData icon;
+
+  /// Spoken name for this slot — see [BottomSwitcher._groupLabels].
+  final String label;
   final bool selected;
   final VoidCallback onTap;
   final bool circular;
@@ -154,27 +177,42 @@ class _SwitcherItem extends StatelessWidget {
     final shape = circular ? BoxShape.circle : BoxShape.rectangle;
     final radius = circular ? null : BorderRadius.circular(AppRadius.pill);
 
-    return InkWell(
-      onTap: onTap,
-      customBorder: circular ? const CircleBorder() : null,
-      borderRadius: radius,
-      child: SizedBox(
-        width: selectedSize,
-        height: selectedSize,
-        child: Center(
-          child: selected
-              ? Container(
-                  width: selectedSize,
-                  height: selectedSize,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: colors.accent,
-                    shape: shape,
-                    borderRadius: radius,
-                  ),
-                  child: Icon(icon, size: _iconSize, color: colors.background),
-                )
-              : Icon(icon, size: _iconSize, color: colors.accent),
+    return Semantics(
+      // `selected` (not `toggled`) is what a screen reader announces as
+      // "selected" for a tab, and `button` gives it the right role and
+      // the standard double-tap-to-activate hint.
+      button: true,
+      selected: selected,
+      label: label,
+      // The icon underneath carries no text, but excluding its subtree
+      // keeps a future decorated child from leaking a second node.
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: circular ? const CircleBorder() : null,
+        borderRadius: radius,
+        child: SizedBox(
+          width: selectedSize,
+          height: selectedSize,
+          child: Center(
+            child: selected
+                ? Container(
+                    width: selectedSize,
+                    height: selectedSize,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: colors.accent,
+                      shape: shape,
+                      borderRadius: radius,
+                    ),
+                    child: Icon(
+                      icon,
+                      size: _iconSize,
+                      color: colors.background,
+                    ),
+                  )
+                : Icon(icon, size: _iconSize, color: colors.accent),
+          ),
         ),
       ),
     );

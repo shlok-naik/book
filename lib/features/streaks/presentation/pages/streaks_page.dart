@@ -87,10 +87,17 @@ class _StreaksPageState extends State<StreaksPage> {
             AppSpacing.xl,
             0,
           ),
-          // The whole year fits on one screen, no scrolling — every
-          // month's own gaps (see [_rowGap]) are kept tight so all
-          // twelve, plus the header, stay above the floating bar.
-          child: Padding(
+          // The whole year is meant to fit on one screen — every month's
+          // own gaps (see [_rowGap]) are kept tight so all twelve, plus
+          // the header, stay above the floating bar. "Meant to" is doing
+          // real work there: at the largest accessibility text sizes the
+          // twelve month labels alone are taller than a phone, and a
+          // fixed layout would simply clip December. So it scrolls when
+          // it has to and not one pixel before — `physics` refuses the
+          // rubber-band bounce that would otherwise make a page that
+          // exactly fits feel loose.
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
             padding: const EdgeInsets.only(bottom: _edgeGap + _barFootprint),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

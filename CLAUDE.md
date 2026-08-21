@@ -25,7 +25,7 @@ set in `analysis_options.yaml` is deliberately stricter than
 hint as a defect, not noise.
 
 ### Configuration
-Resolved by [lib/core/env/env.dart](lib/core/env/env.dart) — never read `dotenv.env` directly anywhere else. Two sources, in order: compile-time `--dart-define`s (how release builds are configured), then a local `.env` file (development only — it is bundled as a Flutter asset, so everything in it ships readable). Required: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REVENUECAT_API_KEY`. Optional: `GOOGLE_BOOKS_API_KEY` (missing degrades to keyless search).
+Resolved by [lib/core/env/env.dart](lib/core/env/env.dart) — never read `dotenv.env` directly anywhere else. Two sources, in order: compile-time `--dart-define`s, then a local `.env` file. `.env` is ignored outright in release builds (`Env._lookup` returns null under `kReleaseMode`) because it ships as a readable asset — a release missing a define shows `StartupFailureApp` rather than quietly starting on bundled values. Required: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REVENUECAT_API_KEY`. Optional: `GOOGLE_BOOKS_API_KEY` (missing degrades to keyless search).
 
 **No secret goes in either source** — both reach the device. The Groq API key used to live here and therefore shipped inside every build; it is now a Supabase project secret held by the `parse-command` edge function. If you find yourself adding a key that must stay private, it belongs on the server, not in `Env`.
 
@@ -62,6 +62,13 @@ Each feature under `lib/features/<name>/` is split into `data/` (repositories/AP
 Repositories translate driver failures into exceptions carrying a message already safe to show (`LibraryException`, `OnboardingException`, `AiCommandException`); controllers turn those into result objects. The UI never renders a raw driver error — and never silently swallows one either: a load that failed must look different from a load that came back empty (see `StreaksController.errorMessage`).
 
 All diagnostics go through `AppLogger` ([lib/core/diagnostics/app_logger.dart](lib/core/diagnostics/app_logger.dart)) — never `print`/`debugPrint`, which are compiled out of release builds. For fire-and-forget work use `reportingFailure(...)` rather than `unawaited(x.catchError((_) {}))`, so the failure is recorded instead of dropped. `main` installs `FlutterError.onError`, `PlatformDispatcher.instance.onError` and a guarded zone, so attaching a crash reporter is a matter of setting `AppLogger.sink` once.
+
+### Accessibility and feel
+The UI is icon-heavy and text-light, which is precisely the combination that makes an app unusable with VoiceOver/TalkBack unless the labels are deliberate. The tab bar, book tiles and every day on the streak grid carry explicit `Semantics` — a book tile is *one* node reading "Dune by Frank Herbert. Page 150 of 300, 50 percent.", not six fragments ending in five unlabelled star icons. `test/accessibility/semantics_test.dart` pins these down.
+
+Haptics go through `AppHaptics` ([lib/core/feedback/app_haptics.dart](lib/core/feedback/app_haptics.dart)) and have exactly three meanings: `selection()` (you moved), `accepted()` (it worked), `rejected()` (it didn't). Never fire one from a timer, a background event or a screen appearing — only in direct response to a touch the reader just made, and never when the outcome is a no-op (tapping the tab you are already on).
+
+The app is portrait-only, declared in the Android manifest, the iOS plist *and* `SystemChrome` — the streaks page fits a whole year on one screen and has nowhere to put December in landscape. That page scrolls only when it must (large accessibility text sizes), never otherwise.
 
 ### Theming
 `AppColors` is a `ThemeExtension` (light/dark instances in [lib/core/theme/app_colors.dart](lib/core/theme/app_colors.dart)) registered on `ThemeData.extensions` in [lib/core/theme/app_theme.dart](lib/core/theme/app_theme.dart); widgets read colors via `context.colors`, never a hardcoded hex. `ThemeController` (a `ValueListenable<ThemeMode>`) drives the `MaterialApp.themeMode` switch in `main.dart`.

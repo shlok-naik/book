@@ -1,4 +1,5 @@
 import 'package:book/core/env/env.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -73,6 +74,17 @@ void main() {
 
       expect(Env.requiredKeys, isNot(contains('GROQ_API_KEY')));
       expect(Env.missingKeys, isNot(contains('GROQ_API_KEY')));
+    });
+  });
+
+  group('the release rule', () {
+    test('.env is only ever consulted outside release builds', () {
+      // Tests run in debug, so this asserts the sense of the flag, not
+      // the release branch itself — but it is the line that would have
+      // to be edited to reintroduce a bundled-config release, and this
+      // makes that edit visible.
+      expect(Env.isDotEnvFallbackAvailable, isTrue);
+      expect(Env.isDotEnvFallbackAvailable, isNot(kReleaseMode));
     });
   });
 }

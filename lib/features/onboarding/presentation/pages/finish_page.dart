@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_colors.dart';
+
 import '../../../shell/presentation/pages/root_shell.dart';
 import '../widgets/celebration_page.dart';
 
@@ -16,7 +18,7 @@ class FinishPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CelebrationPage(
-      icon: const Icon(Icons.check_circle, size: 72, color: Colors.green),
+      icon: Icon(Icons.check_circle, size: 72, color: context.colors.accent),
       title: 'All Set!',
       message:
           'welcome to cactus - your profile is now ready to use. you can '

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -69,16 +70,18 @@ Future<void> _bootstrap() async {
     return true;
   };
 
-  // `.env` is a development convenience, not a requirement — a release
-  // build configured through --dart-define has no such file and must
-  // still start. See [Env].
-  try {
-    await dotenv.load(fileName: '.env');
-  } on Object catch (error) {
-    AppLogger.info(
-      'main',
-      'No .env file loaded ($error); using --dart-define.',
-    );
+  // `.env` is a development convenience, never a release dependency —
+  // it ships as a readable asset, so [Env] ignores it outright in
+  // release and there is nothing to load. See [Env] for the whole rule.
+  if (Env.isDotEnvFallbackAvailable) {
+    try {
+      await dotenv.load(fileName: '.env');
+    } on Object catch (error) {
+      AppLogger.info(
+        'main',
+        'No .env file loaded ($error); using --dart-define.',
+      );
+    }
   }
 
   final missing = Env.missingKeys;
@@ -89,15 +92,6 @@ Future<void> _bootstrap() async {
     AppLogger.error('main', 'Missing configuration: ${missing.join(', ')}.');
     runApp(StartupFailureApp(missingKeys: missing));
     return;
-  }
-
-  if (Env.isLeakingConfigInRelease) {
-    AppLogger.warning(
-      'main',
-      'Release build is reading configuration from the bundled .env asset. '
-          'Build with --dart-define instead so nothing is readable inside '
-          'the shipped bundle.',
-    );
   }
 
   try {
@@ -141,6 +135,20 @@ Future<void> _bootstrap() async {
       message: 'Could not restore the RevenueCat identity at startup.',
     );
   }
+
+  // Portrait only. Every screen is laid out for one portrait column, and
+  // the streaks page fits a whole year without scrolling — in landscape
+  // it has nowhere to put December. Also declared in the Android
+  // manifest and the iOS plist, so the OS never even offers the rotation
+  // animation; this covers the case where those are bypassed (an
+  // already-running app during development, mainly).
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+
+  // Android 15 draws every app edge-to-edge whether it asks to or not,
+  // so ask — opting in means the insets are correct now rather than the
+  // floating tab bar ending up under the gesture handle later. Every
+  // page already wraps its content in a SafeArea.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   runApp(const BookApp());
 }
@@ -229,18 +237,32 @@ class _BookAppState extends State<BookApp> {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: ThemeController.mode,
       builder: (context, themeMode, _) {
-        return LibraryScope(
-          controller: _library,
-          child: MaterialApp(
-            title: 'cactus',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.light,
-            darkTheme: AppTheme.dark,
-            themeMode: themeMode,
-            scrollBehavior: AppScrollBehavior(),
-            home: (_signedIn && !widget.alwaysShowOnboarding)
-                ? const RootShell()
-                : WelcomePage(session: _session, profiles: _profiles),
+        // The status bar sits over the app's own background, so its
+        // icons have to contrast with *that* — with the app forced to
+        // light while the phone is in dark mode, the system's own choice
+        // would render them invisible.
+        final isDark =
+            themeMode == ThemeMode.dark ||
+            (themeMode == ThemeMode.system &&
+                MediaQuery.platformBrightnessOf(context) == Brightness.dark);
+
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: isDark
+              ? SystemUiOverlayStyle.light
+              : SystemUiOverlayStyle.dark,
+          child: LibraryScope(
+            controller: _library,
+            child: MaterialApp(
+              title: 'cactus',
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.light,
+              darkTheme: AppTheme.dark,
+              themeMode: themeMode,
+              scrollBehavior: AppScrollBehavior(),
+              home: (_signedIn && !widget.alwaysShowOnboarding)
+                  ? const RootShell()
+                  : WelcomePage(session: _session, profiles: _profiles),
+            ),
           ),
         );
       },

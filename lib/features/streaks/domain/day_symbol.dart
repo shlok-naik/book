@@ -21,6 +21,16 @@ enum DaySymbol {
     ReadingEventType.delete => DaySymbol.line,
   };
 
+  /// How this symbol reads aloud, for the screen-reader description of
+  /// a day on the grid. Describes what *happened*, not what is drawn —
+  /// "finished a book" is the fact; "closed circle" is only how the grid
+  /// happens to render it, and is no use to someone who cannot see it.
+  String get spokenDescription => switch (this) {
+    DaySymbol.closedCircle => 'finished a book',
+    DaySymbol.hollowCircle => 'started a book',
+    DaySymbol.line => 'logged reading',
+  };
+
   /// The single symbol [types] resolves to, or null if [types] is empty
   /// (nothing happened that day, so the grid draws its default dot).
   static DaySymbol? strongestOf(Iterable<ReadingEventType> types) {

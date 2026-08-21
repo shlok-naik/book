@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/ai/ai_command_parser.dart';
+import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -151,12 +152,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return (success: true, message: parsed.message);
   }
 
+  /// The one place a command's outcome turns into a haptic — both the
+  /// manual path and each AI-extracted line come through here, so the
+  /// feel of "taken" and "refused" is identical either way. Fired at the
+  /// moment the outcome is known, alongside the pill and the
+  /// strike-through, rather than at submit: a haptic that arrives before
+  /// the answer is just noise.
+  void _feedback({required bool success}) {
+    if (success) {
+      AppHaptics.accepted();
+    } else {
+      AppHaptics.rejected();
+    }
+  }
+
   /// Runs [command] through [_runCommand] and reports it through the
   /// pill, returning whether it was taken — which is what turns into
   /// [CommandInput]'s strike-through or its shake.
   Future<bool> _runManual(String command) async {
     final result = await _runCommand(command);
     if (!mounted) return false;
+    _feedback(success: result.success);
     _showMessage(result.message);
     return result.success;
   }
@@ -240,6 +256,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     for (final instruction in instructions) {
       final result = await _runCommand(instruction.text);
       if (!mounted) return;
+      _feedback(success: result.success);
       _showMessage(result.message);
 
       setState(() {

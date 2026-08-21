@@ -37,9 +37,12 @@ reads `dotenv` directly):
 
 1. **`--dart-define`**, compiled into the binary. This is how release
    builds should be configured.
-2. **`.env`**, for local development. It is git-ignored but *is* bundled
-   as a Flutter asset, so anything in it is readable by anyone who
-   unzips a build.
+2. **`.env`**, for local development — and only in debug and profile
+   builds. It is git-ignored but *is* bundled as a Flutter asset, so
+   anything in it is readable by anyone who unzips a build; a release
+   build therefore refuses to read it at all, and one missing a
+   `--dart-define` shows the configuration screen instead of quietly
+   starting on bundled values.
 
 | Key | Required | Notes |
 | --- | --- | --- |
@@ -56,11 +59,27 @@ it.
 provider's API key is deliberately not among them; it is a Supabase
 project secret (see below).
 
-Release build:
+Release build (`appbundle` is what Play takes; `apk` is for sideloading):
 
 ```bash
-flutter build apk --release --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=... --dart-define=REVENUECAT_API_KEY=... --dart-define=GOOGLE_BOOKS_API_KEY=...
+flutter build appbundle --release --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=... --dart-define=REVENUECAT_API_KEY=... --dart-define=GOOGLE_BOOKS_API_KEY=...
 ```
+
+### Release signing (Android)
+
+Release builds are signed from `android/key.properties`, which is
+git-ignored — copy `android/key.properties.example` and fill it in. Without
+it the build still succeeds but falls back to the **debug** key and prints a
+warning; Play will not accept an upload signed that way. Generate the
+keystore once and keep it safe — Play will not accept a future update signed
+with a different key:
+
+```bash
+keytool -genkey -v -keystore ~/cactus-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+```
+
+Release builds run R8 (`isMinifyEnabled` + `isShrinkResources`); keep rules
+live in `android/app/proguard-rules.pro`.
 
 ---
 
@@ -132,6 +151,13 @@ See [CLAUDE.md](CLAUDE.md) for the full guide. In short:
   errors into exceptions carrying a message that is already safe to show;
   controllers turn those into result objects. The UI never renders a raw
   driver error, and never silently swallows one.
+- **Accessibility is part of the widget, not a later pass.** The UI is
+  icon-heavy and text-light, which is exactly what breaks a screen reader
+  — so the tab bar, the book tiles and every day on the streak grid carry
+  deliberate labels, covered by `test/accessibility/semantics_test.dart`.
+- **Haptics have a fixed vocabulary** (`AppHaptics`): one pattern for
+  "you moved", one for "that worked", one for "that didn't", and nothing
+  else gets one.
 - **Logging goes through `AppLogger`**
   ([`lib/core/diagnostics/app_logger.dart`](lib/core/diagnostics/app_logger.dart)),
   not `print`/`debugPrint` — it survives release builds and gives a crash

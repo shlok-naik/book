@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto-backup is disabled outright (see AndroidManifest), but Android
+     still consults this file on devices running the legacy backup agent.
+     Nothing is eligible: the app's shared preferences hold the Supabase
+     session token, and a session restored onto a different device is an
+     account takeover with extra steps. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="file" path="." />
+</full-backup-content>
