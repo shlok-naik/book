@@ -19,12 +19,16 @@ class AiCommandException implements Exception {
 }
 
 /// Splits a reader's free-form sentence into `LogCommandParser`'s own
-/// command grammar (`start <book>`, `update <book> <page>`,
-/// `finish <book>`, `rate <book> <stars>`, `delete <book>`,
-/// `remember <book> :: <note>`, `recommend <book> :: <reason>`) — the
-/// one thing "cactus pro"'s natural-language mode needs. Everything
-/// downstream of that (recognising, validating, applying) stays
-/// `LogCommandParser`/`HomePage`'s job.
+/// command grammar — `start`, `update`, `finish`, `rate`, `delete`, plus
+/// `remember` and `recommend` — the one thing "cactus pro"'s
+/// natural-language mode needs. Everything downstream of that
+/// (recognising, validating, applying) stays `LogCommandParser`/
+/// `HomePage`'s job. `start`/`update`/`finish` also take an optional
+/// trailing date; resolving a phrase like "yesterday" to it needs the
+/// reader's own local "today" — the real implementation sends that
+/// itself (see `EdgeFunctionCommandParser`); it isn't a parameter here
+/// because, unlike [libraryTitles] and [memoryNotes], no caller needs
+/// to gather it from anywhere.
 ///
 /// An interface rather than a concrete class so tests can supply fixed
 /// extractions without going anywhere near the network.
@@ -85,6 +89,15 @@ class EdgeFunctionCommandParser implements AiCommandParser {
   /// past it the reader is better served by an error than a spinner.
   static const _timeout = Duration(seconds: 20);
 
+  /// `YYYY-MM-DD` for the device's own local date — the only thing the
+  /// edge function needs to resolve "I started Dune yesterday" to an
+  /// absolute date, since it has no other way to know the reader's
+  /// timezone or what day it is for them right now.
+  static String _todayIso(DateTime now) {
+    String pad2(int n) => n.toString().padLeft(2, '0');
+    return '${now.year}-${pad2(now.month)}-${pad2(now.day)}';
+  }
+
   @override
   Future<List<String>> extractCommands(
     String message, {
@@ -98,15 +111,15 @@ class EdgeFunctionCommandParser implements AiCommandParser {
             _function,
             body: {
               'message': message,
-              if (libraryTitles.isNotEmpty || memoryNotes.isNotEmpty)
-                'context': {
-                  if (libraryTitles.isNotEmpty) 'library': libraryTitles,
-                  if (memoryNotes.isNotEmpty)
-                    'memories': [
-                      for (final memory in memoryNotes)
-                        {'title': memory.title, 'note': memory.note},
-                    ],
-                },
+              'context': {
+                'today': _todayIso(DateTime.now()),
+                if (libraryTitles.isNotEmpty) 'library': libraryTitles,
+                if (memoryNotes.isNotEmpty)
+                  'memories': [
+                    for (final memory in memoryNotes)
+                      {'title': memory.title, 'note': memory.note},
+                  ],
+              },
             },
           )
           .timeout(_timeout);

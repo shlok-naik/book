@@ -73,6 +73,7 @@ class FakeUserBookRepository extends UserBookRepository {
     required String userBookId,
     required int currentPage,
     required bool finished,
+    DateTime? finishedAt,
   }) async {
     saves++;
     if (failure != null) throw failure!;
@@ -81,6 +82,7 @@ class FakeUserBookRepository extends UserBookRepository {
       bookId: 'book',
       currentPage: currentPage,
       status: finished ? ReadingStatus.finished : ReadingStatus.reading,
+      finishedAt: finished ? (finishedAt ?? DateTime.now()).toUtc() : null,
     );
   }
 
@@ -115,11 +117,25 @@ class FakeUserBookRepository extends UserBookRepository {
 /// never depend on network behaviour for the streaks-logging side effect
 /// either.
 class FakeReadingEventRepository extends ReadingEventRepository {
-  final List<({ReadingEventType type, String title})> logged = [];
+  final List<({ReadingEventType type, String title, DateTime? occurredAt})>
+  logged = [];
+
+  /// What most tests actually care about — `LibraryController._logEvent`
+  /// always resolves `occurredAt` to a concrete timestamp (the given
+  /// date, or "now") before it ever reaches here, so it's never
+  /// actually null and never test-repeatable; only the backdating tests
+  /// need the real value, via [logged] itself.
+  List<({ReadingEventType type, String title})> get loggedTypesAndTitles => [
+    for (final entry in logged) (type: entry.type, title: entry.title),
+  ];
 
   @override
-  Future<void> log(ReadingEventType type, {required String title}) async {
-    logged.add((type: type, title: title));
+  Future<void> log(
+    ReadingEventType type, {
+    required String title,
+    DateTime? occurredAt,
+  }) async {
+    logged.add((type: type, title: title, occurredAt: occurredAt));
   }
 }
 
@@ -224,7 +240,9 @@ void main() {
       await controller.startBook('Dune');
       await Future<void>.delayed(Duration.zero);
 
-      expect(events.logged, [(type: ReadingEventType.start, title: 'Dune')]);
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.start, title: 'Dune'),
+      ]);
       expect(broadcast.single.type, ReadingEventType.start);
       expect(broadcast.single.title, 'Dune');
     });
@@ -243,10 +261,39 @@ void main() {
       expect(controller.inProgress, hasLength(1));
 
       await Future<void>.delayed(Duration.zero);
-      expect(events.logged, [
-        (type: ReadingEventType.start, title: 'Dune'),
-      ], reason: 'the rejected repeat must not log a second start');
+      expect(
+        events.loggedTypesAndTitles,
+        [(type: ReadingEventType.start, title: 'Dune')],
+        reason: 'the rejected repeat must not log a second start',
+      );
     });
+
+    test('backdates the reading event when given a date, not the shelf '
+        'write itself', () async {
+      final controller = controllerWith([]);
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+
+      final result = await controller.startBook('Dune', loggedAt: yesterday);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(result.success, isTrue);
+      expect(events.logged.single.occurredAt, yesterday.toUtc());
+    });
+
+    test(
+      'refuses a future date without logging or touching the shelf',
+      () async {
+        final controller = controllerWith([]);
+        final tomorrow = DateTime.now().add(const Duration(days: 1));
+
+        final result = await controller.startBook('Dune', loggedAt: tomorrow);
+
+        expect(result.success, isFalse);
+        expect(result.message, "That date hasn't happened yet.");
+        expect(controller.inProgress, isEmpty);
+        expect(events.logged, isEmpty);
+      },
+    );
   });
 
   group('updateProgress', () {
@@ -262,7 +309,42 @@ void main() {
       expect(controller.inProgress.single.completion, closeTo(0.3, 0.001));
 
       await Future<void>.delayed(Duration.zero);
-      expect(events.logged, [(type: ReadingEventType.update, title: 'Dune')]);
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.update, title: 'Dune'),
+      ]);
+    });
+
+    test('backdates the reading event when given a date', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+
+      final result = await controller.updateProgress(
+        'Dune',
+        120,
+        loggedAt: yesterday,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(result.success, isTrue);
+      expect(events.logged.single.occurredAt, yesterday.toUtc());
+    });
+
+    test('refuses a future date without writing', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+
+      final result = await controller.updateProgress(
+        'Dune',
+        120,
+        loggedAt: tomorrow,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.message, "That date hasn't happened yet.");
+      expect(controller.inProgress.single.currentPage, 10);
+      expect(events.logged, isEmpty);
     });
 
     test('notifies synchronously enough for the UI to redraw before the '
@@ -293,7 +375,7 @@ void main() {
 
       await Future<void>.delayed(Duration.zero);
       expect(
-        events.logged,
+        events.loggedTypesAndTitles,
         [(type: ReadingEventType.finish, title: 'Dune')],
         reason:
             'reaching the last page via update reads as a finish, not an update',
@@ -361,7 +443,7 @@ void main() {
 
       await Future<void>.delayed(Duration.zero);
       expect(
-        events.logged,
+        events.loggedTypesAndTitles,
         isEmpty,
         reason: 'a rolled-back write must not log an event',
       );
@@ -381,7 +463,41 @@ void main() {
       expect(controller.finished.single.completion, 1);
 
       await Future<void>.delayed(Duration.zero);
-      expect(events.logged, [(type: ReadingEventType.finish, title: 'Dune')]);
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.finish, title: 'Dune'),
+      ]);
+    });
+
+    test(
+      'backdates both the reading event and the book\'s own finishedAt',
+      () async {
+        final controller = controllerWith([_entry(_dune, page: 10)]);
+        await controller.load();
+        final yesterday = DateTime.now().subtract(const Duration(days: 1));
+
+        final result = await controller.finishBook('Dune', loggedAt: yesterday);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(result.success, isTrue);
+        expect(events.logged.single.occurredAt, yesterday.toUtc());
+        expect(
+          controller.finished.single.progress.finishedAt,
+          yesterday.toUtc(),
+        );
+      },
+    );
+
+    test('refuses a future date without writing', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+
+      final result = await controller.finishBook('Dune', loggedAt: tomorrow);
+
+      expect(result.success, isFalse);
+      expect(result.message, "That date hasn't happened yet.");
+      expect(controller.finished, isEmpty);
+      expect(events.logged, isEmpty);
     });
 
     test('finishes a book with no known length', () async {
@@ -422,7 +538,9 @@ void main() {
       expect(controller.finished.single.rating, 4.5);
 
       await Future<void>.delayed(Duration.zero);
-      expect(events.logged, [(type: ReadingEventType.rate, title: 'Dune')]);
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.rate, title: 'Dune'),
+      ]);
     });
 
     test('rounds a rating to the nearest half star before saving', () async {
@@ -522,7 +640,9 @@ void main() {
       expect(userBooks.deletedIds, ['progress-book-1']);
 
       await Future<void>.delayed(Duration.zero);
-      expect(events.logged, [(type: ReadingEventType.delete, title: 'Dune')]);
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.delete, title: 'Dune'),
+      ]);
     });
 
     test('removes it immediately, before the delete persists', () async {

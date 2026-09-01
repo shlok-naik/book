@@ -1,12 +1,16 @@
 // Zero-cost, rule-based parser for Structured mode commands:
-// `start <book>`, `update <book> <page>`, `finish <book>`,
-// `rate <book> <stars>`, `delete <book>` — plus two "cactus pro"-only
-// commands that only ever arrive as an AI-extracted line, never typed
-// directly: `remember <book> :: <note>` and `recommend <book> ::
-// <reason>`. Recognizing their syntax here doesn't make them free-plan
-// features — `HomePage` gates both behind `PlanController.isPro` at the
-// point they'd actually run, the same way every other pro-only surface
-// in the app is gated.
+// `start <book> [date]`, `update <book> <page> [date]`,
+// `finish <book> [date]`, `rate <book> <stars>`, `delete <book>` — the
+// optional trailing date (`YYYY-MM-DD`) backdates the reading event it
+// logs, so "I started Dune yesterday" (resolved to a concrete date by
+// cactus pro before it ever reaches this parser) logs — and streaks —
+// on that day rather than today. Plus two "cactus pro"-only commands
+// that only ever arrive as an AI-extracted line, never typed directly:
+// `remember <book> :: <note>` and `recommend <book> :: <reason>`.
+// Recognizing their syntax here doesn't make them free-plan features —
+// `HomePage` gates both behind `PlanController.isPro` at the point they'd
+// actually run, the same way every other pro-only surface in the app is
+// gated.
 enum LogCommandType {
   start,
   update,
@@ -27,6 +31,7 @@ class ParsedLogCommand {
     this.page,
     this.rating,
     this.note,
+    this.date,
   });
 
   /// Confirmation (or error/suggestion) text for the pill.
@@ -50,16 +55,32 @@ class ParsedLogCommand {
   /// The free-text half of `remember` (the note itself) or `recommend`
   /// (why that book) — null for every other command.
   final String? note;
+
+  /// The optional trailing `YYYY-MM-DD` on `start`/`update`/`finish` —
+  /// "I started Dune yesterday" resolves to this, on cactus pro, before
+  /// ever reaching this parser (see `parse-command`'s prompt). Null
+  /// means "just now", same as before this existed. A plain calendar
+  /// date with no time component — callers that persist it should
+  /// treat it as local midnight on that day, not UTC.
+  final DateTime? date;
 }
 
 abstract final class LogCommandParser {
-  static final _startPattern = RegExp(r'^start\s+(.+)$', caseSensitive: false);
+  // Optional trailing `YYYY-MM-DD` on these three — lazy title capture
+  // means it always tries the *shortest* title first, so "start Dune
+  // 2026-08-31" splits into title "Dune" + date, rather than the date
+  // getting swallowed into the title (same reasoning `_updatePattern`
+  // already relies on for its own trailing number).
+  static final _startPattern = RegExp(
+    r'^start\s+(.+?)(?:\s+(\d{4}-\d{2}-\d{2}))?$',
+    caseSensitive: false,
+  );
   static final _updatePattern = RegExp(
-    r'^update\s+(.+?)\s+(\d+)$',
+    r'^update\s+(.+?)\s+(\d+)(?:\s+(\d{4}-\d{2}-\d{2}))?$',
     caseSensitive: false,
   );
   static final _finishPattern = RegExp(
-    r'^finish\s+(.+)$',
+    r'^finish\s+(.+?)(?:\s+(\d{4}-\d{2}-\d{2}))?$',
     caseSensitive: false,
   );
   static final _ratePattern = RegExp(
@@ -90,9 +111,9 @@ abstract final class LogCommandParser {
   static const _firstWordPattern = r'^(\S+)';
   static const _keywords = ['start', 'update', 'finish', 'rate', 'delete'];
   static const _usage = {
-    'start': 'start <book>',
-    'update': 'update <book> <page>',
-    'finish': 'finish <book>',
+    'start': 'start <book> [date]',
+    'update': 'update <book> <page> [date]',
+    'finish': 'finish <book> [date]',
     'rate': 'rate <book> <stars>',
     'delete': 'delete <book>',
     'remember': 'remember <book> :: <note>',
@@ -127,36 +148,42 @@ abstract final class LogCommandParser {
     if (update != null) {
       final title = update.group(1)!.trim();
       final page = update.group(2)!;
+      final date = _parseDate(update.group(3));
       return ParsedLogCommand(
-        message: '"$title" — pg $page',
+        message: '"$title" — pg $page${_dateSuffix(date)}',
         recognized: true,
         type: LogCommandType.update,
         title: title,
         // The pattern guarantees digits only; tryParse still guards the
         // one case it can't — a number too large for an int.
         page: int.tryParse(page),
+        date: date,
       );
     }
 
     final finish = _finishPattern.firstMatch(text);
     if (finish != null) {
       final title = finish.group(1)!.trim();
+      final date = _parseDate(finish.group(2));
       return ParsedLogCommand(
-        message: 'Finished "$title"',
+        message: 'Finished "$title"${_dateSuffix(date)}',
         recognized: true,
         type: LogCommandType.finish,
         title: title,
+        date: date,
       );
     }
 
     final start = _startPattern.firstMatch(text);
     if (start != null) {
       final title = start.group(1)!.trim();
+      final date = _parseDate(start.group(2));
       return ParsedLogCommand(
-        message: 'Started "$title"',
+        message: 'Started "$title"${_dateSuffix(date)}',
         recognized: true,
         type: LogCommandType.start,
         title: title,
+        date: date,
       );
     }
 
@@ -211,7 +238,41 @@ abstract final class LogCommandParser {
       }
     }
     return 'Not recognized. Try "start Dune", "update Dune 120", '
-        '"finish Dune", "rate Dune 5", or "delete Dune".';
+        '"finish Dune", "rate Dune 5", or "delete Dune". Add a date — '
+        '"start Dune 2026-08-31" — to log it for another day.';
+  }
+
+  static const _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  /// Parses a `YYYY-MM-DD` regex capture into a plain calendar date, or
+  /// null if [raw] is null (no date was given) — `DateTime.parse`'s own
+  /// leniency is more than this needs, but the pattern already
+  /// guarantees the shape, so there is nothing left for it to reject.
+  static DateTime? _parseDate(String? raw) {
+    if (raw == null) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  /// " — Aug 31" for a backdated command's pill, or "" for one logged
+  /// just now — kept separate from the base message so every caller
+  /// gets the exact same short format rather than three near-identical
+  /// ones.
+  static String _dateSuffix(DateTime? date) {
+    if (date == null) return '';
+    return ' — ${_months[date.month - 1]} ${date.day}';
   }
 
   static double _roundToHalfStar(double value) => (value * 2).round() / 2;

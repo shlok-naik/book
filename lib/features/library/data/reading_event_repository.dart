@@ -19,17 +19,29 @@ class ReadingEventRepository {
 
   static const _table = 'reading_events';
 
-  /// Records that [type] happened just now, against [title] — carried
-  /// along purely so the day-detail sheet can list "started Dune" rather
-  /// than just "started". Fire-and-forget from the caller's side — a
-  /// failed log must never surface as a failed shelf command, so callers
-  /// wrap this in `unawaited(...catchError(...))` rather than awaiting it
+  /// Records that [type] happened, against [title] — carried along
+  /// purely so the day-detail sheet can list "started Dune" rather than
+  /// just "started". Fire-and-forget from the caller's side — a failed
+  /// log must never surface as a failed shelf command, so callers wrap
+  /// this in `unawaited(...catchError(...))` rather than awaiting it
   /// inline.
-  Future<void> log(ReadingEventType type, {required String title}) {
+  ///
+  /// [occurredAt], when given, backdates the row instead of leaving it
+  /// to the column's own `now()` default — "I started Dune yesterday"
+  /// logs (and streaks) on that day rather than the day the command was
+  /// actually typed. `LibraryController` is responsible for rejecting a
+  /// future date before it ever reaches here.
+  Future<void> log(
+    ReadingEventType type, {
+    required String title,
+    DateTime? occurredAt,
+  }) {
     return runSupabase<void>(() async {
       await _client.from(_table).insert({
         'action': type.wireValue,
         'title': title,
+        if (occurredAt != null)
+          'occurred_at': occurredAt.toUtc().toIso8601String(),
       });
     }, friendlyMessage: "We couldn't record that.");
   }

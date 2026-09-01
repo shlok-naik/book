@@ -380,7 +380,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
         );
       case LogCommandType.start:
-        return library.startBook(title);
+        return library.startBook(title, loggedAt: command.date);
       case LogCommandType.update:
         final page = command.page;
         if (page == null) {
@@ -390,9 +390,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
           );
         }
-        return library.updateProgress(title, page);
+        return library.updateProgress(title, page, loggedAt: command.date);
       case LogCommandType.finish:
-        return library.finishBook(title);
+        return library.finishBook(title, loggedAt: command.date);
       case LogCommandType.delete:
         return library.deleteBook(title);
       case LogCommandType.rate:

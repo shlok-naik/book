@@ -114,5 +114,52 @@ void main() {
         expect(recommend.message, isNot(contains('recommend')));
       },
     );
+
+    group('optional trailing date', () {
+      test('start with no date behaves exactly as before', () {
+        final result = LogCommandParser.parse('start Dune');
+        expect(result.type, LogCommandType.start);
+        expect(result.title, 'Dune');
+        expect(result.date, isNull);
+        expect(result.message, 'Started "Dune"');
+      });
+
+      test('start with a date backdates the title and the pill', () {
+        final result = LogCommandParser.parse('start Dune 2026-08-31');
+        expect(result.recognized, isTrue);
+        expect(result.type, LogCommandType.start);
+        expect(result.title, 'Dune');
+        expect(result.date, DateTime(2026, 8, 31));
+        expect(result.message, 'Started "Dune" — Aug 31');
+      });
+
+      test('update takes a date after the page number, not before', () {
+        final result = LogCommandParser.parse('update Dune 120 2026-08-31');
+        expect(result.recognized, isTrue);
+        expect(result.type, LogCommandType.update);
+        expect(result.title, 'Dune');
+        expect(result.page, 120);
+        expect(result.date, DateTime(2026, 8, 31));
+        expect(result.message, '"Dune" — pg 120 — Aug 31');
+      });
+
+      test('finish with a date', () {
+        final result = LogCommandParser.parse('finish Dune 2026-08-31');
+        expect(result.type, LogCommandType.finish);
+        expect(result.title, 'Dune');
+        expect(result.date, DateTime(2026, 8, 31));
+        expect(result.message, 'Finished "Dune" — Aug 31');
+      });
+
+      test(
+        'a title that merely contains digits is not mistaken for a date',
+        () {
+          final result = LogCommandParser.parse('start 1984');
+          expect(result.recognized, isTrue);
+          expect(result.title, '1984');
+          expect(result.date, isNull);
+        },
+      );
+    });
   });
 }

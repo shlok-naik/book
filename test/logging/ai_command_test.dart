@@ -66,6 +66,7 @@ class _InMemoryUserBookRepository extends UserBookRepository {
     required String userBookId,
     required int currentPage,
     required bool finished,
+    DateTime? finishedAt,
   }) async {
     return UserBook(
       id: userBookId,

@@ -76,6 +76,7 @@ class _InMemoryUserBookRepository extends UserBookRepository {
     required String userBookId,
     required int currentPage,
     required bool finished,
+    DateTime? finishedAt,
   }) async {
     _status = finished ? ReadingStatus.finished : ReadingStatus.reading;
     return UserBook(
@@ -119,7 +120,11 @@ class _FakeReadingEventRepository extends ReadingEventRepository {
   final LibraryException? failure;
 
   @override
-  Future<void> log(ReadingEventType type, {required String title}) async {}
+  Future<void> log(
+    ReadingEventType type, {
+    required String title,
+    DateTime? occurredAt,
+  }) async {}
 
   @override
   Future<List<ReadingEvent>> fetchForYear(int year) async {
