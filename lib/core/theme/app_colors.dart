@@ -11,6 +11,7 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.secondaryText,
     required this.accent,
     required this.divider,
+    required this.loggedMark,
   });
 
   final Color background;
@@ -20,6 +21,12 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color accent;
   final Color divider;
 
+  /// Vivid blue used only for the streaks grid's logged-day marks — a
+  /// day with nothing logged draws in [primaryText] instead. Deliberately
+  /// distinct from [accent]'s teal so a glance at the grid separates
+  /// "something happened" from the rest of the app's chrome.
+  final Color loggedMark;
+
   static const light = AppColors(
     background: Color(0xFFFFFFFF),
     surface: Color(0xFFF5F5F5),
@@ -27,6 +34,7 @@ class AppColors extends ThemeExtension<AppColors> {
     secondaryText: Color(0xFF6B6B6B),
     accent: Color(0xFF1A8FBF),
     divider: Color(0xFFE8E8E8),
+    loggedMark: Color(0xFF2F6FED),
   );
 
   static const dark = AppColors(
@@ -36,6 +44,7 @@ class AppColors extends ThemeExtension<AppColors> {
     secondaryText: Color(0xFF9A9A9A),
     accent: Color(0xFF1B9FD9),
     divider: Color(0xFF3A3A3A),
+    loggedMark: Color(0xFF2F6FED),
   );
 
   @override
@@ -46,6 +55,7 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? secondaryText,
     Color? accent,
     Color? divider,
+    Color? loggedMark,
   }) {
     return AppColors(
       background: background ?? this.background,
@@ -54,6 +64,7 @@ class AppColors extends ThemeExtension<AppColors> {
       secondaryText: secondaryText ?? this.secondaryText,
       accent: accent ?? this.accent,
       divider: divider ?? this.divider,
+      loggedMark: loggedMark ?? this.loggedMark,
     );
   }
 
@@ -67,6 +78,7 @@ class AppColors extends ThemeExtension<AppColors> {
       secondaryText: Color.lerp(secondaryText, other.secondaryText, t)!,
       accent: Color.lerp(accent, other.accent, t)!,
       divider: Color.lerp(divider, other.divider, t)!,
+      loggedMark: Color.lerp(loggedMark, other.loggedMark, t)!,
     );
   }
 }

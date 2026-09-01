@@ -13,7 +13,7 @@ import 'day_symbol_mark.dart';
 ///
 /// For a screen reader the row is not one target but [daysInMonth] of
 /// them, each announcing its own date and what was logged that day. The
-/// "nearest day" trick is a *visual* affordance for a 5.5pt dot; someone
+/// "nearest day" trick is a *visual* affordance for an 8pt dot; someone
 /// navigating by swipe needs the days themselves, and the dots being too
 /// small to see is exactly why they cannot aim at one.
 ///
@@ -21,6 +21,11 @@ import 'day_symbol_mark.dart';
 /// just that line at full strength, a start is a hollow circle sitting
 /// on it, and a finish is a closed circle — so consecutive days read as
 /// one connected streak rather than isolated marks.
+///
+/// [_dotDiameter] is sized for the narrowest supported screen (320pt):
+/// a 31-day month at that width leaves ~0.3pt of gap between dots, so
+/// don't raise it without re-checking that a full row still fits without
+/// wrapping.
 class MonthDotGrid extends StatelessWidget {
   const MonthDotGrid({
     super.key,
@@ -59,12 +64,18 @@ class MonthDotGrid extends StatelessWidget {
     'december',
   ];
 
-  static const _dotDiameter = 5.5;
+  static const _dotDiameter = 8.0;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final daysInMonth = DateTime(year, month + 1, 0).day;
+    // Computed once per day rather than inline in the Row below, since
+    // it drives both the mark drawn and the color it's drawn in.
+    final daySymbols = [
+      for (var i = 0; i < daysInMonth; i++)
+        symbolFor?.call(DateTime(year, month, i + 1)),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,13 +118,26 @@ class MonthDotGrid extends StatelessWidget {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // The connecting line every day's mark sits on, so
-                    // circles read as joined to their neighboring lines
-                    // rather than floating above them.
-                    Container(
-                      width: double.infinity,
-                      height: 1.2,
-                      color: colors.divider,
+                    // The connecting line between consecutive days —
+                    // laid out as one segment per gap, matching the dot
+                    // row's own spacing exactly, so it joins neighboring
+                    // marks without ever running through a dot's own
+                    // footprint (a hollow or unlogged circle is
+                    // transparent in the middle, so a line drawn behind
+                    // the whole row would otherwise show straight
+                    // through it).
+                    Row(
+                      children: [
+                        for (var i = 0; i < daysInMonth; i++) ...[
+                          if (i > 0)
+                            SizedBox(
+                              width: gap < 0 ? 0 : gap,
+                              height: 1.2,
+                              child: ColoredBox(color: colors.divider),
+                            ),
+                          SizedBox(width: _dotDiameter),
+                        ],
+                      ],
                     ),
                     Row(
                       children: [
@@ -122,11 +146,11 @@ class MonthDotGrid extends StatelessWidget {
                           _Day(
                             date: DateTime(year, month, i + 1),
                             monthName: _monthNames[month - 1],
-                            symbol: symbolFor?.call(
-                              DateTime(year, month, i + 1),
-                            ),
+                            symbol: daySymbols[i],
                             diameter: _dotDiameter,
-                            color: colors.accent,
+                            color: daySymbols[i] == null
+                                ? colors.primaryText
+                                : colors.loggedMark,
                             onTap: onDayTap,
                           ),
                         ],
@@ -184,6 +208,7 @@ class _Day extends StatelessWidget {
             symbol: symbol,
             diameter: diameter,
             color: color,
+            lineThickness: 1.6,
           ),
         ),
       ),
