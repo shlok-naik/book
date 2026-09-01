@@ -11,6 +11,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/date_pill.dart';
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
+import '../../../memory/presentation/memory_scope.dart';
 import '../../domain/log_command_parser.dart';
 import '../widgets/command_input.dart';
 import '../widgets/confirmation_pill.dart';
@@ -112,6 +113,30 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   );
 
   @override
+  void initState() {
+    super.initState();
+    // Warms the memory list before the reader ever opens the profile
+    // page, so a "recommend" on their very first cactus pro sentence
+    // still has their remembered notes to ground it in — `load` is a
+    // no-op if the profile page already triggered it. `read`, not `of`:
+    // this doesn't need to rebuild when memories change, only to kick
+    // the fetch off once.
+    //
+    // Deferred to the post-frame callback rather than called inline:
+    // `MemoryScope` is an `InheritedNotifier` wrapping the whole app, so
+    // a `notifyListeners()` fired synchronously from here — still
+    // inside the very first build — would try to rebuild an ancestor
+    // that is itself mid-mount. `StreaksController` sidesteps the same
+    // hazard by building in `didChangeDependencies` instead of
+    // `initState`; a post-frame callback is the equivalent fix for a
+    // controller that lives above this widget rather than inside it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(MemoryScope.read(context).load());
+    });
+  }
+
+  @override
   void dispose() {
     _focusNode.dispose();
     _messageOpacity.dispose();
@@ -202,9 +227,26 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<bool> _runAi(String command) async {
     setState(() => _aiThinking = true);
     _thinkingGradient.repeat();
+    final library = LibraryScope.read(context);
+    final memory = MemoryScope.read(context);
     final List<String> commands;
     try {
-      commands = await _ai.extractCommands(command);
+      commands = await _ai.extractCommands(
+        command,
+        // Grounds "recommend" only — every other command ignores this
+        // (see AiCommandParser.extractCommands) — so there's no reason
+        // to gate building it behind whether the sentence looks like a
+        // recommend request; it's cheap and the edge function itself
+        // decides whether to use it.
+        libraryTitles: [
+          for (final book in [...library.inProgress, ...library.finished])
+            book.book.title,
+        ],
+        memoryNotes: [
+          for (final entry in memory.memories)
+            (title: entry.bookTitle, note: entry.note),
+        ],
+      );
     } on AiCommandException catch (error) {
       _thinkingGradient.stop();
       if (!mounted) return false;
@@ -287,10 +329,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     setState(() => _instructions = null);
   }
 
-  /// Applies a recognized command to the library, if it has one to
-  /// apply — `unknown` never reaches here (the caller filters
-  /// unrecognized syntax out first), so this returns null only for that
-  /// impossible case, which both callers treat the same as a success.
+  /// Applies a recognized command — to the shelf for the original five,
+  /// to the memory list for `remember`, or not at all for `recommend`
+  /// (the AI has already resolved a title and reason by the time this
+  /// runs; there's nothing left to persist) — if it has one to apply.
+  /// `unknown` never reaches here (the caller filters unrecognized
+  /// syntax out first), so this returns null only for that impossible
+  /// case, which both callers treat the same as a success.
+  ///
+  /// `remember`/`recommend` are gated on [PlanController.isPro] here
+  /// rather than in `LogCommandParser`, so the syntax check and the
+  /// plan check stay two separate concerns — the same reasoning
+  /// `_run`'s own free/pro branch already follows.
   Future<LibraryActionResult?> _applyToLibrary(ParsedLogCommand command) {
     final title = command.title;
     if (title == null || title.isEmpty) return Future.value(null);
@@ -298,6 +348,37 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final library = LibraryScope.read(context);
 
     switch (command.type) {
+      case LogCommandType.remember:
+        if (!PlanController.isPro.value) {
+          return Future.value(
+            const LibraryActionResult.failure(
+              'Upgrade to cactus pro to save memories.',
+            ),
+          );
+        }
+        final note = command.note;
+        if (note == null || note.isEmpty) {
+          return Future.value(
+            const LibraryActionResult.failure(
+              "That memory didn't have a note to save.",
+            ),
+          );
+        }
+        return MemoryScope.read(context)
+            .remember(bookTitle: title, note: note)
+            .then(
+              (result) => result.success
+                  ? LibraryActionResult.success(result.message)
+                  : LibraryActionResult.failure(result.message),
+            );
+      case LogCommandType.recommend:
+        return Future.value(
+          PlanController.isPro.value
+              ? const LibraryActionResult.success()
+              : const LibraryActionResult.failure(
+                  'Upgrade to cactus pro for recommendations.',
+                ),
+        );
       case LogCommandType.start:
         return library.startBook(title);
       case LogCommandType.update:

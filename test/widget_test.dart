@@ -10,6 +10,9 @@ import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
+import 'package:book/features/memory/data/memory_repository.dart';
+import 'package:book/features/memory/domain/memory.dart';
+import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
 import 'package:book/features/onboarding/data/session_service.dart';
 import 'package:book/main.dart';
 import 'package:flutter/material.dart';
@@ -138,6 +141,34 @@ LibraryController _newLibraryController({LibraryException? eventsFailure}) {
   );
 }
 
+/// In-memory memories, fresh per test — `HomePage` and `ProfilePage`
+/// both kick a `load()` off in `initState`, which would otherwise hit
+/// the uninitialized Supabase client the same way `LibraryPage`'s own
+/// load does (see `_InMemoryUserBookRepository`'s comment above).
+class _InMemoryMemoryRepository extends MemoryRepository {
+  int _nextId = 0;
+
+  @override
+  Future<List<Memory>> fetchAll() async => const [];
+
+  @override
+  Future<Memory> add({String? bookTitle, required String note}) async {
+    return Memory(
+      id: 'memory-${_nextId++}',
+      bookTitle: bookTitle,
+      note: note,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> delete(String id) async {}
+}
+
+MemoryController _newMemoryController() {
+  return MemoryController(repository: _InMemoryMemoryRepository());
+}
+
 void main() {
   // flutter_test's default surface (800x600) is smaller than any real
   // phone; size it like one so overflow checks reflect a real device.
@@ -191,6 +222,7 @@ void main() {
       await tester.pumpWidget(
         BookApp(
           libraryController: _newLibraryController(),
+          memoryController: _newMemoryController(),
           sessionService: _AlwaysSignedIn(),
         ),
       );
@@ -209,6 +241,7 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
         sessionService: _AlwaysSignedIn(),
       ),
     );
@@ -233,6 +266,7 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
         sessionService: _AlwaysSignedIn(),
       ),
     );
@@ -258,6 +292,7 @@ void main() {
       await tester.pumpWidget(
         BookApp(
           libraryController: _newLibraryController(),
+          memoryController: _newMemoryController(),
           sessionService: _AlwaysSignedIn(),
         ),
       );
@@ -300,6 +335,7 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
         sessionService: _AlwaysSignedIn(),
       ),
     );
@@ -346,6 +382,7 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
         sessionService: _AlwaysSignedIn(),
       ),
     );
@@ -366,6 +403,7 @@ void main() {
       await tester.pumpWidget(
         BookApp(
           libraryController: _newLibraryController(),
+          memoryController: _newMemoryController(),
           sessionService: _AlwaysSignedIn(),
         ),
       );
@@ -395,6 +433,7 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
         sessionService: _AlwaysSignedIn(),
       ),
     );
@@ -415,6 +454,7 @@ void main() {
       await tester.pumpWidget(
         BookApp(
           libraryController: _newLibraryController(),
+          memoryController: _newMemoryController(),
           sessionService: _AlwaysSignedIn(),
         ),
       );
@@ -446,6 +486,7 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
         sessionService: _AlwaysSignedIn(),
       ),
     );
@@ -465,6 +506,7 @@ void main() {
           libraryController: _newLibraryController(
             eventsFailure: const NetworkException('You are offline.'),
           ),
+          memoryController: _newMemoryController(),
           sessionService: _AlwaysSignedIn(),
         ),
       );

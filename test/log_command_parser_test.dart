@@ -68,5 +68,51 @@ void main() {
       expect(result.message, isNot(contains('Did you mean')));
       expect(result.message, contains('Not recognized'));
     });
+
+    test('remember parses the book, note, and confirmation', () {
+      final result = LogCommandParser.parse(
+        'remember Dune :: loved the ending',
+      );
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.remember);
+      expect(result.title, 'Dune');
+      expect(result.note, 'loved the ending');
+      expect(result.message, 'Remembered "Dune" — loved the ending');
+    });
+
+    test('remember requires the "::" separator, not just a space', () {
+      expect(
+        LogCommandParser.parse('remember Dune loved the ending').recognized,
+        isFalse,
+      );
+    });
+
+    test('recommend parses the recommended title, reason, and pill', () {
+      final result = LogCommandParser.parse(
+        'recommend Circe :: another morally complex retelling',
+      );
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.recommend);
+      expect(result.title, 'Circe');
+      expect(result.note, 'another morally complex retelling');
+      expect(result.message, '"Circe" — another morally complex retelling');
+    });
+
+    test(
+      'a typo of "remember"/"recommend" never suggests the pro-only syntax',
+      () {
+        // Free-plan readers can type these two keywords by mistake, but
+        // never in the exact `remember Dune :: ...` shape an AI would —
+        // the fuzzy-match suggestion must stay silent about them rather
+        // than teach a pro-only command to someone typing manually.
+        final remember = LogCommandParser.parse('remeber Dune');
+        expect(remember.recognized, isFalse);
+        expect(remember.message, isNot(contains('remember')));
+
+        final recommend = LogCommandParser.parse('recomend fantasy');
+        expect(recommend.recognized, isFalse);
+        expect(recommend.message, isNot(contains('recommend')));
+      },
+    );
   });
 }

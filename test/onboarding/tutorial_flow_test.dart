@@ -8,6 +8,10 @@ import 'package:book/features/library/domain/book_lookup_service.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
 import 'package:book/features/library/presentation/library_scope.dart';
+import 'package:book/features/memory/data/memory_repository.dart';
+import 'package:book/features/memory/domain/memory.dart';
+import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
+import 'package:book/features/memory/presentation/memory_scope.dart';
 import 'package:book/features/onboarding/data/onboarding_profile_repository.dart';
 import 'package:book/features/onboarding/data/session_service.dart';
 import 'package:book/features/onboarding/domain/onboarding_averages.dart';
@@ -123,6 +127,29 @@ class FakeProfileRepository extends OnboardingProfileRepository {
   Future<OnboardingAverages> fetchAverages() async => averages;
 }
 
+/// The tutorial flow ends at `RootShell`, which builds `HomePage` and
+/// `ProfilePage` eagerly (an `IndexedStack`) — both now need a
+/// `MemoryScope` above them the same way they need `LibraryScope`.
+class _InMemoryMemoryRepository extends MemoryRepository {
+  int _nextId = 0;
+
+  @override
+  Future<List<Memory>> fetchAll() async => const [];
+
+  @override
+  Future<Memory> add({String? bookTitle, required String note}) async {
+    return Memory(
+      id: 'memory-${_nextId++}',
+      bookTitle: bookTitle,
+      note: note,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> delete(String id) async {}
+}
+
 Widget harness(Widget home) {
   return LibraryScope(
     controller: LibraryController(
@@ -134,7 +161,10 @@ Widget harness(Widget home) {
       ),
       userBooks: _EmptyUserBookRepository(),
     ),
-    child: MaterialApp(theme: AppTheme.light, home: home),
+    child: MemoryScope(
+      controller: MemoryController(repository: _InMemoryMemoryRepository()),
+      child: MaterialApp(theme: AppTheme.light, home: home),
+    ),
   );
 }
 

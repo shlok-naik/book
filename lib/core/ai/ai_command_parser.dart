@@ -20,14 +20,23 @@ class AiCommandException implements Exception {
 
 /// Splits a reader's free-form sentence into `LogCommandParser`'s own
 /// command grammar (`start <book>`, `update <book> <page>`,
-/// `finish <book>`, `rate <book> <stars>`, `delete <book>`) — the one
-/// thing "cactus pro"'s natural-language mode needs. Everything
+/// `finish <book>`, `rate <book> <stars>`, `delete <book>`,
+/// `remember <book> :: <note>`, `recommend <book> :: <reason>`) — the
+/// one thing "cactus pro"'s natural-language mode needs. Everything
 /// downstream of that (recognising, validating, applying) stays
 /// `LogCommandParser`/`HomePage`'s job.
 ///
 /// An interface rather than a concrete class so tests can supply fixed
 /// extractions without going anywhere near the network.
 abstract interface class AiCommandParser {
+  /// [libraryTitles] and [memoryNotes] ground the `recommend` command
+  /// only — the edge function ignores them for every other line — and
+  /// are otherwise harmless to omit; every existing command still works
+  /// with both left empty. Kept as plain strings rather than this
+  /// feature's own `LibraryBook`/`Memory` types so `core/ai` doesn't
+  /// have to depend on either feature (see CLAUDE.md § Feature-first
+  /// layout — `core/` is for cross-feature concerns, not the reverse).
+  ///
   /// Never returns an empty list in practice: the prompt asks for a
   /// single `"gibberish"` line rather than an empty array when nothing
   /// actionable was found, so that line can run through the exact same
@@ -36,7 +45,11 @@ abstract interface class AiCommandParser {
   ///
   /// Throws [AiCommandException] — never a partial or best-effort
   /// result — for any failure at all.
-  Future<List<String>> extractCommands(String message);
+  Future<List<String>> extractCommands(
+    String message, {
+    List<String> libraryTitles = const [],
+    List<({String? title, String note})> memoryNotes = const [],
+  });
 }
 
 /// The real [AiCommandParser]: a call to the `parse-command` Supabase
@@ -73,11 +86,29 @@ class EdgeFunctionCommandParser implements AiCommandParser {
   static const _timeout = Duration(seconds: 20);
 
   @override
-  Future<List<String>> extractCommands(String message) async {
+  Future<List<String>> extractCommands(
+    String message, {
+    List<String> libraryTitles = const [],
+    List<({String? title, String note})> memoryNotes = const [],
+  }) async {
     final FunctionResponse response;
     try {
       response = await _client.functions
-          .invoke(_function, body: {'message': message})
+          .invoke(
+            _function,
+            body: {
+              'message': message,
+              if (libraryTitles.isNotEmpty || memoryNotes.isNotEmpty)
+                'context': {
+                  if (libraryTitles.isNotEmpty) 'library': libraryTitles,
+                  if (memoryNotes.isNotEmpty)
+                    'memories': [
+                      for (final memory in memoryNotes)
+                        {'title': memory.title, 'note': memory.note},
+                    ],
+                },
+            },
+          )
           .timeout(_timeout);
     } on FunctionException catch (error) {
       throw AiCommandException(_messageFor(error), cause: error);

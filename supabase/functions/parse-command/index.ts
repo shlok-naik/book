@@ -1,15 +1,23 @@
 // parse-command — turns a reader's free-form sentence into the app's own
-// five-command grammar (`start`, `update`, `finish`, `rate`, `delete`).
+// seven-command grammar: the original five shelf commands (`start`,
+// `update`, `finish`, `rate`, `delete`), plus `remember` (save a note on
+// how a book made them feel) and `recommend` (suggest a book, grounded
+// in the reader's own shelf and remembered notes).
 //
 // This exists so the Groq API key never leaves the server. It used to sit
 // in the Flutter app's bundled `.env`, which meant it shipped inside every
 // APK/IPA and could be lifted out of one in minutes. Here it is a project
 // secret the client never sees.
 //
-// The client sends `{ message }` and gets back `{ commands: string[] }`.
-// Everything downstream of that — recognising, validating, applying —
-// stays the Dart `LogCommandParser`'s job, exactly as before; this
-// endpoint only ever splits prose into candidate command lines.
+// The client sends `{ message, context? }` and gets back
+// `{ commands: string[] }`. `context` is optional grounding for
+// `recommend` — the reader's current shelf titles and their past
+// `remember` notes — sent by the client because this function has no
+// database access of its own for the caller's tables beyond
+// `claim_ai_request()` (see below). Everything downstream of the
+// returned commands — recognising, validating, applying — stays the
+// Dart `LogCommandParser`'s job, exactly as before; this endpoint only
+// ever splits prose into candidate command lines.
 //
 // Deploy:      supabase functions deploy parse-command
 // Set secrets: supabase secrets set GROQ_API_KEY=...
@@ -22,22 +30,32 @@ const GROQ_MODEL = "openai/gpt-oss-120b";
 /** Long enough for any real sentence, short enough to bound the bill. */
 const MAX_MESSAGE_LENGTH = 500;
 
+/** Caps on the optional context block — bounds both the prompt's token
+ * cost and how much of it one request can carry, regardless of how
+ * large the reader's actual shelf or memory list has grown. */
+const MAX_CONTEXT_ITEMS = 100;
+const MAX_CONTEXT_ITEM_LENGTH = 200;
+
 /** Upstream is the slow part; give up before the client's own timeout. */
 const GROQ_TIMEOUT_MS = 15_000;
 
-const SYSTEM_PROMPT =
-  `You split a reader's natural-language sentence about their reading into a list of structured commands. Only these five commands exist, and every line you output must match one of them exactly (case-insensitive keyword, one command per line, no numbering, no extra words):
+const BASE_SYSTEM_PROMPT =
+  `You split a reader's natural-language sentence about their reading into a list of structured commands. Only these seven commands exist, and every line you output must match one of them exactly (case-insensitive keyword, one command per line, no numbering, no extra words):
 
 start <book title>
 update <book title> <page number>
 finish <book title>
 rate <book title> <stars, 0-5, .5 allowed>
 delete <book title>
+remember <book title> :: <note>
+recommend <book title> :: <reason>
 
 Rules:
-- Extract every distinct action the sentence describes, in the order mentioned.
+- Extract every distinct action the sentence describes, in the order mentioned. A single sentence can produce more than one line — e.g. "finished Dune, loved the ending" is both a finish line and a remember line.
 - Use the book title as written (fix obvious capitalization only).
 - If a sentence mentions no page number or star rating, don't guess one — drop that action instead of inventing a number.
+- Emit a "remember" line whenever the sentence expresses a personal reaction, opinion, or feeling about a book, a character, or a chapter — not just a plain shelf action. Keep the note short and in the reader's own words; don't editorialize.
+- Emit a "recommend" line whenever the sentence asks for a book suggestion. Recommend one real, already-published book that is not already on the reader's shelf (see the shelf and remembered notes below, if any) and that fits both the sentence's own stated criteria and, where relevant, what the remembered notes reveal about the reader's taste. <reason> is one short sentence explaining the pick.
 - Output ONLY a JSON array of strings, each string one command line. No prose, no markdown fences.
 - If nothing recognizable is mentioned, output a single-element array containing exactly the word "gibberish" (lowercase, nothing else): ["gibberish"]`;
 
@@ -80,12 +98,13 @@ Deno.serve(async (request: Request): Promise<Response> => {
   }
 
   // ------------------------------------------------------------- input
-  let message: unknown;
+  let body: { message?: unknown; context?: unknown };
   try {
-    message = (await request.json())?.message;
+    body = (await request.json()) ?? {};
   } catch (error) {
     return fail(400, "That message couldn't be read.", error);
   }
+  const message = body.message;
 
   if (typeof message !== "string" || message.trim().length === 0) {
     return fail(400, "Type something first.");
@@ -93,6 +112,14 @@ Deno.serve(async (request: Request): Promise<Response> => {
   if (message.length > MAX_MESSAGE_LENGTH) {
     return fail(413, "That's a bit long — try one or two sentences.");
   }
+
+  // `context` is optional and entirely client-supplied grounding for
+  // `recommend` — never trusted for anything but shaping the prompt, so
+  // a malformed shape here degrades to "no context" rather than a
+  // 400: the reader typed a real sentence, and it deserves an answer
+  // even if the client sent context in a shape this version doesn't
+  // expect.
+  const systemPrompt = BASE_SYSTEM_PROMPT + buildContextBlock(body.context);
 
   // ------------------------------------------------- caller + allowance
   // The client's own JWT is forwarded rather than using the service role,
@@ -137,7 +164,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
         model: GROQ_MODEL,
         temperature: 0,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: message },
         ],
       }),
@@ -205,4 +232,71 @@ function parseCommands(body: unknown): string[] {
     .filter((line): line is string => typeof line === "string")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+/**
+ * Turns the client-supplied `context` (shelf titles + remembered notes)
+ * into the block of prompt text `recommend` is told to ground its pick
+ * in — empty string when there's nothing usable, so the base prompt is
+ * unaffected for a reader with no shelf or memories yet.
+ *
+ * Every value here is client-supplied and untrusted: it only ever
+ * shapes a prompt, never touches SQL or a shell, so the worst a hostile
+ * payload can do is waste tokens or produce a bad recommendation — both
+ * bounded by the caps below and neither a security issue on their own.
+ */
+function buildContextBlock(context: unknown): string {
+  if (typeof context !== "object" || context === null) return "";
+  const raw = context as { library?: unknown; memories?: unknown };
+
+  const library = sanitizeStringList(raw.library);
+  const memories = sanitizeMemoryList(raw.memories);
+  if (library.length === 0 && memories.length === 0) return "";
+
+  const lines: string[] = [
+    "\n\nContext for the \"recommend\" command only — ignore it for every other command:",
+  ];
+  if (library.length > 0) {
+    lines.push(`The reader's current shelf: ${library.join(", ")}.`);
+  }
+  if (memories.length > 0) {
+    lines.push("Notes the reader has saved about past books:");
+    for (const memory of memories) {
+      lines.push(
+        memory.title
+          ? `- ${memory.title}: ${memory.note}`
+          : `- ${memory.note}`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+function sanitizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().slice(0, MAX_CONTEXT_ITEM_LENGTH))
+    .filter((item) => item.length > 0)
+    .slice(0, MAX_CONTEXT_ITEMS);
+}
+
+function sanitizeMemoryList(
+  value: unknown,
+): { title: string | null; note: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> =>
+      typeof item === "object" && item !== null
+    )
+    .map((item) => ({
+      title: typeof item.title === "string"
+        ? item.title.trim().slice(0, MAX_CONTEXT_ITEM_LENGTH)
+        : null,
+      note: typeof item.note === "string"
+        ? item.note.trim().slice(0, MAX_CONTEXT_ITEM_LENGTH)
+        : "",
+    }))
+    .filter((item) => item.note.length > 0)
+    .slice(0, MAX_CONTEXT_ITEMS);
 }

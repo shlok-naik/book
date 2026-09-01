@@ -1,10 +1,22 @@
 // Zero-cost, rule-based parser for Structured mode commands:
 // `start <book>`, `update <book> <page>`, `finish <book>`,
-// `rate <book> <stars>`, `delete <book>`.
-
-/// Which command was recognized, so callers can act on it rather than
-/// re-parsing the confirmation text.
-enum LogCommandType { start, update, finish, rate, delete, unknown }
+// `rate <book> <stars>`, `delete <book>` — plus two "cactus pro"-only
+// commands that only ever arrive as an AI-extracted line, never typed
+// directly: `remember <book> :: <note>` and `recommend <book> ::
+// <reason>`. Recognizing their syntax here doesn't make them free-plan
+// features — `HomePage` gates both behind `PlanController.isPro` at the
+// point they'd actually run, the same way every other pro-only surface
+// in the app is gated.
+enum LogCommandType {
+  start,
+  update,
+  finish,
+  rate,
+  delete,
+  remember,
+  recommend,
+  unknown,
+}
 
 class ParsedLogCommand {
   const ParsedLogCommand({
@@ -14,6 +26,7 @@ class ParsedLogCommand {
     this.title,
     this.page,
     this.rating,
+    this.note,
   });
 
   /// Confirmation (or error/suggestion) text for the pill.
@@ -22,7 +35,9 @@ class ParsedLogCommand {
 
   final LogCommandType type;
 
-  /// The book the command refers to — null when unrecognized.
+  /// The book the command refers to — null when unrecognized. For
+  /// `recommend` this is the *recommended* title, not one already on
+  /// the shelf.
   final String? title;
 
   /// Page argument of `update`. Always a non-negative int when present;
@@ -31,6 +46,10 @@ class ParsedLogCommand {
 
   /// Star argument of `rate`.
   final double? rating;
+
+  /// The free-text half of `remember` (the note itself) or `recommend`
+  /// (why that book) — null for every other command.
+  final String? note;
 }
 
 abstract final class LogCommandParser {
@@ -51,7 +70,23 @@ abstract final class LogCommandParser {
     r'^delete\s+(.+)$',
     caseSensitive: false,
   );
+  // "::" is the separator the parse-command prompt is told to always
+  // emit for these two, precisely so a title with its own colon or
+  // dash doesn't get split in the wrong place the way a bare space
+  // would.
+  static final _rememberPattern = RegExp(
+    r'^remember\s+(.+?)\s*::\s*(.+)$',
+    caseSensitive: false,
+  );
+  static final _recommendPattern = RegExp(
+    r'^recommend\s+(.+?)\s*::\s*(.+)$',
+    caseSensitive: false,
+  );
 
+  // Deliberately excludes `remember`/`recommend`: a free-plan reader
+  // typing a manual command should never see a pro-only feature
+  // suggested for a typo — those two are only ever recognized when the
+  // AI itself emits the exact keyword.
   static const _firstWordPattern = r'^(\S+)';
   static const _keywords = ['start', 'update', 'finish', 'rate', 'delete'];
   static const _usage = {
@@ -60,6 +95,8 @@ abstract final class LogCommandParser {
     'finish': 'finish <book>',
     'rate': 'rate <book> <stars>',
     'delete': 'delete <book>',
+    'remember': 'remember <book> :: <note>',
+    'recommend': 'recommend <book> :: <reason>',
   };
 
   static ParsedLogCommand parse(String input) {
@@ -131,6 +168,32 @@ abstract final class LogCommandParser {
         recognized: true,
         type: LogCommandType.delete,
         title: title,
+      );
+    }
+
+    final remember = _rememberPattern.firstMatch(text);
+    if (remember != null) {
+      final title = remember.group(1)!.trim();
+      final note = remember.group(2)!.trim();
+      return ParsedLogCommand(
+        message: 'Remembered "$title" — $note',
+        recognized: true,
+        type: LogCommandType.remember,
+        title: title,
+        note: note,
+      );
+    }
+
+    final recommend = _recommendPattern.firstMatch(text);
+    if (recommend != null) {
+      final title = recommend.group(1)!.trim();
+      final reason = recommend.group(2)!.trim();
+      return ParsedLogCommand(
+        message: '"$title" — $reason',
+        recognized: true,
+        type: LogCommandType.recommend,
+        title: title,
+        note: reason,
       );
     }
 

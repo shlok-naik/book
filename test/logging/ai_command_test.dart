@@ -16,6 +16,10 @@ import 'package:book/features/logging/presentation/pages/home_page.dart';
 import 'package:book/features/logging/presentation/widgets/command_input.dart';
 import 'package:book/features/logging/presentation/widgets/confirmation_pill.dart';
 import 'package:book/features/logging/presentation/widgets/instruction_row.dart';
+import 'package:book/features/memory/data/memory_repository.dart';
+import 'package:book/features/memory/domain/memory.dart';
+import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
+import 'package:book/features/memory/presentation/memory_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -107,18 +111,73 @@ class FakeAiCommandParser implements AiCommandParser {
   final AiCommandException? failure;
   int extractCommandsCalls = 0;
 
+  /// What the last call actually received — lets a test assert on the
+  /// context `HomePage` built, without a real edge function to inspect
+  /// the request it would have sent.
+  List<String>? lastLibraryTitles;
+  List<({String? title, String note})>? lastMemoryNotes;
+
   @override
-  Future<List<String>> extractCommands(String message) async {
+  Future<List<String>> extractCommands(
+    String message, {
+    List<String> libraryTitles = const [],
+    List<({String? title, String note})> memoryNotes = const [],
+  }) async {
     extractCommandsCalls++;
+    lastLibraryTitles = libraryTitles;
+    lastMemoryNotes = memoryNotes;
     if (failure != null) throw failure!;
     return commands;
   }
 }
 
-Widget _harness(Widget child, LibraryController library) {
+/// In-memory `MemoryRepository` stand-in — `HomePage` (and `MemoryScope`
+/// more generally) needs one above it whether or not a given test
+/// exercises the memory feature. Genuinely stateful, not a stub
+/// returning `const []`: `HomePage.initState`'s own `load()` runs a real
+/// `refresh()` against this on mount, and a test that pre-seeded a
+/// memory through the controller (to check `recommend`'s context, say)
+/// needs that fetch to see it rather than clobber it with an empty list.
+class _InMemoryMemoryRepository extends MemoryRepository {
+  final List<Memory> _memories = [];
+  int _nextId = 0;
+
+  @override
+  Future<List<Memory>> fetchAll() async => [..._memories];
+
+  @override
+  Future<Memory> add({String? bookTitle, required String note}) async {
+    final memory = Memory(
+      id: 'memory-${_nextId++}',
+      bookTitle: bookTitle,
+      note: note,
+      createdAt: DateTime.now(),
+    );
+    _memories.insert(0, memory);
+    return memory;
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    _memories.removeWhere((memory) => memory.id == id);
+  }
+}
+
+Widget _harness(
+  Widget child,
+  LibraryController library, {
+  MemoryController? memory,
+}) {
   return MaterialApp(
     theme: AppTheme.light,
-    home: LibraryScope(controller: library, child: child),
+    home: LibraryScope(
+      controller: library,
+      child: MemoryScope(
+        controller:
+            memory ?? MemoryController(repository: _InMemoryMemoryRepository()),
+        child: child,
+      ),
+    ),
   );
 }
 
@@ -357,4 +416,136 @@ void main() {
       expect(find.byType(CommandInput), findsOneWidget);
     },
   );
+
+  group('remember and recommend', () {
+    testWidgets('remember saves a memory on cactus pro', (tester) async {
+      await useDeviceSize(tester);
+      final ai = FakeAiCommandParser(
+        commands: const ['remember Dune :: loved the ending'],
+      );
+      final library = _newLibraryController();
+      final memory = MemoryController(repository: _InMemoryMemoryRepository());
+      await tester.pumpWidget(
+        _harness(HomePage(aiParser: ai), library, memory: memory),
+      );
+
+      await tester.enterText(find.byType(TextField), 'loved the ending!');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.widgetWithText(
+          ConfirmationPill,
+          'Remembered "Dune" — loved the ending',
+        ),
+        findsOneWidget,
+      );
+      expect(memory.memories, hasLength(1));
+      expect(memory.memories.single.bookTitle, 'Dune');
+      expect(memory.memories.single.note, 'loved the ending');
+
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('recommend shows the pick without touching the shelf or '
+        'the memory list', (tester) async {
+      await useDeviceSize(tester);
+      final ai = FakeAiCommandParser(
+        commands: const [
+          'recommend Circe :: another morally complex retelling',
+        ],
+      );
+      final library = _newLibraryController();
+      final memory = MemoryController(repository: _InMemoryMemoryRepository());
+      await tester.pumpWidget(
+        _harness(HomePage(aiParser: ai), library, memory: memory),
+      );
+
+      await tester.enterText(
+        find.byType(TextField),
+        'recommend me something like Dune',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.widgetWithText(
+          ConfirmationPill,
+          '"Circe" — another morally complex retelling',
+        ),
+        findsOneWidget,
+      );
+      expect(library.inProgress, isEmpty);
+      expect(library.finished, isEmpty);
+      expect(memory.memories, isEmpty);
+
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('both are refused on the free plan, with an upgrade message', (
+      tester,
+    ) async {
+      await useDeviceSize(tester);
+      PlanController.isPro.value = false;
+      final library = _newLibraryController();
+      final memory = MemoryController(repository: _InMemoryMemoryRepository());
+      await tester.pumpWidget(_harness(HomePage(), library, memory: memory));
+
+      // The free plan only ever runs `LogCommandParser` on the whole
+      // typed line — no AI involved — so the exact `::` syntax has to
+      // be typed directly to reach `_applyToLibrary`'s pro gate at
+      // all.
+      await tester.enterText(
+        find.byType(TextField),
+        'remember Dune :: loved the ending',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.widgetWithText(
+          ConfirmationPill,
+          'Upgrade to cactus pro to save memories.',
+        ),
+        findsOneWidget,
+      );
+      expect(memory.memories, isEmpty);
+    });
+
+    testWidgets('sends the shelf and memory notes as recommend context', (
+      tester,
+    ) async {
+      await useDeviceSize(tester);
+      final ai = FakeAiCommandParser(commands: const ['gibberish']);
+      final library = _newLibraryController();
+      await library.startBook('Dune');
+      final memory = MemoryController(repository: _InMemoryMemoryRepository());
+      await memory.remember(bookTitle: 'Circe', note: 'loved the retelling');
+      await tester.pumpWidget(
+        _harness(HomePage(aiParser: ai), library, memory: memory),
+      );
+
+      await tester.enterText(find.byType(TextField), 'recommend me a book');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.pump();
+
+      expect(ai.lastLibraryTitles, contains('Dune'));
+      expect(
+        ai.lastMemoryNotes,
+        contains((title: 'Circe', note: 'loved the retelling')),
+      );
+
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+    });
+  });
 }

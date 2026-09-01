@@ -24,6 +24,8 @@ import 'features/library/data/user_book_repository.dart';
 import 'features/library/domain/book_lookup_service.dart';
 import 'features/library/presentation/controllers/library_controller.dart';
 import 'features/library/presentation/library_scope.dart';
+import 'features/memory/presentation/controllers/memory_controller.dart';
+import 'features/memory/presentation/memory_scope.dart';
 import 'features/onboarding/data/onboarding_profile_repository.dart';
 import 'features/onboarding/data/session_service.dart';
 import 'features/onboarding/presentation/pages/welcome_page.dart';
@@ -169,6 +171,7 @@ class BookApp extends StatefulWidget {
   const BookApp({
     super.key,
     this.libraryController,
+    this.memoryController,
     this.sessionService,
     this.profileRepository,
     this.alwaysShowOnboarding = false,
@@ -178,6 +181,11 @@ class BookApp extends StatefulWidget {
   /// drive the library without Supabase or Google Books. In the app this
   /// is null and the real graph below is composed instead.
   final LibraryController? libraryController;
+
+  /// Injection point for tests: pass a controller backed by a fake
+  /// repository instead of a real Supabase call. In the app this is
+  /// null and a real one is built instead.
+  final MemoryController? memoryController;
 
   /// Injection point for tests: pass a fake to control whether a session
   /// exists (and how signing in behaves) without a real Supabase call.
@@ -204,6 +212,9 @@ class _BookAppState extends State<BookApp> {
   /// widget constructs its own (see CLAUDE.md § Dependency Injection).
   late final LibraryController _library =
       widget.libraryController ?? _buildLibraryController();
+
+  late final MemoryController _memory =
+      widget.memoryController ?? MemoryController();
 
   late final SessionService _session =
       widget.sessionService ?? SessionService();
@@ -241,6 +252,7 @@ class _BookAppState extends State<BookApp> {
   void dispose() {
     _ownedGoogleBooks?.dispose();
     if (widget.libraryController == null) _library.dispose();
+    if (widget.memoryController == null) _memory.dispose();
     super.dispose();
   }
 
@@ -264,19 +276,22 @@ class _BookAppState extends State<BookApp> {
               : SystemUiOverlayStyle.dark,
           child: LibraryScope(
             controller: _library,
-            child: MaterialApp(
-              title: 'cactus',
-              debugShowCheckedModeBanner: false,
-              theme: AppTheme.light,
-              darkTheme: AppTheme.dark,
-              themeMode: themeMode,
-              scrollBehavior: AppScrollBehavior(),
-              // Screen views come from each route's own name rather than a
-              // line in every page's initState — see [AppAnalytics].
-              navigatorObservers: AppAnalytics.navigatorObservers,
-              home: (_signedIn && !widget.alwaysShowOnboarding)
-                  ? const RootShell()
-                  : WelcomePage(session: _session, profiles: _profiles),
+            child: MemoryScope(
+              controller: _memory,
+              child: MaterialApp(
+                title: 'cactus',
+                debugShowCheckedModeBanner: false,
+                theme: AppTheme.light,
+                darkTheme: AppTheme.dark,
+                themeMode: themeMode,
+                scrollBehavior: AppScrollBehavior(),
+                // Screen views come from each route's own name rather than
+                // a line in every page's initState — see [AppAnalytics].
+                navigatorObservers: AppAnalytics.navigatorObservers,
+                home: (_signedIn && !widget.alwaysShowOnboarding)
+                    ? const RootShell()
+                    : WelcomePage(session: _session, profiles: _profiles),
+              ),
             ),
           ),
         );
