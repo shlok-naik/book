@@ -13,3 +13,11 @@ major_version = 17
 # per-reader rate limit in `claim_ai_request()` depends on it — so an
 # unauthenticated request must never reach the model provider.
 verify_jwt = true
+
+[auth]
+# The app has no sign-up step: `main` opens an anonymous session on
+# first launch and every feature reads through RLS on `auth.uid()` from
+# there, so without this a fresh install has no session and no shelf.
+# Must also be enabled on the hosted project (Auth -> Providers ->
+# Anonymous sign-ins) — this line only covers `supabase start`.
+enable_anonymous_sign_ins = true

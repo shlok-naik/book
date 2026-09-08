@@ -3,13 +3,14 @@ import 'package:flutter/widgets.dart';
 
 import '../diagnostics/app_logger.dart';
 
-/// Product analytics: how far readers get through onboarding, and what
-/// happens at the paywall.
+/// Product analytics: which screens readers reach, and what happens at
+/// the paywall.
 ///
-/// The question this exists to answer is where people stop. Onboarding is
-/// eight screens before anyone sees a price, and today a reader who quits
-/// at the reading-goal question is indistinguishable from one who never
-/// opened the app.
+/// The question this exists to answer is where people stop. It was built
+/// for an eight-screen onboarding funnel that no longer exists — readers
+/// now land straight in the app — so what is left is the four tabs, the
+/// settings screen, and the paywall popup, which is the only place a
+/// conversion can happen at all now that nothing is forced.
 ///
 /// **What is never sent.** No book titles, no author names, no typed
 /// commands, no profile answers, no email — none of it leaves the device
@@ -50,9 +51,10 @@ abstract final class AppAnalytics {
   /// until [attach] has run.
   ///
   /// Only routes pushed with a [RouteSettings] name are reported — see
-  /// the `settings:` argument on each `MaterialPageRoute` in onboarding.
-  /// An unnamed route is silently skipped, which is the right default: a
-  /// screen nobody named is not a screen worth a funnel step.
+  /// the `settings:` argument on the settings route in `TopBar` and on
+  /// the paywall popup in `showPaywallPopup`. An unnamed route is
+  /// silently skipped, which is the right default: a screen nobody named
+  /// is not a screen worth a funnel step.
   static List<NavigatorObserver> get navigatorObservers {
     final analytics = _analytics;
     if (analytics == null) return const [];
@@ -89,12 +91,6 @@ abstract final class AppAnalytics {
       _log('purchase_failed', {'reason': reason});
 
   static void purchaseRestored() => _log('purchase_restored');
-
-  // --------------------------------------------------------- onboarding
-
-  /// The reader reached the app itself. The denominator for every
-  /// screen-view count above it.
-  static void onboardingCompleted() => _log('onboarding_completed');
 
   static void _log(String name, [Map<String, Object>? parameters]) => _run(
     (analytics) => analytics.logEvent(name: name, parameters: parameters),

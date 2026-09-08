@@ -8,6 +8,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/analytics/app_analytics.dart';
+import 'core/auth/session_scope.dart';
+import 'core/auth/session_service.dart';
 import 'core/diagnostics/app_logger.dart';
 import 'core/diagnostics/crash_reporter.dart';
 import 'core/env/env.dart';
@@ -26,9 +28,6 @@ import 'features/library/presentation/controllers/library_controller.dart';
 import 'features/library/presentation/library_scope.dart';
 import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
-import 'features/onboarding/data/onboarding_profile_repository.dart';
-import 'features/onboarding/data/session_service.dart';
-import 'features/onboarding/presentation/pages/welcome_page.dart';
 import 'features/shell/presentation/pages/root_shell.dart';
 
 Future<void> main() async {
@@ -119,6 +118,27 @@ Future<void> _bootstrap() async {
     return;
   }
 
+  // The app has no sign-up step, and every feature reads through RLS on
+  // `auth.uid()` — so a session has to exist before the first frame, or
+  // a fresh install renders an empty shelf that looks broken rather than
+  // new. A reader who already has one (from a previous launch, or an
+  // email they linked in settings) keeps it; only a first launch creates
+  // anything. This is the one startup step with no graceful degradation:
+  // there is no useful app without a session, so a failure here is a
+  // startup failure rather than something to carry on past.
+  try {
+    await SessionService().ensureSession();
+  } on Object catch (error, stackTrace) {
+    AppLogger.error(
+      'main',
+      'Could not open a session.',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    runApp(const StartupFailureApp(missingKeys: []));
+    return;
+  }
+
   // Purchases are not load-bearing for launch: a reader whose
   // RevenueCat configuration fails should still get their library, just
   // without entitlement state. Previously this could take the whole
@@ -134,11 +154,10 @@ Future<void> _bootstrap() async {
     );
   }
 
-  // A reader who already has a session from a previous launch should
-  // resolve to the same RevenueCat identity they purchased under, not a
-  // fresh anonymous one — sign-in/sign-up call this again themselves
-  // once a session is created mid-flow (see `SessionService`). Fire-
-  // and-forget: this must never hold up startup waiting on it.
+  // Ties the session opened above — anonymous or email-linked, the uid
+  // is the same either way — to the RevenueCat purchaser it bought
+  // under, so entitlements resolve to the right account rather than a
+  // fresh one. Fire-and-forget: this must never hold up startup.
   final userId = Supabase.instance.client.auth.currentUser?.id;
   if (userId != null) {
     CrashReporter.identify(userId);
@@ -173,8 +192,6 @@ class BookApp extends StatefulWidget {
     this.libraryController,
     this.memoryController,
     this.sessionService,
-    this.profileRepository,
-    this.alwaysShowOnboarding = false,
   });
 
   /// Injection point for tests: pass a controller backed by fakes to
@@ -187,20 +204,11 @@ class BookApp extends StatefulWidget {
   /// null and a real one is built instead.
   final MemoryController? memoryController;
 
-  /// Injection point for tests: pass a fake to control whether a session
-  /// exists (and how signing in behaves) without a real Supabase call.
-  /// In the app this is null and a real one, backed by the initialized
-  /// Supabase client, is built instead.
+  /// Injection point for tests: pass a fake so the settings account
+  /// section can be driven without a real Supabase call. In the app this
+  /// is null and a real one, backed by the initialized Supabase client,
+  /// is built instead.
   final SessionService? sessionService;
-
-  /// Injection point for tests: pass a fake to control what onboarding's
-  /// profile save/averages calls do without a real Supabase call. In
-  /// the app this is null and a real one is built instead.
-  final OnboardingProfileRepository? profileRepository;
-
-  /// When true, ignores an existing session and always starts at
-  /// [WelcomePage].
-  final bool alwaysShowOnboarding;
 
   @override
   State<BookApp> createState() => _BookAppState();
@@ -218,17 +226,6 @@ class _BookAppState extends State<BookApp> {
 
   late final SessionService _session =
       widget.sessionService ?? SessionService();
-
-  late final OnboardingProfileRepository _profiles =
-      widget.profileRepository ?? OnboardingProfileRepository();
-
-  /// Whether the log-in gate has already been cleared. Read once at
-  /// startup — [WelcomePage] and the sign in/up screens each replace the
-  /// whole navigation stack with [RootShell] on success (see their
-  /// `pushAndRemoveUntil` calls) rather than flipping this flag, so it
-  /// only has to reflect "was there already a session when the app
-  /// launched", not track changes afterward.
-  late final bool _signedIn = _session.isSignedIn;
 
   /// Owned only when we built it — an injected client belongs to the
   /// caller, so we must not close it.
@@ -274,23 +271,28 @@ class _BookAppState extends State<BookApp> {
           value: isDark
               ? SystemUiOverlayStyle.light
               : SystemUiOverlayStyle.dark,
-          child: LibraryScope(
-            controller: _library,
-            child: MemoryScope(
-              controller: _memory,
-              child: MaterialApp(
-                title: 'cactus',
-                debugShowCheckedModeBanner: false,
-                theme: AppTheme.light,
-                darkTheme: AppTheme.dark,
-                themeMode: themeMode,
-                scrollBehavior: AppScrollBehavior(),
-                // Screen views come from each route's own name rather than
-                // a line in every page's initState — see [AppAnalytics].
-                navigatorObservers: AppAnalytics.navigatorObservers,
-                home: (_signedIn && !widget.alwaysShowOnboarding)
-                    ? const RootShell()
-                    : WelcomePage(session: _session, profiles: _profiles),
+          child: SessionScope(
+            session: _session,
+            child: LibraryScope(
+              controller: _library,
+              child: MemoryScope(
+                controller: _memory,
+                child: MaterialApp(
+                  title: 'cactus',
+                  debugShowCheckedModeBanner: false,
+                  theme: AppTheme.light,
+                  darkTheme: AppTheme.dark,
+                  themeMode: themeMode,
+                  scrollBehavior: AppScrollBehavior(),
+                  // Screen views come from each route's own name rather than
+                  // a line in every page's initState — see [AppAnalytics].
+                  navigatorObservers: AppAnalytics.navigatorObservers,
+                  // There is no gate in front of the app:
+                  // `_bootstrap` has already opened a session, so the
+                  // reader lands on the log tab on first launch and
+                  // every launch after.
+                  home: const RootShell(),
+                ),
               ),
             ),
           ),

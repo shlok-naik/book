@@ -7,6 +7,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../library/domain/reading_event.dart';
 import '../../../library/presentation/library_scope.dart';
+import '../../../shell/presentation/widgets/top_bar.dart';
 import '../controllers/streaks_controller.dart';
 import '../widgets/day_detail_sheet.dart';
 import '../widgets/month_dot_grid.dart';
@@ -73,7 +74,6 @@ class _StreaksPageState extends State<StreaksPage> {
   @override
   Widget build(BuildContext context) {
     final year = DateTime.now().year;
-    final colors = context.colors;
     final controller = _controller;
 
     return Scaffold(
@@ -102,16 +102,10 @@ class _StreaksPageState extends State<StreaksPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Same large section-label style as the library page's
-                // own "library" header — jetBrainsMono, not a one-off.
-                Text(
-                  'streak',
-                  style: GoogleFonts.jetBrainsMono(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: colors.primaryText,
-                  ),
-                ),
+                // The shared header every top-level page wears — the
+                // settings gear, then the page's own name in the same
+                // jetBrainsMono style all four have always used.
+                const TopBar(title: 'streak'),
                 // Same gap as library's own "library" header down to
                 // its first section label ("reading") — that gap is
                 // _Header's own md bottom padding *plus* _SectionLabel's

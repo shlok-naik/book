@@ -1,6 +1,6 @@
 /// A failure from a [MemoryRepository] call, already written for a
 /// human — the UI shows [message] verbatim. Mirrors
-/// `AiCommandException`/`OnboardingException`'s shape: this feature's
+/// `AiCommandException`/`SessionException`'s shape: this feature's
 /// failure surface is small enough (offline, a rejected write) that it
 /// doesn't need `LibraryException`'s sealed hierarchy of subtypes.
 class MemoryException implements Exception {

@@ -1,0 +1,17 @@
+-- Drops the one RPC onboarding owned.
+--
+-- The app no longer has an onboarding flow: readers land straight in
+-- the app on an anonymous session, so nothing ever asks how many books
+-- a typical reader gets through in a year. `onboarding_averages()` was
+-- its only caller, and with that gone the function is a `SECURITY
+-- DEFINER` entry point reachable by `anon` over `/rest/v1/rpc` that
+-- nothing on earth calls — see the "Public Can Execute SECURITY
+-- DEFINER Function" advisor.
+--
+-- The `profiles` columns it read (`reading_goal`,
+-- `reading_minutes_per_day`, `name`, `description`) are deliberately
+-- left in place. They are unused now, but they hold answers real
+-- readers typed, and dropping a column throws that away for good.
+-- Removing an unreachable API is reversible; deleting their data is
+-- not.
+drop function if exists public.onboarding_averages();

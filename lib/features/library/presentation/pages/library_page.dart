@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/library_book.dart';
 import '../controllers/library_controller.dart';
 import '../library_scope.dart';
@@ -182,24 +183,26 @@ class _Header extends StatelessWidget {
         AppSpacing.xl,
         AppSpacing.md,
       ),
-      child: _SectionLabel('library', large: true),
+      child: TopBar(title: 'library'),
     );
   }
 }
 
+/// A "reading" / "finished" divider between the shelf's two halves. The
+/// page's own large heading is [TopBar]'s job now, so this only ever
+/// renders the smaller, secondary variant it used to share a class with.
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text, {this.large = false});
+  const _SectionLabel(this.text);
 
   final String text;
-  final bool large;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        large ? 0 : AppSpacing.xl,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
         0,
         AppSpacing.xl,
         AppSpacing.sm,
@@ -207,9 +210,9 @@ class _SectionLabel extends StatelessWidget {
       child: Text(
         text,
         style: GoogleFonts.jetBrainsMono(
-          fontSize: large ? 20 : 16,
+          fontSize: 16,
           fontWeight: FontWeight.w600,
-          color: large ? colors.primaryText : colors.secondaryText,
+          color: colors.secondaryText,
         ),
       ),
     );

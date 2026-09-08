@@ -12,6 +12,7 @@ import '../../../../core/widgets/date_pill.dart';
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../memory/presentation/memory_scope.dart';
+import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/log_command_parser.dart';
 import '../widgets/command_input.dart';
 import '../widgets/confirmation_pill.dart';
@@ -483,7 +484,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Center(child: DatePill()),
+                // The gear sits at the page's left edge; the pill stays
+                // centred on the page itself rather than in whatever
+                // room is left beside it — see [TopBar.center].
+                const TopBar(center: DatePill()),
                 const SizedBox(height: AppSpacing.lg),
                 Expanded(
                   child: instructions == null

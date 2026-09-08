@@ -1,3 +1,4 @@
+import 'package:book/core/auth/session_service.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
@@ -10,10 +11,11 @@ import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
+import 'package:book/features/logging/presentation/pages/home_page.dart';
 import 'package:book/features/memory/data/memory_repository.dart';
 import 'package:book/features/memory/domain/memory.dart';
 import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
-import 'package:book/features/onboarding/data/session_service.dart';
+import 'package:book/features/settings/presentation/pages/settings_page.dart';
 import 'package:book/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -102,12 +104,22 @@ class _InMemoryUserBookRepository extends UserBookRepository {
   }
 }
 
-/// These tests exercise the log page's own flow, which starts past the
-/// onboarding gate — so every `BookApp` in this file is built already
-/// signed in, without a real Supabase session.
-class _AlwaysSignedIn extends SessionService {
+/// A session that answers without a Supabase client behind it. There is
+/// no gate in front of the app any more — `main` opens the session
+/// before the first frame — so this exists purely so the settings screen
+/// can be reached from the gear without reaching for `Supabase.instance`.
+class _FakeSession extends SessionService {
+  @override
+  Future<void> ensureSession() async {}
+
   @override
   bool get isSignedIn => true;
+
+  @override
+  bool get isAnonymous => true;
+
+  @override
+  String? get email => null;
 }
 
 /// A reading-event log that never touches Supabase. [failure], when
@@ -146,7 +158,7 @@ LibraryController _newLibraryController({LibraryException? eventsFailure}) {
   );
 }
 
-/// In-memory memories, fresh per test — `HomePage` and `ProfilePage`
+/// In-memory memories, fresh per test — `HomePage` and `MemoryPage`
 /// both kick a `load()` off in `initState`, which would otherwise hit
 /// the uninitialized Supabase client the same way `LibraryPage`'s own
 /// load does (see `_InMemoryUserBookRepository`'s comment above).
@@ -228,7 +240,7 @@ void main() {
         BookApp(
           libraryController: _newLibraryController(),
           memoryController: _newMemoryController(),
-          sessionService: _AlwaysSignedIn(),
+          sessionService: _FakeSession(),
         ),
       );
 
@@ -247,7 +259,7 @@ void main() {
       BookApp(
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
-        sessionService: _AlwaysSignedIn(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -272,7 +284,7 @@ void main() {
       BookApp(
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
-        sessionService: _AlwaysSignedIn(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -298,7 +310,7 @@ void main() {
         BookApp(
           libraryController: _newLibraryController(),
           memoryController: _newMemoryController(),
-          sessionService: _AlwaysSignedIn(),
+          sessionService: _FakeSession(),
         ),
       );
 
@@ -341,7 +353,7 @@ void main() {
       BookApp(
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
-        sessionService: _AlwaysSignedIn(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -388,7 +400,7 @@ void main() {
       BookApp(
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
-        sessionService: _AlwaysSignedIn(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -409,7 +421,7 @@ void main() {
         BookApp(
           libraryController: _newLibraryController(),
           memoryController: _newMemoryController(),
-          sessionService: _AlwaysSignedIn(),
+          sessionService: _FakeSession(),
         ),
       );
 
@@ -439,7 +451,7 @@ void main() {
       BookApp(
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
-        sessionService: _AlwaysSignedIn(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -460,7 +472,7 @@ void main() {
         BookApp(
           libraryController: _newLibraryController(),
           memoryController: _newMemoryController(),
-          sessionService: _AlwaysSignedIn(),
+          sessionService: _FakeSession(),
         ),
       );
 
@@ -484,6 +496,34 @@ void main() {
     },
   );
 
+  testWidgets('the settings gear opens the settings screen', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+      ),
+    );
+
+    // One gear per top-level page, all four of them built eagerly into
+    // the IndexedStack — so tap the one on the page actually on screen.
+    // (Its 'Settings' semantics label is pinned down separately, in
+    // test/accessibility/semantics_test.dart.)
+    await tester.tap(
+      find.descendant(
+        of: find.byType(HomePage),
+        matching: find.byIcon(Icons.settings_outlined),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SettingsPage), findsOneWidget);
+    expect(find.text('appearance'), findsOneWidget);
+  });
+
   testWidgets('Streaks page is reachable and grouped by month', (
     WidgetTester tester,
   ) async {
@@ -492,7 +532,7 @@ void main() {
       BookApp(
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
-        sessionService: _AlwaysSignedIn(),
+        sessionService: _FakeSession(),
       ),
     );
     await goToStreaksPage(tester);
@@ -512,7 +552,7 @@ void main() {
             eventsFailure: const NetworkException('You are offline.'),
           ),
           memoryController: _newMemoryController(),
-          sessionService: _AlwaysSignedIn(),
+          sessionService: _FakeSession(),
         ),
       );
       await goToStreaksPage(tester);

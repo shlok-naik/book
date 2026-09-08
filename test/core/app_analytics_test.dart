@@ -26,7 +26,6 @@ void main() {
       AppAnalytics.purchaseCompleted('rc_annual');
       AppAnalytics.purchaseFailed('cancelled');
       AppAnalytics.purchaseRestored();
-      AppAnalytics.onboardingCompleted();
     }, returnsNormally);
   });
 }

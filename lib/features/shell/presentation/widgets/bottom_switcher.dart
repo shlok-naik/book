@@ -5,7 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 
-/// Floating pill tab bar. Profile / streak / library share the wide,
+/// Floating pill tab bar. Memory / streak / library share the wide,
 /// fully-rounded left pill; "+" gets its own complete circle, set apart,
 /// as the primary action.
 ///
@@ -23,16 +23,23 @@ class BottomSwitcher extends StatelessWidget {
   final ValueChanged<int> onChanged;
 
   static const _groupIcons = [
-    Icons.person_outline,
+    Icons.bookmark_border,
     Icons.local_fire_department_outlined,
     Icons.menu_book_outlined,
   ];
 
   /// What each slot is called to a screen reader. An icon-only tab bar
   /// is invisible to VoiceOver/TalkBack without these — the icons carry
-  /// the entire meaning of the app's primary navigation.
-  static const _groupLabels = ['Profile', 'Streak', 'Library'];
-  static const _addLabel = 'Log reading';
+  /// the entire meaning of the app's primary navigation, so these four
+  /// strings *are* the tab names. One word, title case, no verb: the
+  /// "+" slot follows the same rule as its three neighbours rather than
+  /// describing an action the others don't describe either.
+  static const _groupLabels = ['Memory', 'Streak', 'Library'];
+
+  /// The "+" tab. Named for the day it logs against — the page it opens
+  /// leads with a [DatePill] reading "today" — rather than for the
+  /// gesture that opens it.
+  static const _addLabel = 'Today';
 
   static const _addIndex = 3;
 

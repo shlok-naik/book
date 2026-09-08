@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// A failure from an [AiCommandParser] call, already written for a
 /// human — the UI shows [message] verbatim. Mirrors
-/// `OnboardingException`/`LibraryException`'s shape.
+/// `SessionException`/`LibraryException`'s shape.
 class AiCommandException implements Exception {
   const AiCommandException(this.message, {this.cause});
 
