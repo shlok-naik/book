@@ -28,6 +28,8 @@ import 'features/library/presentation/controllers/library_controller.dart';
 import 'features/library/presentation/library_scope.dart';
 import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
+import 'features/onboarding/data/onboarding_store.dart';
+import 'features/onboarding/presentation/pages/welcome_page.dart';
 import 'features/shell/presentation/pages/root_shell.dart';
 
 Future<void> main() async {
@@ -183,7 +185,13 @@ Future<void> _bootstrap() async {
   // page already wraps its content in a SafeArea.
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  runApp(const BookApp());
+  // Read before the first frame so the app opens on the right screen
+  // rather than flashing one and replacing it. Note this is *not*
+  // "is the reader signed in" — they always are by now, anonymously —
+  // it is "have they been shown around yet". See [OnboardingStore].
+  final introSeen = await const OnboardingStore().hasSeen();
+
+  runApp(BookApp(showOnboarding: !introSeen));
 }
 
 class BookApp extends StatefulWidget {
@@ -192,6 +200,7 @@ class BookApp extends StatefulWidget {
     this.libraryController,
     this.memoryController,
     this.sessionService,
+    this.showOnboarding = false,
   });
 
   /// Injection point for tests: pass a controller backed by fakes to
@@ -209,6 +218,12 @@ class BookApp extends StatefulWidget {
   /// is null and a real one, backed by the initialized Supabase client,
   /// is built instead.
   final SessionService? sessionService;
+
+  /// Whether to open on the intro rather than the app. Set by
+  /// `_bootstrap` from [OnboardingStore] — true only on a fresh install.
+  /// Defaults to false so a test gets the app itself without having to
+  /// say so.
+  final bool showOnboarding;
 
   @override
   State<BookApp> createState() => _BookAppState();
@@ -287,11 +302,13 @@ class _BookAppState extends State<BookApp> {
                   // Screen views come from each route's own name rather than
                   // a line in every page's initState — see [AppAnalytics].
                   navigatorObservers: AppAnalytics.navigatorObservers,
-                  // There is no gate in front of the app:
-                  // `_bootstrap` has already opened a session, so the
-                  // reader lands on the log tab on first launch and
-                  // every launch after.
-                  home: const RootShell(),
+                  // The intro is a tour, not a gate: `_bootstrap` has
+                  // already opened the session, and [WelcomePage] asks
+                  // for nothing. It shows once per install and replaces
+                  // the whole stack with [RootShell] on the way out.
+                  home: widget.showOnboarding
+                      ? const WelcomePage()
+                      : const RootShell(),
                 ),
               ),
             ),

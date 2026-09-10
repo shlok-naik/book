@@ -6,11 +6,10 @@ import '../diagnostics/app_logger.dart';
 /// Product analytics: which screens readers reach, and what happens at
 /// the paywall.
 ///
-/// The question this exists to answer is where people stop. It was built
-/// for an eight-screen onboarding funnel that no longer exists — readers
-/// now land straight in the app — so what is left is the four tabs, the
-/// settings screen, and the paywall popup, which is the only place a
-/// conversion can happen at all now that nothing is forced.
+/// The question this exists to answer is where people stop: the intro's
+/// own screens, the four tabs, the settings screen, and the paywall
+/// popup — which is the only place a conversion can happen now that
+/// nothing is forced.
 ///
 /// **What is never sent.** No book titles, no author names, no typed
 /// commands, no profile answers, no email — none of it leaves the device
@@ -91,6 +90,15 @@ abstract final class AppAnalytics {
       _log('purchase_failed', {'reason': reason});
 
   static void purchaseRestored() => _log('purchase_restored');
+
+  // --------------------------------------------------------- onboarding
+
+  /// The reader stepped out of the intro into the app itself. The
+  /// denominator for every screen-view count above it — and, unlike the
+  /// old flow, the only thing worth counting here: nothing in onboarding
+  /// asks for anything any more, so there is no drop-off to attribute to
+  /// a question.
+  static void onboardingCompleted() => _log('onboarding_completed');
 
   static void _log(String name, [Map<String, Object>? parameters]) => _run(
     (analytics) => analytics.logEvent(name: name, parameters: parameters),
