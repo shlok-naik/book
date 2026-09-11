@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
 /// A faint, evenly-spaced dot grid painted behind [child] — the subtle
-/// texture used across the onboarding flow's plain background areas so
+/// texture behind the paywall popup's card so
 /// they don't read as flat, empty space.
 class DottedBackground extends StatelessWidget {
   const DottedBackground({super.key, required this.child});

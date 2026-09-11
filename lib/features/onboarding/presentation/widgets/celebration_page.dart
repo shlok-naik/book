@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import 'soft_pill_button.dart';
+import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 
 /// A plain, static "you're done" beat — an icon, a big heading, a
 /// muted line of copy, and a single button — shared by every

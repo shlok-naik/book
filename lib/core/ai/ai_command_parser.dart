@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// A failure from an [AiCommandParser] call, already written for a
 /// human — the UI shows [message] verbatim. Mirrors
-/// `OnboardingException`/`LibraryException`'s shape.
+/// `SessionException`/`LibraryException`'s shape.
 class AiCommandException implements Exception {
   const AiCommandException(this.message, {this.cause});
 
@@ -19,15 +19,28 @@ class AiCommandException implements Exception {
 }
 
 /// Splits a reader's free-form sentence into `LogCommandParser`'s own
-/// command grammar (`start <book>`, `update <book> <page>`,
-/// `finish <book>`, `rate <book> <stars>`, `delete <book>`) — the one
-/// thing "cactus pro"'s natural-language mode needs. Everything
-/// downstream of that (recognising, validating, applying) stays
-/// `LogCommandParser`/`HomePage`'s job.
+/// command grammar — `start`, `update`, `finish`, `rate`, `delete`, plus
+/// `remember` and `recommend` — the one thing "cactus pro"'s
+/// natural-language mode needs. Everything downstream of that
+/// (recognising, validating, applying) stays `LogCommandParser`/
+/// `HomePage`'s job. `start`/`update`/`finish` also take an optional
+/// trailing date; resolving a phrase like "yesterday" to it needs the
+/// reader's own local "today" — the real implementation sends that
+/// itself (see `EdgeFunctionCommandParser`); it isn't a parameter here
+/// because, unlike [libraryTitles] and [memoryNotes], no caller needs
+/// to gather it from anywhere.
 ///
 /// An interface rather than a concrete class so tests can supply fixed
 /// extractions without going anywhere near the network.
 abstract interface class AiCommandParser {
+  /// [libraryTitles] and [memoryNotes] ground the `recommend` command
+  /// only — the edge function ignores them for every other line — and
+  /// are otherwise harmless to omit; every existing command still works
+  /// with both left empty. Kept as plain strings rather than this
+  /// feature's own `LibraryBook`/`Memory` types so `core/ai` doesn't
+  /// have to depend on either feature (see CLAUDE.md § Feature-first
+  /// layout — `core/` is for cross-feature concerns, not the reverse).
+  ///
   /// Never returns an empty list in practice: the prompt asks for a
   /// single `"gibberish"` line rather than an empty array when nothing
   /// actionable was found, so that line can run through the exact same
@@ -36,7 +49,11 @@ abstract interface class AiCommandParser {
   ///
   /// Throws [AiCommandException] — never a partial or best-effort
   /// result — for any failure at all.
-  Future<List<String>> extractCommands(String message);
+  Future<List<String>> extractCommands(
+    String message, {
+    List<String> libraryTitles = const [],
+    List<({String? title, String note})> memoryNotes = const [],
+  });
 }
 
 /// The real [AiCommandParser]: a call to the `parse-command` Supabase
@@ -72,12 +89,39 @@ class EdgeFunctionCommandParser implements AiCommandParser {
   /// past it the reader is better served by an error than a spinner.
   static const _timeout = Duration(seconds: 20);
 
+  /// `YYYY-MM-DD` for the device's own local date — the only thing the
+  /// edge function needs to resolve "I started Dune yesterday" to an
+  /// absolute date, since it has no other way to know the reader's
+  /// timezone or what day it is for them right now.
+  static String _todayIso(DateTime now) {
+    String pad2(int n) => n.toString().padLeft(2, '0');
+    return '${now.year}-${pad2(now.month)}-${pad2(now.day)}';
+  }
+
   @override
-  Future<List<String>> extractCommands(String message) async {
+  Future<List<String>> extractCommands(
+    String message, {
+    List<String> libraryTitles = const [],
+    List<({String? title, String note})> memoryNotes = const [],
+  }) async {
     final FunctionResponse response;
     try {
       response = await _client.functions
-          .invoke(_function, body: {'message': message})
+          .invoke(
+            _function,
+            body: {
+              'message': message,
+              'context': {
+                'today': _todayIso(DateTime.now()),
+                if (libraryTitles.isNotEmpty) 'library': libraryTitles,
+                if (memoryNotes.isNotEmpty)
+                  'memories': [
+                    for (final memory in memoryNotes)
+                      {'title': memory.title, 'note': memory.note},
+                  ],
+              },
+            },
+          )
           .timeout(_timeout);
     } on FunctionException catch (error) {
       throw AiCommandException(_messageFor(error), cause: error);

@@ -1,3 +1,4 @@
+import 'package:book/core/auth/session_service.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
@@ -10,7 +11,11 @@ import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
-import 'package:book/features/onboarding/data/session_service.dart';
+import 'package:book/features/logging/presentation/pages/home_page.dart';
+import 'package:book/features/memory/data/memory_repository.dart';
+import 'package:book/features/memory/domain/memory.dart';
+import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
+import 'package:book/features/settings/presentation/pages/settings_page.dart';
 import 'package:book/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -73,6 +78,7 @@ class _InMemoryUserBookRepository extends UserBookRepository {
     required String userBookId,
     required int currentPage,
     required bool finished,
+    DateTime? finishedAt,
   }) async {
     _status = finished ? ReadingStatus.finished : ReadingStatus.reading;
     return UserBook(
@@ -98,12 +104,25 @@ class _InMemoryUserBookRepository extends UserBookRepository {
   }
 }
 
-/// These tests exercise the log page's own flow, which starts past the
-/// onboarding gate — so every `BookApp` in this file is built already
-/// signed in, without a real Supabase session.
-class _AlwaysSignedIn extends SessionService {
+/// A session that answers without a Supabase client behind it. There is
+/// no gate in front of the app any more — `main` opens the session
+/// before the first frame — so this exists purely so the settings screen
+/// can be reached from the gear without reaching for `Supabase.instance`.
+class _FakeSession extends SessionService {
+  @override
+  Future<void> ensureSession() async {}
+
   @override
   bool get isSignedIn => true;
+
+  @override
+  bool get isAnonymous => true;
+
+  @override
+  String? get email => null;
+
+  @override
+  String? get userId => 'fake-user-id';
 }
 
 /// A reading-event log that never touches Supabase. [failure], when
@@ -116,7 +135,12 @@ class _FakeReadingEventRepository extends ReadingEventRepository {
   final LibraryException? failure;
 
   @override
-  Future<void> log(ReadingEventType type, {required String title}) async {}
+  Future<void> log(
+    ReadingEventType type, {
+    required String title,
+    DateTime? occurredAt,
+    double? value,
+  }) async {}
 
   @override
   Future<List<ReadingEvent>> fetchForYear(int year) async {
@@ -136,6 +160,34 @@ LibraryController _newLibraryController({LibraryException? eventsFailure}) {
     userBooks: _InMemoryUserBookRepository(),
     events: _FakeReadingEventRepository(failure: eventsFailure),
   );
+}
+
+/// In-memory memories, fresh per test — `HomePage` and `MemoryPage`
+/// both kick a `load()` off in `initState`, which would otherwise hit
+/// the uninitialized Supabase client the same way `LibraryPage`'s own
+/// load does (see `_InMemoryUserBookRepository`'s comment above).
+class _InMemoryMemoryRepository extends MemoryRepository {
+  int _nextId = 0;
+
+  @override
+  Future<List<Memory>> fetchAll() async => const [];
+
+  @override
+  Future<Memory> add({String? bookTitle, required String note}) async {
+    return Memory(
+      id: 'memory-${_nextId++}',
+      bookTitle: bookTitle,
+      note: note,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> delete(String id) async {}
+}
+
+MemoryController _newMemoryController() {
+  return MemoryController(repository: _InMemoryMemoryRepository());
 }
 
 void main() {
@@ -191,7 +243,8 @@ void main() {
       await tester.pumpWidget(
         BookApp(
           libraryController: _newLibraryController(),
-          sessionService: _AlwaysSignedIn(),
+          memoryController: _newMemoryController(),
+          sessionService: _FakeSession(),
         ),
       );
 
@@ -209,7 +262,8 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
-        sessionService: _AlwaysSignedIn(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -233,7 +287,8 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
-        sessionService: _AlwaysSignedIn(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -258,7 +313,8 @@ void main() {
       await tester.pumpWidget(
         BookApp(
           libraryController: _newLibraryController(),
-          sessionService: _AlwaysSignedIn(),
+          memoryController: _newMemoryController(),
+          sessionService: _FakeSession(),
         ),
       );
 
@@ -300,7 +356,8 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
-        sessionService: _AlwaysSignedIn(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -346,7 +403,8 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
-        sessionService: _AlwaysSignedIn(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -366,7 +424,8 @@ void main() {
       await tester.pumpWidget(
         BookApp(
           libraryController: _newLibraryController(),
-          sessionService: _AlwaysSignedIn(),
+          memoryController: _newMemoryController(),
+          sessionService: _FakeSession(),
         ),
       );
 
@@ -395,7 +454,8 @@ void main() {
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
-        sessionService: _AlwaysSignedIn(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
       ),
     );
 
@@ -415,7 +475,8 @@ void main() {
       await tester.pumpWidget(
         BookApp(
           libraryController: _newLibraryController(),
-          sessionService: _AlwaysSignedIn(),
+          memoryController: _newMemoryController(),
+          sessionService: _FakeSession(),
         ),
       );
 
@@ -439,25 +500,54 @@ void main() {
     },
   );
 
-  testWidgets('Streaks page is reachable and grouped by month', (
+  testWidgets('the settings gear opens the settings screen', (
     WidgetTester tester,
   ) async {
     await useDeviceSize(tester);
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
-        sessionService: _AlwaysSignedIn(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+      ),
+    );
+
+    // One gear per top-level page, all four of them built eagerly into
+    // the IndexedStack — so tap the one on the page actually on screen.
+    // (Its 'Settings' semantics label is pinned down separately, in
+    // test/accessibility/semantics_test.dart.)
+    await tester.tap(
+      find.descendant(
+        of: find.byType(HomePage),
+        matching: find.byIcon(Icons.settings_outlined),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SettingsPage), findsOneWidget);
+    expect(find.text('appearance'), findsOneWidget);
+  });
+
+  testWidgets('Streaks page is reachable and shows the reading journal', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
       ),
     );
     await goToStreaksPage(tester);
 
-    expect(find.text('january'), findsOneWidget);
+    expect(find.text('nothing logged yet — start a book.'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets(
     'Streaks page says so when the year could not be loaded, rather than '
-    'drawing an empty one',
+    'showing an empty journal',
     (WidgetTester tester) async {
       await useDeviceSize(tester);
       await tester.pumpWidget(
@@ -465,14 +555,15 @@ void main() {
           libraryController: _newLibraryController(
             eventsFailure: const NetworkException('You are offline.'),
           ),
-          sessionService: _AlwaysSignedIn(),
+          memoryController: _newMemoryController(),
+          sessionService: _FakeSession(),
         ),
       );
       await goToStreaksPage(tester);
 
-      // An empty grid would be indistinguishable from "you have never
-      // logged anything", so the months must not be drawn at all.
-      expect(find.text('january'), findsNothing);
+      // An empty journal would be indistinguishable from "you have
+      // never logged anything", so the failure must show instead.
+      expect(find.text('nothing logged yet — start a book.'), findsNothing);
       expect(find.text('You are offline.'), findsOneWidget);
       expect(find.text('try again'), findsOneWidget);
     },

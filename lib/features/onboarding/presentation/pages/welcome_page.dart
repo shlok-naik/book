@@ -4,24 +4,24 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/dotted_background.dart';
-import '../../data/onboarding_profile_repository.dart';
-import '../../data/session_service.dart';
-import '../widgets/soft_pill_button.dart';
+import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import 'add_book_tutorial_page.dart';
 
-/// The app's first screen — Pushr-style: "cactus" holds centered for a
+/// The first screen of a fresh install: "cactus" holds centered for a
 /// beat, slides up a little, a short description fades in beneath it,
-/// and after a further pause a "Start" button appears. Tapping it moves
-/// into the tutorial steps.
+/// and after a further pause a "start" button appears. Tapping it moves
+/// into the tutorial steps. See `BookApp` in main.dart, which builds
+/// this instead of `RootShell` until `OnboardingStore` says the tutorial
+/// has been seen.
 ///
-/// This is the one place a fresh install lands before any session
-/// exists — see `BookApp` in main.dart, which only builds this when
-/// `SessionService.isSignedIn` is false.
+/// It asks for nothing. The reader's account already exists by the time
+/// this renders (`main` opens an anonymous session before the first
+/// frame), so this whole flow is an introduction rather than a sign-up:
+/// there is no name, no email, and no way to get it wrong. Linking an
+/// email is offered later, in settings, to a reader who has something
+/// worth backing up.
 class WelcomePage extends StatefulWidget {
-  const WelcomePage({super.key, required this.session, required this.profiles});
-
-  final SessionService session;
-  final OnboardingProfileRepository profiles;
+  const WelcomePage({super.key});
 
   @override
   State<WelcomePage> createState() => _WelcomePageState();
@@ -91,10 +91,7 @@ class _WelcomePageState extends State<WelcomePage>
     Navigator.of(context).push(
       MaterialPageRoute(
         settings: const RouteSettings(name: 'onboarding_add_book_tutorial'),
-        builder: (_) => AddBookTutorialPage(
-          session: widget.session,
-          profiles: widget.profiles,
-        ),
+        builder: (_) => const AddBookTutorialPage(),
       ),
     );
   }

@@ -100,17 +100,24 @@ class UserBookRepository {
   ///
   /// The caller (the controller) is responsible for validating the page
   /// and deciding completion; this method only writes what it is told.
+  ///
+  /// [finishedAt], when given, backdates the finish instead of using
+  /// the server clock — "I finished Dune yesterday" should leave the
+  /// book's own record agreeing with the streak entry it produced.
+  /// Ignored when [finished] is false: an in-progress book has no
+  /// finish date to backdate.
   Future<UserBook> saveProgress({
     required String userBookId,
     required int currentPage,
     required bool finished,
+    DateTime? finishedAt,
   }) {
     if (currentPage < 0) {
       throw const InvalidInputException("A page number can't be negative.");
     }
 
     return runSupabase(() async {
-      final now = DateTime.now().toUtc().toIso8601String();
+      final at = (finishedAt ?? DateTime.now()).toUtc().toIso8601String();
       final row = await _client
           .from(_table)
           .update({
@@ -120,7 +127,7 @@ class UserBookRepository {
                 : ReadingStatus.reading.wireValue,
             // Clearing finished_at when a finished book is re-opened
             // keeps the column honest.
-            'finished_at': finished ? now : null,
+            'finished_at': finished ? at : null,
             // `updated_at` is deliberately absent: a database trigger
             // (`user_books_touch_updated_at`) sets it from the server
             // clock. The shelf is ordered by that column, so letting

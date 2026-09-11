@@ -3,8 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../data/onboarding_profile_repository.dart';
-import '../../data/session_service.dart';
 import '../widgets/command_wall.dart';
 import 'natural_language_tutorial_page.dart';
 import 'tutorial_step_page.dart';
@@ -20,14 +18,7 @@ import 'tutorial_step_page.dart';
 /// than more scrolling on this one so each half gets its own
 /// illustrating wall above it.
 class AddBookTutorialPage extends StatelessWidget {
-  const AddBookTutorialPage({
-    super.key,
-    required this.session,
-    required this.profiles,
-  });
-
-  final SessionService session;
-  final OnboardingProfileRepository profiles;
+  const AddBookTutorialPage({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -38,8 +29,7 @@ class AddBookTutorialPage extends StatelessWidget {
       onContinue: () => Navigator.of(context).push(
         MaterialPageRoute(
           settings: const RouteSettings(name: 'onboarding_nl_tutorial'),
-          builder: (_) =>
-              NaturalLanguageTutorialPage(session: session, profiles: profiles),
+          builder: (_) => const NaturalLanguageTutorialPage(),
         ),
       ),
     );

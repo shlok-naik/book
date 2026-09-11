@@ -1,7 +1,6 @@
 import 'package:book/features/library/data/reading_event_repository.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
-import 'package:book/features/streaks/domain/day_symbol.dart';
 import 'package:book/features/streaks/presentation/controllers/streaks_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -41,7 +40,7 @@ ReadingEvent _event(
 
 void main() {
   group('load', () {
-    test('groups events by local day and exposes a symbol per day', () async {
+    test('groups events by local day, oldest first within a day', () async {
       final controller = StreaksController(
         events: FakeReadingEventRepository([
           _event(
@@ -60,9 +59,30 @@ void main() {
       await controller.load(2026);
 
       final day = DateTime(2026, 3, 5);
-      expect(controller.symbolFor(day), DaySymbol.closedCircle);
-      expect(controller.eventsFor(day), hasLength(2));
-      expect(controller.symbolFor(DateTime(2026, 3, 6)), isNull);
+      expect(controller.days, [day]);
+      final events = controller.eventsFor(day);
+      expect(events, hasLength(2));
+      expect(events.first.type, ReadingEventType.start);
+      expect(events.last.type, ReadingEventType.finish);
+      expect(controller.eventsFor(DateTime(2026, 3, 6)), isEmpty);
+    });
+
+    test('lists days newest first', () async {
+      final controller = StreaksController(
+        events: FakeReadingEventRepository([
+          _event(ReadingEventType.start, DateTime.utc(2026, 1, 1), title: 'A'),
+          _event(ReadingEventType.start, DateTime.utc(2026, 6, 1), title: 'B'),
+          _event(ReadingEventType.start, DateTime.utc(2026, 3, 15), title: 'C'),
+        ]),
+      );
+
+      await controller.load(2026);
+
+      expect(controller.days, [
+        DateTime(2026, 6, 1),
+        DateTime(2026, 3, 15),
+        DateTime(2026, 1, 1),
+      ]);
     });
 
     test('a second call for the same year is a no-op', () async {
@@ -107,8 +127,8 @@ void main() {
         );
 
         expect(
-          controller.symbolFor(DateTime(2026, 6, 1)),
-          DaySymbol.hollowCircle,
+          controller.eventsFor(DateTime(2026, 6, 1)).single.type,
+          ReadingEventType.start,
         );
       },
     );
@@ -138,7 +158,7 @@ void main() {
         _event(ReadingEventType.start, DateTime.utc(2027, 1, 1), title: 'Dune'),
       );
 
-      expect(controller.symbolFor(DateTime(2027, 1, 1)), isNull);
+      expect(controller.eventsFor(DateTime(2027, 1, 1)), isEmpty);
     });
 
     test('ignores an event that arrives before anything has loaded', () {
@@ -150,7 +170,79 @@ void main() {
         _event(ReadingEventType.start, DateTime.utc(2026, 6, 1), title: 'Dune'),
       );
 
-      expect(controller.symbolFor(DateTime(2026, 6, 1)), isNull);
+      expect(controller.eventsFor(DateTime(2026, 6, 1)), isEmpty);
+    });
+  });
+
+  group('removeTitle', () {
+    test('drops every loaded event for that title', () async {
+      final controller = StreaksController(
+        events: FakeReadingEventRepository([
+          _event(
+            ReadingEventType.start,
+            DateTime.utc(2026, 3, 1),
+            title: 'Dune',
+          ),
+          _event(
+            ReadingEventType.finish,
+            DateTime.utc(2026, 3, 20),
+            title: 'Dune',
+          ),
+          _event(
+            ReadingEventType.start,
+            DateTime.utc(2026, 3, 20),
+            title: 'Neuromancer',
+          ),
+        ]),
+      );
+      await controller.load(2026);
+
+      controller.removeTitle('Dune');
+
+      expect(controller.eventsFor(DateTime(2026, 3, 1)), isEmpty);
+      expect(
+        controller.eventsFor(DateTime(2026, 3, 20)).single.title,
+        'Neuromancer',
+        reason: 'an unrelated title on the same day is left alone',
+      );
+    });
+
+    test('drops a day entirely once its last event is removed', () async {
+      final controller = StreaksController(
+        events: FakeReadingEventRepository([
+          _event(
+            ReadingEventType.start,
+            DateTime.utc(2026, 3, 1),
+            title: 'Dune',
+          ),
+        ]),
+      );
+      await controller.load(2026);
+
+      controller.removeTitle('Dune');
+
+      expect(controller.days, isEmpty);
+    });
+
+    test('notifies listeners only when something actually changed', () async {
+      final controller = StreaksController(
+        events: FakeReadingEventRepository([
+          _event(
+            ReadingEventType.start,
+            DateTime.utc(2026, 3, 1),
+            title: 'Dune',
+          ),
+        ]),
+      );
+      await controller.load(2026);
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      controller.removeTitle('Neuromancer');
+      expect(notifications, 0, reason: 'nothing in the loaded year matched');
+
+      controller.removeTitle('Dune');
+      expect(notifications, 1);
     });
   });
 
@@ -197,7 +289,7 @@ void main() {
 
       await controller.load(2026);
       expect(controller.errorMessage, isNull);
-      expect(controller.symbolFor(DateTime(2026, 3, 5)), isNotNull);
+      expect(controller.eventsFor(DateTime(2026, 3, 5)), isNotEmpty);
     });
   });
 }

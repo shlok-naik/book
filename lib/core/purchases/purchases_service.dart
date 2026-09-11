@@ -10,7 +10,7 @@ import 'entitlements.dart';
 /// A failure from any [PurchasesService] call, already written for a
 /// human — the UI shows [message] verbatim. The original error is kept
 /// in [cause] for logging only, never rendered. Mirrors
-/// `OnboardingException`'s shape.
+/// `SessionException`'s shape.
 class PurchasesException implements Exception {
   const PurchasesException(
     this.message, {
@@ -150,7 +150,7 @@ class PurchasesService {
 
   /// Presents RevenueCat's Customer Center — self-serve manage/cancel/
   /// refund-request flows with no custom UI to build or maintain. See
-  /// `ProfilePage`, the app's one natural "account settings" spot.
+  /// `SettingsPage`, the app's one natural "account settings" spot.
   Future<void> presentCustomerCenter() {
     return RevenueCatUI.presentCustomerCenter();
   }

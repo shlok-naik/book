@@ -28,30 +28,39 @@ class ReadingEvent {
     required this.type,
     required this.occurredAt,
     this.title,
+    this.value,
   });
 
   final ReadingEventType type;
   final DateTime occurredAt;
 
   /// The book the command was about — null only for a row written before
-  /// this column existed. Carried along purely for the day-detail sheet's
-  /// list; nothing in the streak grid itself reads it.
+  /// this column existed. Carried along purely for the journal page's
+  /// list; nothing else reads it.
   final String? title;
 
+  /// The number the command carried — the page an `update` reached, or
+  /// the rating a `rate` gave. Null for `start`/`finish`/`delete`, which
+  /// have nothing numeric to say, and for any row written before this
+  /// column existed.
+  final double? value;
+
   /// Parses a `reading_events` row. Unlike `UserBook.fromRow`, a bad row
-  /// here isn't fatal to the whole page — the streaks grid just treats
-  /// that one day as if nothing happened — so this returns null instead
-  /// of throwing, and callers filter unparseable rows out.
+  /// here isn't fatal to the whole page — the journal just treats that
+  /// one day as if nothing happened — so this returns null instead of
+  /// throwing, and callers filter unparseable rows out.
   static ReadingEvent? fromRow(Map<String, dynamic> row) {
     final type = ReadingEventType.fromWire(row['action']);
     final rawDate = row['occurred_at'];
     final occurredAt = rawDate is String ? DateTime.tryParse(rawDate) : null;
     if (type == null || occurredAt == null) return null;
     final rawTitle = row['title'];
+    final rawValue = row['value'];
     return ReadingEvent(
       type: type,
       occurredAt: occurredAt,
       title: rawTitle is String && rawTitle.isNotEmpty ? rawTitle : null,
+      value: rawValue is num ? rawValue.toDouble() : null,
     );
   }
 }

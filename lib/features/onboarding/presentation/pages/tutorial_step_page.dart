@@ -3,8 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
-import '../widgets/soft_pill_button.dart';
 
 /// One step of the post-welcome tutorial, styled after Pushr's
 /// onboarding pattern: whatever demonstrates the step sits in the top

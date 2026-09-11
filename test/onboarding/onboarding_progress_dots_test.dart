@@ -4,72 +4,67 @@ import 'package:book/features/onboarding/presentation/widgets/onboarding_progres
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// Three steps now — tutorial, look, finish. The two account steps and
+/// the bypass loop that used to hop around them went with the sign-up
+/// flow: onboarding no longer creates an account, so there is no longer
+/// a branch for the line to draw.
+
+Future<List<BoxDecoration>> pumpDots(
+  WidgetTester tester,
+  int currentStep,
+  void Function(AppColors) captureColors,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: AppTheme.light,
+      home: Builder(
+        builder: (context) {
+          captureColors(context.colors);
+          return Scaffold(
+            body: OnboardingProgressDots(currentStep: currentStep),
+          );
+        },
+      ),
+    ),
+  );
+
+  return tester
+      .widgetList<Container>(find.byType(Container))
+      .map((container) => container.decoration)
+      .whereType<BoxDecoration>()
+      .toList();
+}
+
 void main() {
   testWidgets('fills dots up to currentStep and leaves the rest hollow', (
     tester,
   ) async {
     late AppColors colors;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Builder(
-          builder: (context) {
-            colors = context.colors;
-            return const Scaffold(body: OnboardingProgressDots(currentStep: 3));
-          },
-        ),
-      ),
-    );
-
-    final decorations = tester
-        .widgetList<Container>(find.byType(Container))
-        .map((container) => container.decoration)
-        .whereType<BoxDecoration>()
-        .toList();
+    final decorations = await pumpDots(tester, 2, (c) => colors = c);
 
     expect(decorations, hasLength(OnboardingProgressDots.stepCount));
-    final filled = decorations.where((d) => d.color == colors.accent).length;
-    final hollow = decorations.where((d) => d.color == colors.divider).length;
-    expect(filled, 3);
-    expect(hollow, 2);
+    expect(decorations.where((d) => d.color == colors.accent).length, 2);
+    expect(decorations.where((d) => d.color == colors.divider).length, 1);
   });
 
-  testWidgets('renders a bypass line without throwing, and leaves the dots it '
-      'skips over hollow even past currentStep', (tester) async {
+  testWidgets('fills every dot on the last step', (tester) async {
     late AppColors colors;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Builder(
-          builder: (context) {
-            colors = context.colors;
-            return const Scaffold(
-              body: OnboardingProgressDots(
-                currentStep: 5,
-                bypass: (from: 2, to: 5),
-              ),
-            );
-          },
-        ),
-      ),
+    final decorations = await pumpDots(
+      tester,
+      OnboardingProgressDots.stepCount,
+      (c) => colors = c,
     );
 
-    final decorations = tester
-        .widgetList<Container>(find.byType(Container))
-        .map((container) => container.decoration)
-        .whereType<BoxDecoration>()
-        .toList();
+    expect(
+      decorations.where((d) => d.color == colors.accent).length,
+      OnboardingProgressDots.stepCount,
+    );
+    expect(decorations.where((d) => d.color == colors.divider), isEmpty);
+  });
 
-    // Dots 3 and 4 sit strictly inside the (from: 2, to: 5) bypass —
-    // never actually reached on this path — so they stay hollow even
-    // though currentStep is 5; only dots 1, 2, and 5 fill in.
-    expect(decorations, hasLength(OnboardingProgressDots.stepCount));
-    expect(decorations.where((d) => d.color == colors.accent).length, 3);
-    expect(decorations.where((d) => d.color == colors.divider).length, 2);
+  testWidgets('paints its connector without throwing', (tester) async {
+    await pumpDots(tester, 1, (_) {});
 
-    // The connector painter is present and didn't throw during paint.
     expect(find.byType(CustomPaint), findsWidgets);
     expect(tester.takeException(), isNull);
   });

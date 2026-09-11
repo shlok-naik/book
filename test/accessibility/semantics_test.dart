@@ -5,6 +5,7 @@ import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/widgets/book_tile.dart';
 import 'package:book/features/shell/presentation/widgets/bottom_switcher.dart';
+import 'package:book/features/shell/presentation/widgets/top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,10 +55,10 @@ void main() {
 
       // Icon-only slots: without these the whole primary navigation is
       // four unlabelled buttons.
-      expect(find.bySemanticsLabel('Profile'), findsOneWidget);
+      expect(find.bySemanticsLabel('Memory'), findsOneWidget);
       expect(find.bySemanticsLabel('Streak'), findsOneWidget);
       expect(find.bySemanticsLabel('Library'), findsOneWidget);
-      expect(find.bySemanticsLabel('Log reading'), findsOneWidget);
+      expect(find.bySemanticsLabel('Add'), findsOneWidget);
 
       // `isSemantics` rather than `matchesSemantics`: we care that the
       // tab announces itself as a selected button, not that every other
@@ -67,9 +68,36 @@ void main() {
         isSemantics(label: 'Library', isButton: true, isSelected: true),
       );
       expect(
-        tester.getSemantics(find.bySemanticsLabel('Profile')),
-        isSemantics(label: 'Profile', isButton: true, isSelected: false),
+        tester.getSemantics(find.bySemanticsLabel('Memory')),
+        isSemantics(label: 'Memory', isButton: true, isSelected: false),
       );
+
+      handle.dispose();
+    });
+  });
+
+  group('the settings gear', () {
+    testWidgets('is a named button, not an unlabelled icon', (tester) async {
+      final handle = tester.ensureSemantics();
+
+      await tester.pumpWidget(_harness(const TopBar(title: 'memory')));
+
+      // The app's only route to settings. Unlabelled, it is a screen
+      // reader dead end on all four top-level pages at once.
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Settings')),
+        isSemantics(label: 'Settings', isButton: true),
+      );
+
+      handle.dispose();
+    });
+
+    testWidgets('does not swallow the page title beside it', (tester) async {
+      final handle = tester.ensureSemantics();
+
+      await tester.pumpWidget(_harness(const TopBar(title: 'memory')));
+
+      expect(find.text('memory'), findsOneWidget);
 
       handle.dispose();
     });

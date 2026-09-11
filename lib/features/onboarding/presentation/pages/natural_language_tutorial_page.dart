@@ -4,8 +4,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../data/onboarding_profile_repository.dart';
-import '../../data/session_service.dart';
 import '../widgets/natural_language_wall.dart';
 import 'theme_preference_page.dart';
 import 'tutorial_step_page.dart';
@@ -15,14 +13,7 @@ import 'tutorial_step_page.dart';
 /// the natural-language alternative: the same actions, expressed as a
 /// sentence, plus the feelings a reader tacks on along the way.
 class NaturalLanguageTutorialPage extends StatelessWidget {
-  const NaturalLanguageTutorialPage({
-    super.key,
-    required this.session,
-    required this.profiles,
-  });
-
-  final SessionService session;
-  final OnboardingProfileRepository profiles;
+  const NaturalLanguageTutorialPage({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -33,8 +24,7 @@ class NaturalLanguageTutorialPage extends StatelessWidget {
       onContinue: () => Navigator.of(context).push(
         MaterialPageRoute(
           settings: const RouteSettings(name: 'onboarding_theme_preference'),
-          builder: (_) =>
-              ThemePreferencePage(session: session, profiles: profiles),
+          builder: (_) => const ThemePreferencePage(),
         ),
       ),
     );

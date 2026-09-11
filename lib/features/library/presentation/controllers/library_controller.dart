@@ -56,6 +56,15 @@ class LibraryController extends ChangeNotifier {
   /// Supabase refetch on every single shelf command).
   Stream<ReadingEvent> get loggedEvents => _loggedEvents.stream;
 
+  final _clearedTitles = StreamController<String>.broadcast();
+
+  /// A book title whose whole journal history was just erased — see
+  /// [_clearJournal]. The streaks feature listens to this the same way
+  /// it listens to [loggedEvents], so a deleted book's old "started"/
+  /// "read up to page..." lines disappear from an already-open journal
+  /// without a reload.
+  Stream<String> get clearedTitles => _clearedTitles.stream;
+
   /// Records [type] without letting a logging failure affect the shelf
   /// command it came from — the pill has already reported success or
   /// failure by the time this runs, so nothing here can change that.
@@ -63,22 +72,53 @@ class LibraryController extends ChangeNotifier {
   /// Broadcasts on [loggedEvents] once the write actually lands — not
   /// before, so a listener never learns about an event that failed to
   /// persist.
-  void _logEvent(ReadingEventType type, String title) {
+  ///
+  /// [occurredAt] backdates the event — "I started Dune yesterday" —
+  /// instead of logging it as happening right now; see
+  /// [ReadingEventRepository.log]. Local-time midnight on the given day
+  /// when it comes from [ParsedLogCommand.date], converted to UTC here
+  /// alongside the "now" case so every path through this method ends up
+  /// storing the same UTC representation.
+  void _logEvent(
+    ReadingEventType type,
+    String title, {
+    DateTime? occurredAt,
+    double? value,
+  }) {
+    final at = (occurredAt ?? DateTime.now()).toUtc();
     final event = ReadingEvent(
       type: type,
-      occurredAt: DateTime.now().toUtc(),
+      occurredAt: at,
       title: title,
+      value: value,
     );
     reportingFailure(
-      events.log(type, title: title).then((_) => _loggedEvents.add(event)),
+      events
+          .log(type, title: title, occurredAt: at, value: value)
+          .then((_) => _loggedEvents.add(event)),
       source: 'LibraryController',
       message: 'Could not record a "${type.wireValue}" reading event.',
+    );
+  }
+
+  /// Erases [title]'s whole journal history — `delete <book>` removing
+  /// the book from the shelf takes its "started"/"finished"/etc. lines
+  /// with it, rather than leaving a trail for a book that's gone.
+  /// Fire-and-forget for the same reason [_logEvent] is: a failure here
+  /// must never surface as a failed `delete` command, since the shelf
+  /// write it followed has already succeeded.
+  void _clearJournal(String title) {
+    reportingFailure(
+      events.deleteForTitle(title).then((_) => _clearedTitles.add(title)),
+      source: 'LibraryController',
+      message: 'Could not clear the journal for "$title".',
     );
   }
 
   @override
   void dispose() {
     _loggedEvents.close();
+    _clearedTitles.close();
     super.dispose();
   }
 
@@ -133,7 +173,17 @@ class LibraryController extends ChangeNotifier {
   /// the shelf leaves its progress untouched — but that repeat is
   /// reported as a *failure*, not a success: nothing changed, so it
   /// shouldn't look like it did.
-  Future<LibraryActionResult> startBook(String title) async {
+  ///
+  /// [loggedAt], when given, backdates the reading event this logs (and
+  /// so the streaks day it lands on) — never the shelf write itself,
+  /// which always reflects when the command actually ran.
+  Future<LibraryActionResult> startBook(
+    String title, {
+    DateTime? loggedAt,
+  }) async {
+    final invalidDate = _validateLoggedAt(loggedAt);
+    if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
+
     try {
       final book = await lookup.findOrFetch(title);
       final started = await userBooks.start(book.id);
@@ -144,7 +194,7 @@ class LibraryController extends ChangeNotifier {
           '"${book.title}" is already on your shelf.',
         );
       }
-      _logEvent(ReadingEventType.start, book.title);
+      _logEvent(ReadingEventType.start, book.title, occurredAt: loggedAt);
       return LibraryActionResult.success('Started "${book.title}"');
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
@@ -155,7 +205,11 @@ class LibraryController extends ChangeNotifier {
   /// shelf redraws immediately, then persist. If the write fails the
   /// optimistic change is rolled back, so what's on screen always
   /// matches what's stored.
-  Future<LibraryActionResult> updateProgress(String title, int page) async {
+  Future<LibraryActionResult> updateProgress(
+    String title,
+    int page, {
+    DateTime? loggedAt,
+  }) async {
     final entry = _findByTitle(title);
     if (entry == null) {
       return LibraryActionResult.failure(
@@ -165,6 +219,9 @@ class LibraryController extends ChangeNotifier {
 
     final validation = _validatePage(page, entry);
     if (validation != null) return LibraryActionResult.failure(validation);
+
+    final invalidDate = _validateLoggedAt(loggedAt);
+    if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
 
     // Reaching the last page completes the book; without a known page
     // count only an explicit `finish` can.
@@ -180,18 +237,23 @@ class LibraryController extends ChangeNotifier {
       successMessage: finished
           ? 'Finished "${entry.book.title}"'
           : '"${entry.book.title}" — pg $page',
-      // Reaching the last page via `update` still reads as a finish on
-      // the streaks page — the closed circle it earns there matches the
-      // "Finished ..." pill this same call just showed.
+      // Reaching the last page via `update` still reads as a finish in
+      // the journal — matches the "Finished ..." pill this same call
+      // just showed, rather than "read up to page" the last page.
       loggedAs: finished ? ReadingEventType.finish : ReadingEventType.update,
       title: entry.book.title,
+      occurredAt: loggedAt,
+      value: finished ? null : page.toDouble(),
     );
   }
 
   /// `finish <book>` — mark complete and jump the page to the end when
   /// the total is known, so the finished card doesn't show a half-full
   /// bar next to a "finished" label.
-  Future<LibraryActionResult> finishBook(String title) async {
+  Future<LibraryActionResult> finishBook(
+    String title, {
+    DateTime? loggedAt,
+  }) async {
     final entry = _findByTitle(title);
     if (entry == null) {
       return LibraryActionResult.failure(
@@ -204,16 +266,23 @@ class LibraryController extends ChangeNotifier {
       );
     }
 
+    final invalidDate = _validateLoggedAt(loggedAt);
+    if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
+
     return _persist(
       entry,
       entry.progress.copyWith(
         currentPage: entry.pageCount ?? entry.currentPage,
         status: ReadingStatus.finished,
-        finishedAt: DateTime.now().toUtc(),
+        // Reflects the backdated day when one was given, so the book's
+        // own record agrees with the streak entry it produced instead
+        // of showing whenever this command happened to run.
+        finishedAt: (loggedAt ?? DateTime.now()).toUtc(),
       ),
       successMessage: 'Finished "${entry.book.title}"',
       loggedAs: ReadingEventType.finish,
       title: entry.book.title,
+      occurredAt: loggedAt,
     );
   }
 
@@ -262,7 +331,7 @@ class LibraryController extends ChangeNotifier {
       );
       _upsertLocal(entry.copyWith(progress: saved));
       notifyListeners();
-      _logEvent(ReadingEventType.rate, entry.book.title);
+      _logEvent(ReadingEventType.rate, entry.book.title, value: rounded);
       return LibraryActionResult.success(
         '"${entry.book.title}" — ${_formatStars(rounded)}★',
       );
@@ -285,6 +354,11 @@ class LibraryController extends ChangeNotifier {
   /// `delete <book>` — removes the book from the shelf. Optimistic like
   /// the other commands: it disappears immediately, and comes back if
   /// the delete fails to persist.
+  ///
+  /// Also clears the book's whole journal history (see [_clearJournal])
+  /// rather than logging one more "deleted" line — a book that's gone
+  /// from the shelf shouldn't leave its "started"/"read up to page..."
+  /// trail behind in the streak journal either.
   Future<LibraryActionResult> deleteBook(String title) async {
     final entry = _findByTitle(title);
     if (entry == null) {
@@ -298,7 +372,7 @@ class LibraryController extends ChangeNotifier {
 
     try {
       await userBooks.delete(entry.id);
-      _logEvent(ReadingEventType.delete, entry.book.title);
+      _clearJournal(entry.book.title);
       return LibraryActionResult.success('Removed "${entry.book.title}"');
     } on LibraryException catch (error) {
       _upsertLocal(entry);
@@ -316,6 +390,8 @@ class LibraryController extends ChangeNotifier {
     required String successMessage,
     required ReadingEventType loggedAs,
     required String title,
+    DateTime? occurredAt,
+    double? value,
   }) async {
     final previous = entry;
     _upsertLocal(entry.copyWith(progress: updated));
@@ -326,10 +402,13 @@ class LibraryController extends ChangeNotifier {
         userBookId: updated.id,
         currentPage: updated.currentPage,
         finished: updated.isFinished,
+        // Ignored server-side unless `updated.isFinished` — see
+        // `UserBookRepository.saveProgress`'s own doc comment.
+        finishedAt: occurredAt,
       );
       _upsertLocal(entry.copyWith(progress: saved));
       notifyListeners();
-      _logEvent(loggedAs, title);
+      _logEvent(loggedAs, title, occurredAt: occurredAt, value: value);
       return LibraryActionResult.success(successMessage);
     } on LibraryException catch (error) {
       _upsertLocal(previous);
@@ -345,6 +424,19 @@ class LibraryController extends ChangeNotifier {
     final total = entry.pageCount;
     if (total != null && page > total) {
       return '"${entry.book.title}" only has $total pages.';
+    }
+    return null;
+  }
+
+  /// A backdated command's date can't be in the future — "I started
+  /// Dune tomorrow" isn't a reading event that happened yet. Compared
+  /// in local time: [loggedAt] is a plain calendar date (local midnight
+  /// on that day, see `ParsedLogCommand.date`), so comparing it against
+  /// UTC "now" would reject today itself for any reader west of UTC.
+  String? _validateLoggedAt(DateTime? loggedAt) {
+    if (loggedAt == null) return null;
+    if (loggedAt.isAfter(DateTime.now())) {
+      return "That date hasn't happened yet.";
     }
     return null;
   }

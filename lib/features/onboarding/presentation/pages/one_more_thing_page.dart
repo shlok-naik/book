@@ -3,12 +3,12 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
-import '../widgets/soft_pill_button.dart';
 import 'founders_note_page.dart';
 
-/// Second finish-category screen — a teaser beat between the paywall
-/// and the founder's note.
+/// A teaser beat between the reader's one question and the founder's
+/// note — the last thing before the app itself.
 class OneMoreThingPage extends StatelessWidget {
   const OneMoreThingPage({super.key});
 
@@ -18,7 +18,7 @@ class OneMoreThingPage extends StatelessWidget {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 5,
+      progressStep: 3,
       topContent: const Text('➡️', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
