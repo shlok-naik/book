@@ -8,7 +8,6 @@ import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/widgets/date_pill.dart';
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../memory/presentation/memory_scope.dart';
@@ -486,13 +485,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               children: [
                 // Same AppSpacing.md top inset as library/streak/memory
                 // — without it "add" sat lower than the title on every
-                // other tab despite sharing the exact same TopBar. The
-                // gear sits at the page's left edge, "add" sits flush
-                // left of it exactly like "library"/"streak"/"memory"
-                // do on their own tabs; the pill stays centred
-                // on the page itself rather than in whatever room is
-                // left beside the title — see [TopBar.center].
-                const TopBar(title: 'add', center: DatePill()),
+                // other tab despite sharing the exact same TopBar.
+                const TopBar(title: 'add'),
                 const SizedBox(height: AppSpacing.lg),
                 Expanded(
                   child: instructions == null

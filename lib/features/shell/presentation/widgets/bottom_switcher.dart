@@ -37,9 +37,7 @@ class BottomSwitcher extends StatelessWidget {
   static const _groupLabels = ['Memory', 'Streak', 'Library'];
 
   /// The "+" tab — named to match the page it opens, whose own `TopBar`
-  /// now carries the visible title `'add'` too, rather than the day it
-  /// logs against (the [DatePill] centred on that page already says
-  /// that).
+  /// now carries the visible title `'add'` too.
   static const _addLabel = 'Add';
 
   static const _addIndex = 3;

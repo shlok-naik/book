@@ -23,17 +23,10 @@ import '../../../settings/presentation/pages/settings_page.dart';
 ///
 /// Pages keep their own horizontal padding; this adds none.
 class TopBar extends StatelessWidget {
-  const TopBar({super.key, this.title, this.center, this.trailing});
+  const TopBar({super.key, required this.title, this.trailing});
 
   /// The page's name, in the same style all four have always used.
-  /// Null for a page whose header carries a [center] widget instead —
-  /// the log tab, whose [DatePill] already names the day.
-  final String? title;
-
-  /// Optional widget centred in the row, independent of [title] — the
-  /// log page's date pill, which was centred long before this header
-  /// existed and stays that way.
-  final Widget? center;
+  final String title;
 
   /// Optional affordance sitting just inside the gear, e.g. a pro star
   /// shown only to readers who don't have it yet.
@@ -46,42 +39,24 @@ class TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final label = title;
 
-    final row = Row(
-      children: [
-        if (label != null)
+    return SizedBox(
+      height: _tapTarget,
+      child: Row(
+        children: [
           Expanded(
             child: Text(
-              label,
+              title,
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
                 color: colors.primaryText,
               ),
             ),
-          )
-        else
-          const Spacer(),
-        ?trailing,
-        if (trailing != null) const SizedBox(width: AppSpacing.sm),
-        _SettingsButton(color: colors.secondaryText),
-      ],
-    );
-
-    final centred = center;
-    if (centred == null) return SizedBox(height: _tapTarget, child: row);
-
-    // Stacked rather than slotted into the row, so the centred child is
-    // centred on the *page* — the title and the gear can't pull it
-    // off-axis by being different widths.
-    return SizedBox(
-      height: _tapTarget,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Center(child: centred),
-          row,
+          ),
+          ?trailing,
+          if (trailing != null) const SizedBox(width: AppSpacing.sm),
+          _SettingsButton(color: colors.secondaryText),
         ],
       ),
     );
