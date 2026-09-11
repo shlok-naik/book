@@ -59,19 +59,21 @@ class _FakeSession extends SessionService {
   String? get userId => 'fake-user-id';
 }
 
-/// Never touches Supabase Storage/`profiles` — [avatarUrl] is what
-/// `fetchAvatarUrl` returns, and a successful [uploadAvatar] just
+/// Never touches Supabase Storage/`profiles` — [avatarUrl]/[joinedAt] is
+/// what `fetchProfile` returns, and a successful [uploadAvatar] just
 /// records the call and echoes a fixed URL back, the same role
 /// `FakePurchasesService` plays for RevenueCat.
 class _FakeProfileRepository extends ProfileRepository {
-  _FakeProfileRepository({this.avatarUrl, this.uploadError});
+  _FakeProfileRepository({this.avatarUrl, this.joinedAt, this.uploadError});
 
   String? avatarUrl;
+  DateTime? joinedAt;
   ProfileException? uploadError;
   int uploadCalls = 0;
 
   @override
-  Future<String?> fetchAvatarUrl(String userId) async => avatarUrl;
+  Future<ProfileSummary> fetchProfile(String userId) async =>
+      (avatarUrl: avatarUrl, joinedAt: joinedAt);
 
   @override
   Future<String> uploadAvatar({
@@ -237,7 +239,7 @@ void main() {
         session: _FakeSession(),
       );
 
-      expect(find.text('back up with email'), findsOneWidget);
+      expect(find.text('add email'), findsOneWidget);
       // Signing out of an anonymous account would strand its shelf
       // behind a uid nobody can authenticate as again.
       expect(find.text('sign out'), findsNothing);
@@ -257,7 +259,7 @@ void main() {
       );
 
       expect(find.text('reader@example.com'), findsOneWidget);
-      expect(find.text('back up with email'), findsNothing);
+      expect(find.text('add email'), findsNothing);
       // Signing out is not offered anywhere: for an anonymous reader
       // there is no credential to sign back in with, so it destroys a
       // library rather than protecting one.
@@ -273,7 +275,7 @@ void main() {
           session: _FakeSession(),
         );
 
-        await tester.tap(find.text('back up with email'));
+        await tester.tap(find.text('add email'));
         await tester.pumpAndSettle();
 
         expect(find.text('send code'), findsOneWidget);
@@ -338,6 +340,36 @@ void main() {
       );
 
       expect(find.byType(Image), findsOneWidget);
+    });
+
+    testWidgets('shows when the account was created', (tester) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+        profileRepository: _FakeProfileRepository(
+          // Noon UTC, not midnight — safely the same calendar day once
+          // `_dateLabel` converts it to local, regardless of which
+          // timezone this test happens to run in.
+          joinedAt: DateTime.utc(2026, 3, 5, 12),
+        ),
+      );
+
+      expect(find.text('member since'), findsOneWidget);
+      expect(find.text('3.5.26'), findsOneWidget);
+    });
+
+    testWidgets('says nothing about a join date it could not load', (
+      tester,
+    ) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+        profileRepository: _FakeProfileRepository(),
+      );
+
+      expect(find.text('member since'), findsNothing);
     });
 
     testWidgets('picking a photo uploads it and shows the saved URL', (

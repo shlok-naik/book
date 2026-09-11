@@ -7,10 +7,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/profile_exception.dart';
 
-/// Reads and writes the one thing the settings screen's membership card
+/// What [ProfileRepository.fetchProfile] reads back: the picture (null
+/// if never set) and when the account was created (null only if the
+/// row itself couldn't be read).
+typedef ProfileSummary = ({String? avatarUrl, DateTime? joinedAt});
+
+/// Reads and writes the things the settings screen's membership card
 /// needs from `profiles` beyond what [SessionService] already exposes: a
-/// profile picture. Stateless, like `PurchasesService` — safe to
-/// construct wherever it's needed rather than threading a single
+/// profile picture and a join date. Stateless, like `PurchasesService` —
+/// safe to construct wherever it's needed rather than threading a single
 /// instance through the tree.
 class ProfileRepository {
   const ProfileRepository({SupabaseClient? client}) : _injectedClient = client;
@@ -22,18 +27,24 @@ class ProfileRepository {
   static const _bucket = 'avatars';
   static const _timeout = Duration(seconds: 20);
 
-  /// The reader's current profile picture, or null if they've never set
-  /// one.
-  Future<String?> fetchAvatarUrl(String userId) {
+  /// The two things the membership card shows beyond the email
+  /// [SessionService] already exposes: the picture, and when the
+  /// account behind this shelf was first created — the card's own
+  /// "member since" line.
+  Future<ProfileSummary> fetchProfile(String userId) {
     return _run(() async {
       final row = await _client
           .from('profiles')
-          .select('avatar_url')
+          .select('avatar_url, created_at')
           .eq('id', userId)
           .maybeSingle();
       final url = row?['avatar_url'];
-      return url is String && url.isNotEmpty ? url : null;
-    }, friendlyMessage: "We couldn't load your profile picture.");
+      final createdAt = row?['created_at'];
+      return (
+        avatarUrl: url is String && url.isNotEmpty ? url : null,
+        joinedAt: createdAt is String ? DateTime.tryParse(createdAt) : null,
+      );
+    }, friendlyMessage: "We couldn't load your profile.");
   }
 
   /// Uploads [bytes] as the reader's new profile picture — to
