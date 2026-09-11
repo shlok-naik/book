@@ -20,7 +20,7 @@ class ReadingEventRepository {
   static const _table = 'reading_events';
 
   /// Records that [type] happened, against [title] — carried along
-  /// purely so the day-detail sheet can list "started Dune" rather than
+  /// purely so the journal page can list "started Dune" rather than
   /// just "started". Fire-and-forget from the caller's side — a failed
   /// log must never surface as a failed shelf command, so callers wrap
   /// this in `unawaited(...catchError(...))` rather than awaiting it
@@ -31,10 +31,16 @@ class ReadingEventRepository {
   /// logs (and streaks) on that day rather than the day the command was
   /// actually typed. `LibraryController` is responsible for rejecting a
   /// future date before it ever reaches here.
+  ///
+  /// [value] is the page an `update` reached or the rating a `rate`
+  /// gave — whatever number the journal line needs to read "up to page
+  /// 240" or "4.5 stars" instead of just naming the command. Left out
+  /// for every other type.
   Future<void> log(
     ReadingEventType type, {
     required String title,
     DateTime? occurredAt,
+    double? value,
   }) {
     return runSupabase<void>(() async {
       await _client.from(_table).insert({
@@ -42,6 +48,7 @@ class ReadingEventRepository {
         'title': title,
         if (occurredAt != null)
           'occurred_at': occurredAt.toUtc().toIso8601String(),
+        'value': ?value,
       });
     }, friendlyMessage: "We couldn't record that.");
   }

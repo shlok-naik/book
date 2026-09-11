@@ -4,11 +4,9 @@ import '../../../../core/diagnostics/app_logger.dart';
 import '../../../library/data/reading_event_repository.dart';
 import '../../../library/domain/library_exception.dart';
 import '../../../library/domain/reading_event.dart';
-import '../../domain/day_symbol.dart';
 
-/// Loads a year of [ReadingEvent]s, grouped by local day — a symbol per
-/// day for [MonthDotGrid], and the raw events themselves for the
-/// day-detail sheet's command list.
+/// Loads a year of [ReadingEvent]s, grouped by local day, for the streak
+/// page's journal — a line per command, newest day first.
 class StreaksController extends ChangeNotifier {
   StreaksController({required this.events});
 
@@ -28,16 +26,14 @@ class StreaksController extends ChangeNotifier {
   static DateTime _dayKey(DateTime date) =>
       DateTime(date.year, date.month, date.day);
 
-  /// The symbol for [date], or null on a day nothing happened — the grid
-  /// draws a dim open circle in that case.
-  DaySymbol? symbolFor(DateTime date) {
-    final events = _byDay[_dayKey(date)];
-    if (events == null) return null;
-    return DaySymbol.strongestOf(events.map((event) => event.type));
-  }
+  /// Every day something was logged, most recent first — what the
+  /// journal walks to build its list of date labels and entries.
+  List<DateTime> get days =>
+      _byDay.keys.toList()..sort((a, b) => b.compareTo(a));
 
-  /// Every command logged on [date], oldest first — what the day-detail
-  /// sheet lists.
+  /// Every command logged on [date], oldest first — the order they
+  /// actually happened in, so a day's entries read top-to-bottom like
+  /// the rest of the story.
   List<ReadingEvent> eventsFor(DateTime date) =>
       List.unmodifiable(_byDay[_dayKey(date)] ?? const []);
 
@@ -61,9 +57,9 @@ class StreaksController extends ChangeNotifier {
       _loadedYear = year;
       _errorMessage = null;
     } on LibraryException catch (error) {
-      // Surfaced rather than swallowed: an empty grid and a failed load
-      // used to look identical to the reader, so a Supabase outage read
-      // as "you have never logged anything".
+      // Surfaced rather than swallowed: an empty journal and a failed
+      // load used to look identical to the reader, so a Supabase outage
+      // read as "you have never logged anything".
       _errorMessage = error.message;
       AppLogger.error(
         'StreaksController',

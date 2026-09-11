@@ -117,7 +117,9 @@ class FakeUserBookRepository extends UserBookRepository {
 /// never depend on network behaviour for the streaks-logging side effect
 /// either.
 class FakeReadingEventRepository extends ReadingEventRepository {
-  final List<({ReadingEventType type, String title, DateTime? occurredAt})>
+  final List<
+    ({ReadingEventType type, String title, DateTime? occurredAt, double? value})
+  >
   logged = [];
 
   /// What most tests actually care about — `LibraryController._logEvent`
@@ -134,8 +136,14 @@ class FakeReadingEventRepository extends ReadingEventRepository {
     ReadingEventType type, {
     required String title,
     DateTime? occurredAt,
+    double? value,
   }) async {
-    logged.add((type: type, title: title, occurredAt: occurredAt));
+    logged.add((
+      type: type,
+      title: title,
+      occurredAt: occurredAt,
+      value: value,
+    ));
   }
 }
 
@@ -312,6 +320,11 @@ void main() {
       expect(events.loggedTypesAndTitles, [
         (type: ReadingEventType.update, title: 'Dune'),
       ]);
+      expect(
+        events.logged.single.value,
+        120,
+        reason: 'the streak journal reads this back as "up to page 120"',
+      );
     });
 
     test('backdates the reading event when given a date', () async {
@@ -379,6 +392,11 @@ void main() {
         [(type: ReadingEventType.finish, title: 'Dune')],
         reason:
             'reaching the last page via update reads as a finish, not an update',
+      );
+      expect(
+        events.logged.single.value,
+        isNull,
+        reason: 'a finish has no page number to journal',
       );
     });
 
@@ -541,6 +559,11 @@ void main() {
       expect(events.loggedTypesAndTitles, [
         (type: ReadingEventType.rate, title: 'Dune'),
       ]);
+      expect(
+        events.logged.single.value,
+        4.5,
+        reason: 'the streak journal reads this back as "rated Dune 4.5 stars"',
+      );
     });
 
     test('rounds a rating to the nearest half star before saving', () async {

@@ -9,14 +9,21 @@ import '../../../library/domain/reading_event.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../controllers/streaks_controller.dart';
-import '../widgets/day_detail_sheet.dart';
-import '../widgets/month_dot_grid.dart';
 
-/// The year, broken into months, each a grid of day-dots — a structured
-/// take on the inspiration's single 365-dot grid, for reading streaks.
-/// Tapping a day opens a smaller sheet for that date. Each dot's shape
-/// reflects the strongest shelf command logged that day — see
-/// [StreaksController] and `DaySymbol`.
+/// Gap between one day's entries and the next day's label.
+const _daySpacing = AppSpacing.lg;
+
+/// Gap between one entry and the next inside the same day.
+const _entrySpacing = AppSpacing.sm;
+
+/// The reader's own reading history, told back to them as a journal
+/// rather than a grid of dots — every command reads exactly like it did
+/// when it was typed on the "+" tab (same face, same size), grouped
+/// under the day it happened, newest day first.
+///
+/// A dot grid answers "did I show up today"; this answers "what have I
+/// actually been reading" — the warmer of the two questions, and the
+/// one worth a whole tab.
 class StreaksPage extends StatefulWidget {
   const StreaksPage({super.key});
 
@@ -34,7 +41,7 @@ class _StreaksPageState extends State<StreaksPage> {
   StreamSubscription<ReadingEvent>? _eventSubscription;
 
   /// Loads the year once, then subscribes to [LibraryController]'s own
-  /// event stream so a fresh shelf command updates the grid directly
+  /// event stream so a fresh shelf command joins the journal directly
   /// ([StreaksController.applyEvent]) instead of re-fetching the whole
   /// year from Supabase on every command.
   @override
@@ -55,17 +62,6 @@ class _StreaksPageState extends State<StreaksPage> {
     super.dispose();
   }
 
-  /// Shared by every month block — the gap above its dot row (from the
-  /// label) and the gap below it (to the next month's label) match.
-  /// Kept small on purpose: with all twelve months on screen at once
-  /// (see [build] — no scrolling), this is what actually has room to
-  /// give.
-  static const _rowGap = 6.0;
-
-  /// Small trailing margin below December, on top of [_barFootprint] —
-  /// so the last row of dots doesn't sit flush against the floating bar.
-  static const _edgeGap = 6.0;
-
   /// The floating bottom bar's total footprint (bar height + its own
   /// gap + the name label + its margin from the screen edge) — see
   /// bottom_switcher.dart's _outerHeight (70) and root_shell.dart.
@@ -79,7 +75,7 @@ class _StreaksPageState extends State<StreaksPage> {
     return Scaffold(
       body: SafeArea(
         child: Padding(
-          // Same top/left inset as the library and profile pages' own
+          // Same top/left inset as the library and log pages' own
           // headers, so all three sit at the exact same position.
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.xl,
@@ -87,18 +83,8 @@ class _StreaksPageState extends State<StreaksPage> {
             AppSpacing.xl,
             0,
           ),
-          // The whole year is meant to fit on one screen — every month's
-          // own gaps (see [_rowGap]) are kept tight so all twelve, plus
-          // the header, stay above the floating bar. "Meant to" is doing
-          // real work there: at the largest accessibility text sizes the
-          // twelve month labels alone are taller than a phone, and a
-          // fixed layout would simply clip December. So it scrolls when
-          // it has to and not one pixel before — `physics` refuses the
-          // rubber-band bounce that would otherwise make a page that
-          // exactly fits feel loose.
           child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: _edgeGap + _barFootprint),
+            padding: const EdgeInsets.only(bottom: _barFootprint),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -106,22 +92,11 @@ class _StreaksPageState extends State<StreaksPage> {
                 // settings gear, then the page's own name in the same
                 // jetBrainsMono style all four have always used.
                 const TopBar(title: 'streak'),
-                // Same gap as library's own "library" header down to
-                // its first section label ("reading") — that gap is
-                // _Header's own md bottom padding *plus* _SectionLabel's
-                // own sm bottom padding stacked on top of it, so lg
-                // (24) is the true total, not md alone.
                 const SizedBox(height: AppSpacing.lg),
                 if (controller != null)
                   AnimatedBuilder(
                     animation: controller,
                     builder: (context, _) {
-                      // A failed load takes the place of the grid rather
-                      // than sitting above it: with nothing loaded the
-                      // grid is twelve rows of empty days, which reads
-                      // as "you have never logged anything" — the exact
-                      // wrong thing to show when the truth is that we
-                      // could not find out.
                       final error = controller.errorMessage;
                       if (error != null) {
                         return _LoadFailure(
@@ -129,25 +104,7 @@ class _StreaksPageState extends State<StreaksPage> {
                           onRetry: () => controller.load(year),
                         );
                       }
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (var i = 1; i <= 12; i++) ...[
-                            if (i > 1) const SizedBox(height: _rowGap),
-                            MonthDotGrid(
-                              month: i,
-                              year: year,
-                              labelGap: _rowGap,
-                              symbolFor: controller.symbolFor,
-                              onDayTap: (date) => showDayDetailSheet(
-                                context,
-                                date,
-                                events: controller.eventsFor(date),
-                              ),
-                            ),
-                          ],
-                        ],
-                      );
+                      return _Journal(controller: controller);
                     },
                   ),
               ],
@@ -159,9 +116,148 @@ class _StreaksPageState extends State<StreaksPage> {
   }
 }
 
-/// What the streaks page shows instead of the year when it could not be
-/// loaded: what went wrong, and the one thing worth offering — another
-/// attempt.
+/// The list itself: one date label per day with something logged,
+/// newest first, each followed by its entries in the order they
+/// actually happened.
+class _Journal extends StatelessWidget {
+  const _Journal({required this.controller});
+
+  final StreaksController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    // Built up front, not left to `_DayEntries` to discover, because a
+    // day whose only command was `delete` renders nothing — and that
+    // has to count as "nothing logged" too, not a blank gap followed by
+    // silence.
+    final days = [
+      for (final day in controller.days)
+        if (_DayEntries.linesFor(controller.eventsFor(day)) case final lines
+            when lines.isNotEmpty)
+          (date: day, lines: lines),
+    ];
+
+    if (days.isEmpty) {
+      return Text(
+        controller.isLoading ? '' : 'nothing logged yet — start a book.',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 14,
+          color: colors.secondaryText,
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final (i, day) in days.indexed) ...[
+          if (i > 0) const SizedBox(height: _daySpacing),
+          _DayEntries(date: day.date, lines: day.lines),
+        ],
+      ],
+    );
+  }
+}
+
+/// One day's date label, then every already-resolved [lines] entry —
+/// see [linesFor], which decides what's worth journaling.
+class _DayEntries extends StatelessWidget {
+  const _DayEntries({required this.date, required this.lines});
+
+  final DateTime date;
+  final List<String> lines;
+
+  /// The journal lines [events] produce, in order — skipping `delete`,
+  /// which isn't a moment worth journaling. Never empty for a day
+  /// that's actually worth rendering; `_Journal` uses that to decide
+  /// which days to keep.
+  static List<String> linesFor(List<ReadingEvent> events) => [
+    for (final event in events) ?_lineFor(event),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _dateLabel(date),
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: colors.secondaryText,
+          ),
+        ),
+        const SizedBox(height: _entrySpacing),
+        for (final (i, line) in lines.indexed) ...[
+          if (i > 0) const SizedBox(height: _entrySpacing),
+          // Same face and size `CommandInput`/`InstructionRow` use on
+          // the "+" tab — a logged day is meant to read exactly like
+          // the command that produced it.
+          Text(
+            line,
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 16,
+              height: 1.5,
+              color: colors.primaryText,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// `m.d.yy`, no leading zeros — a plain, diary-style date rather than
+  /// a spelled-out one.
+  static String _dateLabel(DateTime date) {
+    final year = (date.year % 100).toString().padLeft(2, '0');
+    return '${date.month}.${date.day}.$year';
+  }
+
+  /// The journal line one [event] earns, or null for a type (`delete`)
+  /// that isn't part of the story. Reads back almost verbatim what was
+  /// typed on the "+" tab, using [ReadingEvent.value] for the number a
+  /// command carried — the page an `update` reached, or the rating a
+  /// `rate` gave.
+  static String? _lineFor(ReadingEvent event) {
+    final title = event.title ?? 'a book';
+    switch (event.type) {
+      case ReadingEventType.start:
+        return 'started $title';
+      case ReadingEventType.update:
+        final page = event.value;
+        return page == null
+            ? 'read $title'
+            : 'read up to page ${page.toInt()} in $title';
+      case ReadingEventType.finish:
+        return 'finished $title';
+      case ReadingEventType.rate:
+        final rating = event.value;
+        return rating == null
+            ? 'rated $title'
+            : 'rated $title ${_formatStars(rating)} ${_starWord(rating)}';
+      case ReadingEventType.delete:
+        return null;
+    }
+  }
+
+  /// Drops a trailing ".0" ("5" rather than "5.0") but keeps a real half
+  /// ("4.5") — mirrors `LibraryController._formatStars`.
+  static String _formatStars(double rating) {
+    return rating == rating.roundToDouble()
+        ? rating.toInt().toString()
+        : rating.toStringAsFixed(1);
+  }
+
+  static String _starWord(double rating) => rating == 1 ? 'star' : 'stars';
+}
+
+/// What the streaks page shows instead of the journal when it could not
+/// be loaded: what went wrong, and the one thing worth offering —
+/// another attempt.
 class _LoadFailure extends StatelessWidget {
   const _LoadFailure({required this.message, required this.onRetry});
 

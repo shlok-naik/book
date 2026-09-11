@@ -123,6 +123,7 @@ class _EmptyEvents extends ReadingEventRepository {
     ReadingEventType type, {
     required String title,
     DateTime? occurredAt,
+    double? value,
   }) async {}
 
   @override

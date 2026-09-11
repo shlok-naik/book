@@ -136,6 +136,7 @@ class _FakeReadingEventRepository extends ReadingEventRepository {
     ReadingEventType type, {
     required String title,
     DateTime? occurredAt,
+    double? value,
   }) async {}
 
   @override
@@ -524,7 +525,7 @@ void main() {
     expect(find.text('appearance'), findsOneWidget);
   });
 
-  testWidgets('Streaks page is reachable and grouped by month', (
+  testWidgets('Streaks page is reachable and shows the reading journal', (
     WidgetTester tester,
   ) async {
     await useDeviceSize(tester);
@@ -537,13 +538,13 @@ void main() {
     );
     await goToStreaksPage(tester);
 
-    expect(find.text('january'), findsOneWidget);
+    expect(find.text('nothing logged yet — start a book.'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets(
     'Streaks page says so when the year could not be loaded, rather than '
-    'drawing an empty one',
+    'showing an empty journal',
     (WidgetTester tester) async {
       await useDeviceSize(tester);
       await tester.pumpWidget(
@@ -557,9 +558,9 @@ void main() {
       );
       await goToStreaksPage(tester);
 
-      // An empty grid would be indistinguishable from "you have never
-      // logged anything", so the months must not be drawn at all.
-      expect(find.text('january'), findsNothing);
+      // An empty journal would be indistinguishable from "you have
+      // never logged anything", so the failure must show instead.
+      expect(find.text('nothing logged yet — start a book.'), findsNothing);
       expect(find.text('You are offline.'), findsOneWidget);
       expect(find.text('try again'), findsOneWidget);
     },

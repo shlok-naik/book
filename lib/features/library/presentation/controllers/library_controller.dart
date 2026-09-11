@@ -70,12 +70,22 @@ class LibraryController extends ChangeNotifier {
   /// when it comes from [ParsedLogCommand.date], converted to UTC here
   /// alongside the "now" case so every path through this method ends up
   /// storing the same UTC representation.
-  void _logEvent(ReadingEventType type, String title, {DateTime? occurredAt}) {
+  void _logEvent(
+    ReadingEventType type,
+    String title, {
+    DateTime? occurredAt,
+    double? value,
+  }) {
     final at = (occurredAt ?? DateTime.now()).toUtc();
-    final event = ReadingEvent(type: type, occurredAt: at, title: title);
+    final event = ReadingEvent(
+      type: type,
+      occurredAt: at,
+      title: title,
+      value: value,
+    );
     reportingFailure(
       events
-          .log(type, title: title, occurredAt: at)
+          .log(type, title: title, occurredAt: at, value: value)
           .then((_) => _loggedEvents.add(event)),
       source: 'LibraryController',
       message: 'Could not record a "${type.wireValue}" reading event.',
@@ -203,12 +213,13 @@ class LibraryController extends ChangeNotifier {
       successMessage: finished
           ? 'Finished "${entry.book.title}"'
           : '"${entry.book.title}" — pg $page',
-      // Reaching the last page via `update` still reads as a finish on
-      // the streaks page — the closed circle it earns there matches the
-      // "Finished ..." pill this same call just showed.
+      // Reaching the last page via `update` still reads as a finish in
+      // the journal — matches the "Finished ..." pill this same call
+      // just showed, rather than "read up to page" the last page.
       loggedAs: finished ? ReadingEventType.finish : ReadingEventType.update,
       title: entry.book.title,
       occurredAt: loggedAt,
+      value: finished ? null : page.toDouble(),
     );
   }
 
@@ -296,7 +307,7 @@ class LibraryController extends ChangeNotifier {
       );
       _upsertLocal(entry.copyWith(progress: saved));
       notifyListeners();
-      _logEvent(ReadingEventType.rate, entry.book.title);
+      _logEvent(ReadingEventType.rate, entry.book.title, value: rounded);
       return LibraryActionResult.success(
         '"${entry.book.title}" — ${_formatStars(rounded)}★',
       );
@@ -351,6 +362,7 @@ class LibraryController extends ChangeNotifier {
     required ReadingEventType loggedAs,
     required String title,
     DateTime? occurredAt,
+    double? value,
   }) async {
     final previous = entry;
     _upsertLocal(entry.copyWith(progress: updated));
@@ -367,7 +379,7 @@ class LibraryController extends ChangeNotifier {
       );
       _upsertLocal(entry.copyWith(progress: saved));
       notifyListeners();
-      _logEvent(loggedAs, title, occurredAt: occurredAt);
+      _logEvent(loggedAs, title, occurredAt: occurredAt, value: value);
       return LibraryActionResult.success(successMessage);
     } on LibraryException catch (error) {
       _upsertLocal(previous);
