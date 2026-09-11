@@ -174,10 +174,11 @@ void main() {
     expect(find.byType(OneMoreThingPage), findsOneWidget);
     await tapContinue(tester);
 
+    // Stops here rather than tapping through to `FinishPage`: from this
+    // screen "continue" opens the real one-time PRO paywall (see
+    // `founders_note_paywall_test.dart`), which would reach for the
+    // real RevenueCat SDK without a fake injected.
     expect(find.byType(FoundersNotePage), findsOneWidget);
-    await tapContinue(tester);
-
-    expect(find.byType(FinishPage), findsOneWidget);
 
     // Not one text field anywhere along the way — no name, no email, no
     // code to paste. That is the whole point of the rewrite.

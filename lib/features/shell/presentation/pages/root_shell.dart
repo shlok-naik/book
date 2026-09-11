@@ -18,10 +18,14 @@ import '../widgets/bottom_switcher.dart';
 /// Hosts the four top-level pages — memory, streaks, library, and the
 /// log — and switches between them with a floating glass tab bar.
 ///
-/// Also the app's front door, now that there is no onboarding in front
-/// of it: on the very first launch after install it presents the pro
-/// paywall once, as a dismissible popup, and never brings it up
-/// unprompted again. Every later route to it is one the reader chose —
+/// Also a safety net for the pro paywall: [FoundersNotePage], the last
+/// real screen of onboarding, already shows it once and marks
+/// [IntroOfferStore] seen on the way there, so for a fresh install this
+/// shell's own check below is a no-op. It only actually fires the popup
+/// for an existing install that finished onboarding before the paywall
+/// lived there, or for the rare reader whose [IntroOfferStore] write
+/// never landed. Either way it never brings the popup up unprompted
+/// more than once. Every later route to it is one the reader chose —
 /// the "get cactus pro" row in settings, or a pro-only command.
 class RootShell extends StatefulWidget {
   const RootShell({super.key, this.introOffer, this.purchases});
