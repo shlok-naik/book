@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -13,8 +15,16 @@ import '../pages/email_sheet.dart';
 /// The settings screen's own "cactus" card — a flat membership card,
 /// not another settings row: the wordmark and a PRO badge on top, when
 /// the account was created underneath, and the email address (or a
-/// prompt to add one) below that. No photo, no name field — reading the
+/// prompt to add one) below that, over a few low-opacity accent waves
+/// washing across the bottom. No photo, no name field — reading the
 /// card top to bottom is the whole account.
+///
+/// The panel is white in light mode and near-black in dark mode —
+/// following the app's own `background` token directly, the same
+/// direction every other surface in the app already goes, rather than
+/// inverting it. The card still reads as its own object because of the
+/// shadow, the border-radius and the wave, not because its color
+/// fights the theme.
 ///
 /// The email line is the *only* way to reach [showEmailSheet] now: the
 /// settings screen's old "account" section — a read-only email row plus
@@ -95,14 +105,13 @@ class _MembershipCardState extends State<MembershipCard> {
     final colors = context.colors;
     final session = widget.session;
     final joinedAt = _joinedAt;
-
-    // The panel flips between black and white with the theme rather
-    // than following the app's own surface tones — a membership card
-    // is meant to read as its own object, not blend into the page
-    // behind it. `onPanel` is what sits on top of it.
-    final panel = colors.primaryText;
-    final onPanel = colors.background;
     final isLight = Theme.of(context).brightness == Brightness.light;
+
+    // The panel follows the app's own background token directly —
+    // white in light mode, near-black in dark — rather than inverting
+    // it. `onPanel` is what sits on top of it.
+    final panel = colors.background;
+    final onPanel = colors.primaryText;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -110,9 +119,10 @@ class _MembershipCardState extends State<MembershipCard> {
         DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: colors.divider),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isLight ? 0.16 : 0.5),
+                color: Colors.black.withValues(alpha: isLight ? 0.14 : 0.5),
                 blurRadius: 24,
                 offset: const Offset(0, 10),
               ),
@@ -120,75 +130,72 @@ class _MembershipCardState extends State<MembershipCard> {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            child: ColoredBox(
-              color: panel,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg,
-                      AppSpacing.lg,
-                      AppSpacing.lg,
-                      AppSpacing.md,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              'cactus',
-                              style: GoogleFonts.ebGaramond(
-                                fontSize: 28,
-                                fontWeight: FontWeight.w700,
-                                color: onPanel,
-                              ),
-                            ),
-                            const Spacer(),
-                            if (widget.isPro)
-                              _ProBadge(background: onPanel, foreground: panel),
-                          ],
-                        ),
-                        if (joinedAt != null) ...[
-                          const SizedBox(height: AppSpacing.lg),
+            child: Stack(
+              children: [
+                Positioned.fill(child: ColoredBox(color: panel)),
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _WavePainter(color: colors.accent),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
                           Text(
-                            'member since',
-                            style: GoogleFonts.inter(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.8,
-                              color: onPanel.withValues(alpha: 0.65),
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            _dateLabel(joinedAt),
-                            style: GoogleFonts.jetBrainsMono(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
+                            'cactus',
+                            style: GoogleFonts.ebGaramond(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w700,
                               color: onPanel,
                             ),
                           ),
+                          const Spacer(),
+                          if (widget.isPro)
+                            _ProBadge(background: onPanel, foreground: panel),
                         ],
-                        const SizedBox(height: AppSpacing.md),
-                        _EmailLine(
-                          session: session,
-                          onPanel: onPanel,
-                          onTap: _editEmail,
+                      ),
+                      if (joinedAt != null) ...[
+                        const SizedBox(height: AppSpacing.lg),
+                        Text(
+                          'member since',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.8,
+                            color: onPanel.withValues(alpha: 0.65),
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          _dateLabel(joinedAt),
+                          style: GoogleFonts.jetBrainsMono(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: onPanel,
+                          ),
                         ),
                       ],
-                    ),
+                      const SizedBox(height: AppSpacing.xxl),
+                      _EmailLine(
+                        session: session,
+                        onPanel: onPanel,
+                        panel: panel,
+                        onTap: _editEmail,
+                      ),
+                    ],
                   ),
-                  // The signature strip — the same accent every other
-                  // "this is the one thing that matters here" mark in
-                  // the app uses (the checkmark on a logged command,
-                  // the selected pricing card), laid flat along the
-                  // bottom.
-                  Container(height: 14, color: colors.accent),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -212,19 +219,65 @@ class _MembershipCardState extends State<MembershipCard> {
   }
 }
 
+/// Three low-opacity accent bands, each its own sine wave, layered so
+/// they wash across the bottom third of the card like water rather than
+/// sitting as one flat stripe — the "signature strip" redrawn as
+/// something with a little motion to it instead of a straight line.
+/// Painted, not an image or a clipped SVG, so it recolors instantly
+/// with the theme's own accent and never needs an asset.
+class _WavePainter extends CustomPainter {
+  const _WavePainter({required this.color});
+
+  final Color color;
+
+  static const _bands = [
+    // (baseline as a fraction of height, amplitude, opacity, phase)
+    (0.62, 10.0, 0.10, 0.0),
+    (0.74, 8.0, 0.14, 1.9),
+    (0.86, 7.0, 0.20, 3.6),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final (baselineFactor, amplitude, alpha, phase) in _bands) {
+      final baseline = size.height * baselineFactor;
+      final paint = Paint()..color = color.withValues(alpha: alpha);
+      final path = Path()..moveTo(0, size.height);
+      path.lineTo(0, baseline);
+      const steps = 32;
+      for (var i = 0; i <= steps; i++) {
+        final x = size.width * i / steps;
+        final y =
+            baseline + amplitude * math.sin((i / steps * 2 * math.pi) + phase);
+        path.lineTo(x, y);
+      }
+      path.lineTo(size.width, size.height);
+      path.close();
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WavePainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
 /// The email line, styled as a small pill "join" button while the shelf
 /// has no address yet, and as plain (but still tappable) text once one
 /// is linked — a button invites the reader to add something; a fact
-/// doesn't need to shout.
+/// doesn't need to shout. Sits on a solid backing chip so the waves
+/// behind it never fight its legibility.
 class _EmailLine extends StatelessWidget {
   const _EmailLine({
     required this.session,
     required this.onPanel,
+    required this.panel,
     required this.onTap,
   });
 
   final SessionService session;
   final Color onPanel;
+  final Color panel;
   final VoidCallback onTap;
 
   @override
@@ -240,58 +293,40 @@ class _EmailLine extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppRadius.pill),
-        child: anonymous
-            ? Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  border: Border.all(color: onPanel.withValues(alpha: 0.5)),
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.mail_outline, size: 14, color: onPanel),
-                    const SizedBox(width: 6),
-                    Text(
-                      'add email',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: onPanel,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            : Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        session.email!,
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: onPanel,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.edit_outlined,
-                      size: 13,
-                      color: onPanel.withValues(alpha: 0.7),
-                    ),
-                  ],
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xs,
+          ),
+          decoration: BoxDecoration(
+            color: panel.withValues(alpha: 0.82),
+            border: Border.all(color: onPanel.withValues(alpha: 0.35)),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                anonymous ? Icons.mail_outline : Icons.edit_outlined,
+                size: 14,
+                color: onPanel,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  anonymous ? 'add email' : session.email!,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: onPanel,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -299,7 +334,7 @@ class _EmailLine extends StatelessWidget {
 
 /// A small "PRO" mark, colored as the inverse of whatever panel it sits
 /// on rather than fixed colors, so it stays readable whether the panel
-/// is the light or the dark side of the theme swap.
+/// is the light or the dark side of the theme.
 class _ProBadge extends StatelessWidget {
   const _ProBadge({required this.background, required this.foreground});
 
