@@ -1,13 +1,9 @@
-import 'dart:typed_data';
-
 import 'package:book/core/auth/session_service.dart';
 import 'package:book/core/purchases/entitlements.dart';
 import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/core/theme/theme_controller.dart';
-import 'package:book/features/settings/data/avatar_picker.dart';
 import 'package:book/features/settings/data/profile_repository.dart';
-import 'package:book/features/settings/domain/profile_exception.dart';
 import 'package:book/features/settings/presentation/pages/settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -59,54 +55,16 @@ class _FakeSession extends SessionService {
   String? get userId => 'fake-user-id';
 }
 
-/// Never touches Supabase Storage/`profiles` — [avatarUrl]/[joinedAt] is
-/// what `fetchProfile` returns, and a successful [uploadAvatar] just
-/// records the call and echoes a fixed URL back, the same role
-/// `FakePurchasesService` plays for RevenueCat.
+/// Never touches Supabase — [joinedAt] is what `fetchJoinedAt` returns,
+/// the same role `FakePurchasesService` plays for RevenueCat.
 class _FakeProfileRepository extends ProfileRepository {
-  _FakeProfileRepository({this.avatarUrl, this.joinedAt, this.uploadError});
+  _FakeProfileRepository({this.joinedAt});
 
-  String? avatarUrl;
   DateTime? joinedAt;
-  ProfileException? uploadError;
-  int uploadCalls = 0;
 
   @override
-  Future<ProfileSummary> fetchProfile(String userId) async =>
-      (avatarUrl: avatarUrl, joinedAt: joinedAt);
-
-  @override
-  Future<String> uploadAvatar({
-    required String userId,
-    required Uint8List bytes,
-    required String extension,
-  }) async {
-    uploadCalls++;
-    final error = uploadError;
-    if (error != null) throw error;
-    return avatarUrl = 'https://example.test/avatar.jpg';
-  }
+  Future<DateTime?> fetchJoinedAt(String userId) async => joinedAt;
 }
-
-/// Hands back [result] (or throws [pickError]) instead of opening the
-/// real photo library — the same role `_FakeProfileRepository` plays
-/// for Supabase.
-class _FakeAvatarPicker extends AvatarPicker {
-  _FakeAvatarPicker({this.result, this.pickError});
-
-  final PickedAvatar? result;
-  final Exception? pickError;
-
-  @override
-  Future<PickedAvatar?> pickFromGallery() async {
-    final error = pickError;
-    if (error != null) throw error;
-    return result;
-  }
-}
-
-PickedAvatar _pickedJpeg() =>
-    (bytes: Uint8List.fromList([1, 2, 3]), extension: 'jpg');
 
 CustomerInfo _customerInfo({required bool pro}) {
   final entitlements = pro
@@ -140,7 +98,6 @@ Future<void> pumpSettings(
   required PurchasesService purchases,
   required SessionService session,
   ProfileRepository? profileRepository,
-  AvatarPicker? avatarPicker,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.625;
@@ -154,7 +111,6 @@ Future<void> pumpSettings(
         purchases: purchases,
         session: session,
         profileRepository: profileRepository ?? _FakeProfileRepository(),
-        avatarPicker: avatarPicker ?? _FakeAvatarPicker(),
       ),
     ),
   );
@@ -329,19 +285,6 @@ void main() {
       expect(find.text('PRO'), findsOneWidget);
     });
 
-    testWidgets('shows a saved profile picture once it loads', (tester) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-        profileRepository: _FakeProfileRepository(
-          avatarUrl: 'https://example.test/existing.jpg',
-        ),
-      );
-
-      expect(find.byType(Image), findsOneWidget);
-    });
-
     testWidgets('shows when the account was created', (tester) async {
       await pumpSettings(
         tester,
@@ -371,86 +314,6 @@ void main() {
 
       expect(find.text('member since'), findsNothing);
     });
-
-    testWidgets('picking a photo uploads it and shows the saved URL', (
-      tester,
-    ) async {
-      final profiles = _FakeProfileRepository();
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-        profileRepository: profiles,
-        avatarPicker: _FakeAvatarPicker(result: _pickedJpeg()),
-      );
-
-      await tester.tap(find.byIcon(Icons.camera_alt));
-      await tester.pumpAndSettle();
-
-      expect(profiles.uploadCalls, 1);
-      expect(find.byType(Image), findsOneWidget);
-    });
-
-    testWidgets('backing out of the picker leaves the picture untouched', (
-      tester,
-    ) async {
-      final profiles = _FakeProfileRepository();
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-        profileRepository: profiles,
-        avatarPicker: _FakeAvatarPicker(),
-      );
-
-      await tester.tap(find.byIcon(Icons.camera_alt));
-      await tester.pumpAndSettle();
-
-      expect(profiles.uploadCalls, 0);
-    });
-
-    testWidgets('the photo library failing to open shows a quiet message', (
-      tester,
-    ) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-        avatarPicker: _FakeAvatarPicker(
-          pickError: Exception('platform channel unavailable'),
-        ),
-      );
-
-      await tester.tap(find.byIcon(Icons.camera_alt));
-      await tester.pumpAndSettle();
-
-      expect(find.text("We couldn't open your photo library."), findsOneWidget);
-    });
-
-    testWidgets(
-      'a failed upload shows a message rather than crashing the card',
-      (tester) async {
-        await pumpSettings(
-          tester,
-          purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-          session: _FakeSession(),
-          profileRepository: _FakeProfileRepository(
-            uploadError: const ProfileException(
-              "We couldn't update your profile picture.",
-            ),
-          ),
-          avatarPicker: _FakeAvatarPicker(result: _pickedJpeg()),
-        );
-
-        await tester.tap(find.byIcon(Icons.camera_alt));
-        await tester.pumpAndSettle();
-
-        expect(
-          find.text("We couldn't update your profile picture."),
-          findsOneWidget,
-        );
-      },
-    );
   });
 
   group('about', () {

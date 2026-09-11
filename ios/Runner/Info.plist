@@ -65,9 +65,5 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<!-- image_picker's gallery source, for the membership card's profile
-	     picture — read-only selection, never the camera. -->
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>cactus uses your photo library to set your profile picture.</string>
 </dict>
 </plist>

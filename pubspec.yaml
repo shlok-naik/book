@@ -44,8 +44,6 @@ dependencies:
   firebase_crashlytics: ^5.2.7
   firebase_analytics: ^12.4.6
   shared_preferences: ^2.5.3
-  image_picker: ^1.2.3
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

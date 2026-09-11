@@ -14,7 +14,6 @@ import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
-import '../../data/avatar_picker.dart';
 import '../../data/profile_repository.dart';
 import '../widgets/membership_card.dart';
 import '../widgets/settings_section.dart';
@@ -27,11 +26,11 @@ import '../widgets/settings_section.dart';
 /// the four that are. It is pushed from `TopBar`, which puts the same
 /// gear in the same top-right corner on all four top-level pages.
 ///
-/// The account itself is `MembershipCard`, at the very top — a profile
-/// picture and the email `linkEmail` attaches, styled like a membership
-/// card rather than a settings row. There is no separate "account"
-/// section any more: this card is the only place that email is shown or
-/// changed, and the only place a profile picture lives.
+/// The account itself is `MembershipCard`, at the very top — the join
+/// date and the email `linkEmail` attaches, styled like a flat
+/// membership card rather than a settings row. There is no separate
+/// "account" section any more: this card is the only place that email
+/// is shown or changed.
 ///
 /// Dressed like the rest of the app rather than like Material: no
 /// [AppBar] (nothing else in this app has one, and its default tint,
@@ -45,7 +44,6 @@ class SettingsPage extends StatefulWidget {
     this.purchases,
     this.session,
     this.profileRepository,
-    this.avatarPicker,
   });
 
   /// Injection point for tests: a fake wrapping fake customer info
@@ -56,15 +54,10 @@ class SettingsPage extends StatefulWidget {
   /// from the [SessionScope] the composition root installs.
   final SessionService? session;
 
-  /// Injection point for tests: a fake wrapping fake storage/profile
-  /// calls instead of the real Supabase SDK. Null in the app. Threaded
-  /// straight through to [MembershipCard].
+  /// Injection point for tests: a fake wrapping a fake Supabase call
+  /// instead of the real SDK. Null in the app. Threaded straight through
+  /// to [MembershipCard].
   final ProfileRepository? profileRepository;
-
-  /// Injection point for tests: a fake that hands back canned bytes
-  /// instead of opening the real photo library. Null in the app.
-  /// Threaded straight through to [MembershipCard].
-  final AvatarPicker? avatarPicker;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -197,7 +190,6 @@ class _SettingsPageState extends State<SettingsPage> {
                       session: session,
                       isPro: isPro,
                       profileRepository: widget.profileRepository,
-                      avatarPicker: widget.avatarPicker,
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     _SubscriptionCard(
