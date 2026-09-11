@@ -39,11 +39,13 @@ class _StreaksPageState extends State<StreaksPage> {
   StreaksController? _controller;
 
   StreamSubscription<ReadingEvent>? _eventSubscription;
+  StreamSubscription<String>? _clearedSubscription;
 
   /// Loads the year once, then subscribes to [LibraryController]'s own
-  /// event stream so a fresh shelf command joins the journal directly
-  /// ([StreaksController.applyEvent]) instead of re-fetching the whole
-  /// year from Supabase on every command.
+  /// streams so a fresh shelf command joins the journal directly
+  /// ([StreaksController.applyEvent]) and a deleted book's old lines
+  /// disappear from it ([StreaksController.removeTitle]), instead of
+  /// re-fetching the whole year from Supabase on every command.
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -53,11 +55,13 @@ class _StreaksPageState extends State<StreaksPage> {
     final controller = _controller = StreaksController(events: library.events);
     controller.load(DateTime.now().year);
     _eventSubscription = library.loggedEvents.listen(controller.applyEvent);
+    _clearedSubscription = library.clearedTitles.listen(controller.removeTitle);
   }
 
   @override
   void dispose() {
     _eventSubscription?.cancel();
+    _clearedSubscription?.cancel();
     _controller?.dispose();
     super.dispose();
   }

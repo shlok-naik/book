@@ -97,4 +97,25 @@ class StreaksController extends ChangeNotifier {
     };
     notifyListeners();
   }
+
+  /// Drops every already-loaded event for [title] — the in-memory
+  /// mirror of `ReadingEventRepository.deleteForTitle`, which does the
+  /// actual Supabase delete. `delete <book>` fires this via
+  /// `LibraryController.clearedTitles` so a deleted book's old lines
+  /// disappear from an already-open journal without a reload.
+  void removeTitle(String title) {
+    final next = <DateTime, List<ReadingEvent>>{};
+    var changed = false;
+    for (final MapEntry(key: day, value: events) in _byDay.entries) {
+      final kept = [
+        for (final event in events)
+          if (event.title != title) event,
+      ];
+      if (kept.length != events.length) changed = true;
+      if (kept.isNotEmpty) next[day] = kept;
+    }
+    if (!changed) return;
+    _byDay = next;
+    notifyListeners();
+  }
 }

@@ -56,6 +56,15 @@ class LibraryController extends ChangeNotifier {
   /// Supabase refetch on every single shelf command).
   Stream<ReadingEvent> get loggedEvents => _loggedEvents.stream;
 
+  final _clearedTitles = StreamController<String>.broadcast();
+
+  /// A book title whose whole journal history was just erased — see
+  /// [_clearJournal]. The streaks feature listens to this the same way
+  /// it listens to [loggedEvents], so a deleted book's old "started"/
+  /// "read up to page..." lines disappear from an already-open journal
+  /// without a reload.
+  Stream<String> get clearedTitles => _clearedTitles.stream;
+
   /// Records [type] without letting a logging failure affect the shelf
   /// command it came from — the pill has already reported success or
   /// failure by the time this runs, so nothing here can change that.
@@ -92,9 +101,24 @@ class LibraryController extends ChangeNotifier {
     );
   }
 
+  /// Erases [title]'s whole journal history — `delete <book>` removing
+  /// the book from the shelf takes its "started"/"finished"/etc. lines
+  /// with it, rather than leaving a trail for a book that's gone.
+  /// Fire-and-forget for the same reason [_logEvent] is: a failure here
+  /// must never surface as a failed `delete` command, since the shelf
+  /// write it followed has already succeeded.
+  void _clearJournal(String title) {
+    reportingFailure(
+      events.deleteForTitle(title).then((_) => _clearedTitles.add(title)),
+      source: 'LibraryController',
+      message: 'Could not clear the journal for "$title".',
+    );
+  }
+
   @override
   void dispose() {
     _loggedEvents.close();
+    _clearedTitles.close();
     super.dispose();
   }
 
@@ -330,6 +354,11 @@ class LibraryController extends ChangeNotifier {
   /// `delete <book>` — removes the book from the shelf. Optimistic like
   /// the other commands: it disappears immediately, and comes back if
   /// the delete fails to persist.
+  ///
+  /// Also clears the book's whole journal history (see [_clearJournal])
+  /// rather than logging one more "deleted" line — a book that's gone
+  /// from the shelf shouldn't leave its "started"/"read up to page..."
+  /// trail behind in the streak journal either.
   Future<LibraryActionResult> deleteBook(String title) async {
     final entry = _findByTitle(title);
     if (entry == null) {
@@ -343,7 +372,7 @@ class LibraryController extends ChangeNotifier {
 
     try {
       await userBooks.delete(entry.id);
-      _logEvent(ReadingEventType.delete, entry.book.title);
+      _clearJournal(entry.book.title);
       return LibraryActionResult.success('Removed "${entry.book.title}"');
     } on LibraryException catch (error) {
       _upsertLocal(entry);

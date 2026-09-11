@@ -174,6 +174,78 @@ void main() {
     });
   });
 
+  group('removeTitle', () {
+    test('drops every loaded event for that title', () async {
+      final controller = StreaksController(
+        events: FakeReadingEventRepository([
+          _event(
+            ReadingEventType.start,
+            DateTime.utc(2026, 3, 1),
+            title: 'Dune',
+          ),
+          _event(
+            ReadingEventType.finish,
+            DateTime.utc(2026, 3, 20),
+            title: 'Dune',
+          ),
+          _event(
+            ReadingEventType.start,
+            DateTime.utc(2026, 3, 20),
+            title: 'Neuromancer',
+          ),
+        ]),
+      );
+      await controller.load(2026);
+
+      controller.removeTitle('Dune');
+
+      expect(controller.eventsFor(DateTime(2026, 3, 1)), isEmpty);
+      expect(
+        controller.eventsFor(DateTime(2026, 3, 20)).single.title,
+        'Neuromancer',
+        reason: 'an unrelated title on the same day is left alone',
+      );
+    });
+
+    test('drops a day entirely once its last event is removed', () async {
+      final controller = StreaksController(
+        events: FakeReadingEventRepository([
+          _event(
+            ReadingEventType.start,
+            DateTime.utc(2026, 3, 1),
+            title: 'Dune',
+          ),
+        ]),
+      );
+      await controller.load(2026);
+
+      controller.removeTitle('Dune');
+
+      expect(controller.days, isEmpty);
+    });
+
+    test('notifies listeners only when something actually changed', () async {
+      final controller = StreaksController(
+        events: FakeReadingEventRepository([
+          _event(
+            ReadingEventType.start,
+            DateTime.utc(2026, 3, 1),
+            title: 'Dune',
+          ),
+        ]),
+      );
+      await controller.load(2026);
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      controller.removeTitle('Neuromancer');
+      expect(notifications, 0, reason: 'nothing in the loaded year matched');
+
+      controller.removeTitle('Dune');
+      expect(notifications, 1);
+    });
+  });
+
   group('a failed load', () {
     test('exposes the failure message instead of an empty year', () async {
       final controller = StreaksController(

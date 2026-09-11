@@ -75,4 +75,16 @@ class ReadingEventRepository {
       return [for (final row in rows) ?ReadingEvent.fromRow(row)];
     }, friendlyMessage: "We couldn't load your streak history.");
   }
+
+  /// Erases every row logged against [title] — what `delete <book>`
+  /// does to its own journal history. `title` is the only link between
+  /// a `reading_events` row and the book it was about (see [log]'s doc
+  /// comment), so removing the book from the shelf removes its whole
+  /// story here too, rather than leaving a trail of "started"/"read up
+  /// to page..." lines for a book that no longer exists.
+  Future<void> deleteForTitle(String title) {
+    return runSupabase<void>(() async {
+      await _client.from(_table).delete().eq('title', title);
+    }, friendlyMessage: "We couldn't clear that book's history.");
+  }
 }

@@ -145,6 +145,15 @@ class FakeReadingEventRepository extends ReadingEventRepository {
       value: value,
     ));
   }
+
+  /// What `deleteBook` calls instead of logging one more event — see
+  /// `LibraryController._clearJournal`.
+  final List<String> clearedTitles = [];
+
+  @override
+  Future<void> deleteForTitle(String title) async {
+    clearedTitles.add(title);
+  }
 }
 
 /// Cache that always hits, so controller tests never depend on network
@@ -663,9 +672,36 @@ void main() {
       expect(userBooks.deletedIds, ['progress-book-1']);
 
       await Future<void>.delayed(Duration.zero);
-      expect(events.loggedTypesAndTitles, [
-        (type: ReadingEventType.delete, title: 'Dune'),
-      ]);
+      expect(
+        events.clearedTitles,
+        ['Dune'],
+        reason: 'deleting the book clears its journal history too',
+      );
+      expect(
+        events.loggedTypesAndTitles,
+        isEmpty,
+        reason:
+            'no new event is logged for a delete — there is nothing left'
+            ' to journal',
+      );
+    });
+
+    test('broadcasts the title on clearedTitles once cleared', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+      final broadcast = <String>[];
+      controller.clearedTitles.listen(broadcast.add);
+
+      await controller.deleteBook('Dune');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        broadcast,
+        ['Dune'],
+        reason:
+            'an already-open journal listens for this to drop the '
+            "book's lines without a reload",
+      );
     });
 
     test('removes it immediately, before the delete persists', () async {
