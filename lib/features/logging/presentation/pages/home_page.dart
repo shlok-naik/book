@@ -484,10 +484,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // The gear sits at the page's left edge; the pill stays
-                // centred on the page itself rather than in whatever
-                // room is left beside it — see [TopBar.center].
-                const TopBar(center: DatePill()),
+                // The gear sits at the page's left edge, "add" sits
+                // flush left of it exactly like "library"/"streak"/
+                // "memory" do on their own tabs; the pill stays centred
+                // on the page itself rather than in whatever room is
+                // left beside the title — see [TopBar.center].
+                const TopBar(title: 'add', center: DatePill()),
                 const SizedBox(height: AppSpacing.lg),
                 Expanded(
                   child: instructions == null

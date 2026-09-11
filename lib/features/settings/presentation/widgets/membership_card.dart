@@ -57,10 +57,15 @@ class _MembershipCardState extends State<MembershipCard> {
       widget.profileRepository ?? const ProfileRepository();
 
   /// When this account was created — the card's "member since" line.
-  /// Null before the fetch resolves, and again if it failed; either way
-  /// the row just doesn't render rather than blocking the rest of the
-  /// card on it.
+  /// Null both before the fetch resolves and if it failed; [_loading]
+  /// is what tells those two apart, since the "member since" row itself
+  /// always renders (see [build]) — it never used to, and the fetch
+  /// popping it in a beat after the card's first frame made the whole
+  /// card visibly grow. Keeping the row's height constant from frame
+  /// one and only swapping the value trades that jump for a loading
+  /// placeholder instead.
   DateTime? _joinedAt;
+  bool _loading = true;
 
   @override
   void initState() {
@@ -70,17 +75,27 @@ class _MembershipCardState extends State<MembershipCard> {
 
   Future<void> _loadProfile() async {
     final userId = widget.session.userId;
+    // No `setState` here: this branch runs synchronously inside
+    // `initState`, before the first build — a session without a uid at
+    // all is not a state this card can render sensibly regardless, so
+    // it just stays on the loading placeholder rather than risk calling
+    // `setState` too early.
     if (userId == null) return;
     try {
       final joinedAt = await _profiles.fetchJoinedAt(userId);
       if (!mounted) return;
-      setState(() => _joinedAt = joinedAt);
+      setState(() {
+        _joinedAt = joinedAt;
+        _loading = false;
+      });
     } on ProfileException catch (error) {
       AppLogger.error(
         'MembershipCard',
         'Could not load the profile.',
         error: error,
       );
+      if (!mounted) return;
+      setState(() => _loading = false);
     }
   }
 
@@ -164,27 +179,32 @@ class _MembershipCardState extends State<MembershipCard> {
                             _ProBadge(background: onPanel, foreground: panel),
                         ],
                       ),
-                      if (joinedAt != null) ...[
-                        const SizedBox(height: AppSpacing.lg),
-                        Text(
-                          'member since',
-                          style: GoogleFonts.inter(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.8,
-                            color: onPanel.withValues(alpha: 0.65),
-                          ),
+                      const SizedBox(height: AppSpacing.lg),
+                      Text(
+                        'member since',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.8,
+                          color: onPanel.withValues(alpha: 0.65),
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          _dateLabel(joinedAt),
-                          style: GoogleFonts.jetBrainsMono(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: onPanel,
-                          ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        // The label above is never conditional on the
+                        // fetch any more — only the value is, so the
+                        // card's height is settled on the very first
+                        // frame instead of growing once the real date
+                        // lands a beat later.
+                        _loading
+                            ? '···'
+                            : (joinedAt == null ? '—' : _dateLabel(joinedAt)),
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: onPanel,
                         ),
-                      ],
+                      ),
                       const SizedBox(height: AppSpacing.xxl),
                       _EmailLine(
                         session: session,

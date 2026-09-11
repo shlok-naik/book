@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:book/core/auth/session_service.dart';
 import 'package:book/core/purchases/entitlements.dart';
 import 'package:book/core/purchases/purchases_service.dart';
@@ -58,12 +60,17 @@ class _FakeSession extends SessionService {
 /// Never touches Supabase — [joinedAt] is what `fetchJoinedAt` returns,
 /// the same role `FakePurchasesService` plays for RevenueCat.
 class _FakeProfileRepository extends ProfileRepository {
-  _FakeProfileRepository({this.joinedAt});
+  _FakeProfileRepository({DateTime? joinedAt})
+    : _future = Future.value(joinedAt);
 
-  DateTime? joinedAt;
+  /// Never resolves — for the one test that needs to catch the card
+  /// mid-load, before `fetchJoinedAt` has answered at all.
+  _FakeProfileRepository.pending() : _future = Completer<DateTime?>().future;
+
+  final Future<DateTime?> _future;
 
   @override
-  Future<DateTime?> fetchJoinedAt(String userId) async => joinedAt;
+  Future<DateTime?> fetchJoinedAt(String userId) => _future;
 }
 
 CustomerInfo _customerInfo({required bool pro}) {
@@ -302,7 +309,25 @@ void main() {
       expect(find.text('3.5.26'), findsOneWidget);
     });
 
-    testWidgets('says nothing about a join date it could not load', (
+    testWidgets(
+      'shows a loading placeholder rather than growing once the date lands',
+      (tester) async {
+        await pumpSettings(
+          tester,
+          purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+          session: _FakeSession(),
+          profileRepository: _FakeProfileRepository.pending(),
+        );
+
+        // "member since" is never conditional on the fetch — only the
+        // value below it is — so the card's height is already settled
+        // here, before `fetchJoinedAt` has even answered.
+        expect(find.text('member since'), findsOneWidget);
+        expect(find.text('···'), findsOneWidget);
+      },
+    );
+
+    testWidgets('shows a dash when the join date could not be loaded', (
       tester,
     ) async {
       await pumpSettings(
@@ -312,7 +337,8 @@ void main() {
         profileRepository: _FakeProfileRepository(),
       );
 
-      expect(find.text('member since'), findsNothing);
+      expect(find.text('member since'), findsOneWidget);
+      expect(find.text('—'), findsOneWidget);
     });
   });
 

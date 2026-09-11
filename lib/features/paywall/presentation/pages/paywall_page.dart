@@ -57,8 +57,9 @@ import '../widgets/soft_pill_button.dart';
 ///   [AppSpacing] / [AppRadius], so the screen follows the reader's
 ///   light/dark choice like the rest of the flow.
 /// Presents [PaywallPage] as the popup it is meant to be: a modal route
-/// that fades and scales up over the current screen rather than sliding
-/// in as another page in a flow, and that the reader can dismiss.
+/// that slides up from the bottom edge over the current screen, the way
+/// a near-full-bleed card like this one is expected to arrive, and that
+/// the reader can dismiss.
 ///
 /// Named for analytics — see [AppAnalytics.navigatorObservers] — so a
 /// paywall impression is still a screen view now that it is no longer a
@@ -73,8 +74,8 @@ Future<void> showPaywallPopup(
       settings: const RouteSettings(name: 'paywall'),
       opaque: false,
       barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 260),
-      reverseTransitionDuration: const Duration(milliseconds: 180),
+      transitionDuration: const Duration(milliseconds: 320),
+      reverseTransitionDuration: const Duration(milliseconds: 240),
       pageBuilder: (_, _, _) =>
           PaywallPage(purchases: purchases, pricing: pricing),
       transitionsBuilder: (_, animation, _, child) {
@@ -83,12 +84,12 @@ Future<void> showPaywallPopup(
           curve: Curves.easeOutCubic,
           reverseCurve: Curves.easeInCubic,
         );
-        return FadeTransition(
-          opacity: curved,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
-            child: child,
-          ),
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 1),
+            end: Offset.zero,
+          ).animate(curved),
+          child: FadeTransition(opacity: curved, child: child),
         );
       },
     ),
