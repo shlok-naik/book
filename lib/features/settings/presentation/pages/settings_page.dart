@@ -14,16 +14,24 @@ import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
+import '../../data/avatar_picker.dart';
+import '../../data/profile_repository.dart';
+import '../widgets/membership_card.dart';
 import '../widgets/settings_section.dart';
-import 'email_sheet.dart';
 
-/// Everything that isn't reading: the subscription, how the app looks,
-/// the account the shelf actually belongs to, and the legal small print.
+/// Everything that isn't reading: the account the shelf actually belongs
+/// to, the subscription, how the app looks, and the legal small print.
 ///
 /// One screen behind one gear rather than a fifth tab — none of this is
 /// something a reader does daily, and giving it a tab would cost one of
 /// the four that are. It is pushed from `TopBar`, which puts the same
 /// gear in the same top-right corner on all four top-level pages.
+///
+/// The account itself is `MembershipCard`, at the very top — a profile
+/// picture and the email `linkEmail` attaches, styled like a membership
+/// card rather than a settings row. There is no separate "account"
+/// section any more: this card is the only place that email is shown or
+/// changed, and the only place a profile picture lives.
 ///
 /// Dressed like the rest of the app rather than like Material: no
 /// [AppBar] (nothing else in this app has one, and its default tint,
@@ -32,7 +40,13 @@ import 'email_sheet.dart';
 /// same lowercase `jetBrainsMono` heading, and rows built from
 /// `AppColors`/`AppRadius` tokens — never a hardcoded hex.
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, this.purchases, this.session});
+  const SettingsPage({
+    super.key,
+    this.purchases,
+    this.session,
+    this.profileRepository,
+    this.avatarPicker,
+  });
 
   /// Injection point for tests: a fake wrapping fake customer info
   /// instead of the real RevenueCat SDK. Null in the app.
@@ -41,6 +55,16 @@ class SettingsPage extends StatefulWidget {
   /// Injection point for tests. Null in the app, where the session comes
   /// from the [SessionScope] the composition root installs.
   final SessionService? session;
+
+  /// Injection point for tests: a fake wrapping fake storage/profile
+  /// calls instead of the real Supabase SDK. Null in the app. Threaded
+  /// straight through to [MembershipCard].
+  final ProfileRepository? profileRepository;
+
+  /// Injection point for tests: a fake that hands back canned bytes
+  /// instead of opening the real photo library. Null in the app.
+  /// Threaded straight through to [MembershipCard].
+  final AvatarPicker? avatarPicker;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -139,17 +163,6 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) await _refresh();
   }
 
-  /// Both account rows lead here: an anonymous reader linking their
-  /// first address, and a linked one moving to a different address. Same
-  /// sheet, same two Supabase calls — see [showEmailSheet].
-  Future<void> _editEmail() async {
-    final verified = await showEmailSheet(context, session: _session);
-    // The account section reads straight off the session, which the
-    // verification above has already mutated in place — this is only
-    // here to get the page to look at it again.
-    if (verified == true && mounted) setState(() {});
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -180,6 +193,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: ListView(
                   padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
                   children: [
+                    MembershipCard(
+                      session: session,
+                      isPro: isPro,
+                      profileRepository: widget.profileRepository,
+                      avatarPicker: widget.avatarPicker,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
                     _SubscriptionCard(
                       loading: info == null && error == null,
                       isPro: isPro,
@@ -218,53 +238,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     const _AppearanceSection(),
-                    const SizedBox(height: AppSpacing.lg),
-                    SettingsSection(
-                      title: 'account',
-                      rows: session.isAnonymous
-                          ? [
-                              SettingsRow(
-                                icon: Icons.mail_outline,
-                                label: 'back up with email',
-                                onTap: _busy ? null : _editEmail,
-                              ),
-                            ]
-                          : [
-                              SettingsRow(
-                                icon: Icons.mail_outline,
-                                label: 'email',
-                                value: session.email,
-                              ),
-                              // Where "sign out" used to sit. The uid
-                              // *is* the shelf, so ending a session
-                              // loses a library rather than protecting
-                              // one — changing the address it answers
-                              // to is what a reader wants from this
-                              // row. See [SessionService.signOut].
-                              SettingsRow(
-                                icon: Icons.edit_outlined,
-                                label: 'change email',
-                                onTap: _busy ? null : _editEmail,
-                              ),
-                            ],
-                    ),
-                    if (session.isAnonymous) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.sm,
-                        ),
-                        child: Text(
-                          'Your shelf lives on this device only. Add an email and '
-                          'it follows you to the next one.',
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            height: 1.5,
-                            color: colors.secondaryText,
-                          ),
-                        ),
-                      ),
-                    ],
                     const SizedBox(height: AppSpacing.lg),
                     SettingsSection(
                       title: 'about',

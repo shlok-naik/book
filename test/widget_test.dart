@@ -120,6 +120,9 @@ class _FakeSession extends SessionService {
 
   @override
   String? get email => null;
+
+  @override
+  String? get userId => 'fake-user-id';
 }
 
 /// A reading-event log that never touches Supabase. [failure], when
