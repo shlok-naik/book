@@ -36,10 +36,11 @@ class BottomSwitcher extends StatelessWidget {
   /// describing an action the others don't describe either.
   static const _groupLabels = ['Memory', 'Streak', 'Library'];
 
-  /// The "+" tab. Named for the day it logs against — the page it opens
-  /// leads with a [DatePill] reading "today" — rather than for the
-  /// gesture that opens it.
-  static const _addLabel = 'Today';
+  /// The "+" tab — named to match the page it opens, whose own `TopBar`
+  /// now carries the visible title `'add'` too, rather than the day it
+  /// logs against (the [DatePill] centred on that page already says
+  /// that).
+  static const _addLabel = 'Add';
 
   static const _addIndex = 3;
 

@@ -477,16 +477,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.xl,
-              AppSpacing.xxl,
+              AppSpacing.md,
               AppSpacing.xl,
               130,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // The gear sits at the page's left edge, "add" sits
-                // flush left of it exactly like "library"/"streak"/
-                // "memory" do on their own tabs; the pill stays centred
+                // Same AppSpacing.md top inset as library/streak/memory
+                // — without it "add" sat lower than the title on every
+                // other tab despite sharing the exact same TopBar. The
+                // gear sits at the page's left edge, "add" sits flush
+                // left of it exactly like "library"/"streak"/"memory"
+                // do on their own tabs; the pill stays centred
                 // on the page itself rather than in whatever room is
                 // left beside the title — see [TopBar.center].
                 const TopBar(title: 'add', center: DatePill()),

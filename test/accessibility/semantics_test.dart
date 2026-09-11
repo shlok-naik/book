@@ -58,7 +58,7 @@ void main() {
       expect(find.bySemanticsLabel('Memory'), findsOneWidget);
       expect(find.bySemanticsLabel('Streak'), findsOneWidget);
       expect(find.bySemanticsLabel('Library'), findsOneWidget);
-      expect(find.bySemanticsLabel('Today'), findsOneWidget);
+      expect(find.bySemanticsLabel('Add'), findsOneWidget);
 
       // `isSemantics` rather than `matchesSemantics`: we care that the
       // tab announces itself as a selected button, not that every other

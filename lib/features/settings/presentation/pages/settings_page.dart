@@ -265,15 +265,20 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
-/// The screen's own heading: a back chevron, then the name, in the same
-/// lowercase `jetBrainsMono` every other page's heading uses.
+/// The screen's own heading: the name, flush left at the exact same
+/// position [TopBar]'s own title sits at on every other page, then a
+/// back chevron in the same top-right slot the gear occupies everywhere
+/// else — this is the one page that slot leads *back* from rather than
+/// *to*.
 ///
 /// Deliberately not an [AppBar]. Nothing else in this app has one, and
 /// its Material defaults — the surface tint, the elevation shadow on
 /// scroll, the centred title — would make the one screen a reader opens
 /// least look like it came from a different app than the four they use
-/// daily. The geometry matches [TopBar] exactly, so the heading lands on
-/// the same baseline as the one they just tapped away from.
+/// daily. The geometry matches [TopBar] exactly — title first, icon
+/// last, both in the same 44pt row — so "settings" lands pixel-for-
+/// pixel where "library"/"streak"/"memory"/"add" do, not shifted right
+/// by a leading icon the way a naive "back, then title" row would.
 class _SettingsHeader extends StatelessWidget {
   const _SettingsHeader();
 
@@ -288,6 +293,16 @@ class _SettingsHeader extends StatelessWidget {
       height: _tapTarget,
       child: Row(
         children: [
+          Expanded(
+            child: Text(
+              'settings',
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: colors.primaryText,
+              ),
+            ),
+          ),
           Semantics(
             button: true,
             label: 'Back',
@@ -298,27 +313,16 @@ class _SettingsHeader extends StatelessWidget {
               child: SizedBox(
                 width: _tapTarget,
                 height: _tapTarget,
-                // Left-aligned inside the target, mirroring what the
-                // gear does on the right on every other page.
+                // Right-aligned inside the target, exactly where
+                // `TopBar`'s own gear sits on every other page.
                 child: Align(
-                  alignment: Alignment.centerLeft,
+                  alignment: Alignment.centerRight,
                   child: Icon(
                     Icons.chevron_left,
                     size: 24,
                     color: colors.secondaryText,
                   ),
                 ),
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              'settings',
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: colors.primaryText,
               ),
             ),
           ),
