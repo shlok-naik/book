@@ -13,6 +13,7 @@ import 'core/auth/session_service.dart';
 import 'core/diagnostics/app_logger.dart';
 import 'core/diagnostics/crash_reporter.dart';
 import 'core/env/env.dart';
+import 'core/platform/app_icon_controller.dart';
 import 'core/purchases/purchases_service.dart';
 import 'core/supabase/supabase_service.dart';
 import 'core/theme/app_scroll_behavior.dart';
@@ -190,6 +191,11 @@ Future<void> _bootstrap() async {
   // "is the reader signed in" — they always are by now, anonymously —
   // it is "have they been shown around yet". See [OnboardingStore].
   final introSeen = await const OnboardingStore().hasSeen();
+
+  // Not load-bearing — the settings row just shows "light" a beat
+  // longer if this fails — so it happens after everything the reader's
+  // shelf actually depends on, not before.
+  await AppIconController.initialize();
 
   runApp(BookApp(showOnboarding: !introSeen));
 }

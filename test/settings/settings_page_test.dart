@@ -1,11 +1,16 @@
 import 'dart:async';
 
 import 'package:book/core/auth/session_service.dart';
+import 'package:book/core/platform/app_icon.dart';
+import 'package:book/core/platform/app_icon_channel.dart';
+import 'package:book/core/platform/app_icon_controller.dart';
 import 'package:book/core/purchases/entitlements.dart';
 import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/core/theme/theme_controller.dart';
+import 'package:book/features/paywall/presentation/pages/paywall_page.dart';
 import 'package:book/features/settings/data/profile_repository.dart';
+import 'package:book/features/settings/presentation/pages/customisation_page.dart';
 import 'package:book/features/settings/presentation/pages/settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -132,6 +137,13 @@ void main() {
   // that runs after.
   setUp(() {
     addTearDown(() => ThemeController.select(ThemeMode.system));
+    // AppIconController is a global too — restore the real channel and
+    // its light default so a fake from one test can't leak into the
+    // next.
+    addTearDown(() {
+      AppIconController.channel = const AppIconChannel();
+      AppIconController.current.value = AppIcon.originalLight;
+    });
   });
 
   group('the subscription card', () {
@@ -189,6 +201,50 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(ThemeController.mode.value, ThemeMode.dark);
+    });
+  });
+
+  group('customisation', () {
+    Finder row() => find.text('themes and icons');
+
+    testWidgets('a free reader sees it faded and reaches the paywall', (
+      tester,
+    ) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
+      await tester.scrollUntilVisible(row(), 200);
+
+      final opacity = tester.widget<Opacity>(
+        find.ancestor(of: row(), matching: find.byType(Opacity)).first,
+      );
+      expect(opacity.opacity, lessThan(1.0));
+
+      await tester.tap(row());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PaywallPage), findsOneWidget);
+      expect(find.byType(CustomisationPage), findsNothing);
+    });
+
+    testWidgets('a pro reader opens the customisation page', (tester) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: true)),
+        session: _FakeSession(),
+      );
+      await tester.scrollUntilVisible(row(), 200);
+      expect(
+        find.ancestor(of: row(), matching: find.byType(Opacity)),
+        findsNothing,
+      );
+
+      await tester.tap(row());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CustomisationPage), findsOneWidget);
     });
   });
 

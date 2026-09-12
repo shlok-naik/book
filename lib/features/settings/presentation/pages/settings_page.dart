@@ -16,7 +16,9 @@ import '../../../../core/theme/theme_controller.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
 import '../../data/profile_repository.dart';
 import '../widgets/membership_card.dart';
+import '../widgets/settings_header.dart';
 import '../widgets/settings_section.dart';
+import 'customisation_page.dart';
 
 /// Everything that isn't reading: the account the shelf actually belongs
 /// to, the subscription, how the app looks, and the legal small print.
@@ -180,7 +182,7 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const _SettingsHeader(),
+              const SettingsHeader(title: 'settings'),
               const SizedBox(height: AppSpacing.lg),
               Expanded(
                 child: ListView(
@@ -231,6 +233,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: AppSpacing.lg),
                     const _AppearanceSection(),
                     const SizedBox(height: AppSpacing.lg),
+                    _CustomisationSection(
+                      isPro: isPro,
+                      onLocked: _busy ? null : _upgrade,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
                     SettingsSection(
                       title: 'about',
                       rows: [
@@ -260,73 +267,6 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// The screen's own heading: the name, flush left at the exact same
-/// position [TopBar]'s own title sits at on every other page, then a
-/// back chevron in the same top-right slot the gear occupies everywhere
-/// else — this is the one page that slot leads *back* from rather than
-/// *to*.
-///
-/// Deliberately not an [AppBar]. Nothing else in this app has one, and
-/// its Material defaults — the surface tint, the elevation shadow on
-/// scroll, the centred title — would make the one screen a reader opens
-/// least look like it came from a different app than the four they use
-/// daily. The geometry matches [TopBar] exactly — title first, icon
-/// last, both in the same 44pt row — so "settings" lands pixel-for-
-/// pixel where "library"/"streak"/"memory"/"add" do, not shifted right
-/// by a leading icon the way a naive "back, then title" row would.
-class _SettingsHeader extends StatelessWidget {
-  const _SettingsHeader();
-
-  /// The same 44pt square [TopBar] gives its gear.
-  static const _tapTarget = 44.0;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-
-    return SizedBox(
-      height: _tapTarget,
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'settings',
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: colors.primaryText,
-              ),
-            ),
-          ),
-          Semantics(
-            button: true,
-            label: 'Back',
-            excludeSemantics: true,
-            child: InkResponse(
-              onTap: Navigator.of(context).pop,
-              radius: _tapTarget / 2,
-              child: SizedBox(
-                width: _tapTarget,
-                height: _tapTarget,
-                // Right-aligned inside the target, exactly where
-                // `TopBar`'s own gear sits on every other page.
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Icon(
-                    Icons.chevron_left,
-                    size: 24,
-                    color: colors.secondaryText,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -448,6 +388,48 @@ class _AppearanceSection extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// The one row that leads to [CustomisationPage] — sixteen launcher
+/// icons across three groups, plus (today) nothing else, though the
+/// label leaves room for whatever else "how the app looks" grows to
+/// mean. A "cactus pro" feature like `remember`/`recommend`: free
+/// readers see the row faded rather than hidden — same
+/// discoverability-without-access `HomePage` gives those two commands —
+/// and tapping it opens the paywall instead of the page.
+class _CustomisationSection extends StatelessWidget {
+  const _CustomisationSection({required this.isPro, required this.onLocked});
+
+  final bool isPro;
+
+  /// Opens the paywall. Null while a subscription action is already in
+  /// flight elsewhere on this screen, same guard every other row here
+  /// uses.
+  final VoidCallback? onLocked;
+
+  void _open(BuildContext context) {
+    AppHaptics.selection();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'customisation'),
+        builder: (_) => const CustomisationPage(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final row = SettingsRow(
+      icon: Icons.palette_outlined,
+      label: 'themes and icons',
+      onTap: isPro ? () => _open(context) : onLocked,
+    );
+
+    return SettingsSection(
+      title: 'customisation',
+      rows: [isPro ? row : Opacity(opacity: 0.4, child: row)],
     );
   }
 }
