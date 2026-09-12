@@ -105,33 +105,39 @@ void main() {
     });
   });
 
-  testWidgets('previews icons as rounded squares on iOS, circles on Android', (
-    tester,
-  ) async {
-    await withPlatform(TargetPlatform.iOS, () async {
-      await pumpPage(tester);
-      expect(
-        find.descendant(
-          of: find.byType(ClipRRect),
-          matching: find.byType(Image),
-        ),
-        findsWidgets,
-      );
-      expect(find.byType(ClipOval), findsNothing);
-    });
+  testWidgets(
+    'previews icons as rounded squares on iOS, round icons on Android',
+    (tester) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+        expect(
+          find.descendant(
+            of: find.byType(ClipRRect),
+            matching: find.byType(Image),
+          ),
+          findsWidgets,
+        );
+        expect(find.byType(ClipOval), findsNothing);
+      });
 
-    await withPlatform(TargetPlatform.android, () async {
-      await pumpPage(tester);
-      expect(find.byType(ClipOval), findsWidgets);
-      expect(
-        find.descendant(
-          of: find.byType(ClipRRect),
-          matching: find.byType(Image),
-        ),
-        findsNothing,
-      );
-    });
-  });
+      await withPlatform(TargetPlatform.android, () async {
+        await pumpPage(tester);
+        final paths = tester
+            .widgetList<Image>(find.byType(Image))
+            .map((image) => (image.image as AssetImage).assetName)
+            .toList();
+        expect(paths, isNotEmpty);
+        expect(paths, everyElement(startsWith('assets/app_icons/round/')));
+        expect(
+          find.descendant(
+            of: find.byType(ClipRRect),
+            matching: find.byType(Image),
+          ),
+          findsNothing,
+        );
+      });
+    },
+  );
 
   testWidgets('names the icon actually active, above the grid', (tester) async {
     await withPlatform(TargetPlatform.iOS, () async {

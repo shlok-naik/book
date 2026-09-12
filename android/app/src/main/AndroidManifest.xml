@@ -3,6 +3,7 @@
         android:label="cactus"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="false"
         android:allowBackup="false"
@@ -16,6 +17,7 @@
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
@@ -59,6 +61,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_original_dark"
+            android:roundIcon="@mipmap/ic_launcher_original_dark_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -71,6 +74,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_booklines_light"
+            android:roundIcon="@mipmap/ic_launcher_booklines_light_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -83,6 +87,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_booklines_dark"
+            android:roundIcon="@mipmap/ic_launcher_booklines_dark_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -95,6 +100,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_sunset_light"
+            android:roundIcon="@mipmap/ic_launcher_sunset_light_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -107,6 +113,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_sunset_dark"
+            android:roundIcon="@mipmap/ic_launcher_sunset_dark_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -119,6 +126,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_clouds_light"
+            android:roundIcon="@mipmap/ic_launcher_clouds_light_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -131,6 +139,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_clouds_dark"
+            android:roundIcon="@mipmap/ic_launcher_clouds_dark_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -143,6 +152,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_triangles_light"
+            android:roundIcon="@mipmap/ic_launcher_triangles_light_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -155,6 +165,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_triangles_dark"
+            android:roundIcon="@mipmap/ic_launcher_triangles_dark_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -169,6 +180,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_lavender"
+            android:roundIcon="@mipmap/ic_launcher_lavender_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -181,6 +193,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_midnight"
+            android:roundIcon="@mipmap/ic_launcher_midnight_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -193,6 +206,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_mint"
+            android:roundIcon="@mipmap/ic_launcher_mint_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -205,6 +219,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_raspberry"
+            android:roundIcon="@mipmap/ic_launcher_raspberry_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -217,6 +232,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_rose"
+            android:roundIcon="@mipmap/ic_launcher_rose_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -229,6 +245,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_sunflower"
+            android:roundIcon="@mipmap/ic_launcher_sunflower_round"
             android:label="cactus">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

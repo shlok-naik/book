@@ -3,7 +3,10 @@
 -- `avatar_url` and the public `avatars` bucket backed a membership-card
 -- photo that was dropped before it shipped: the card is now flat, with
 -- no photo, and no code references either. Both were empty when this
--- was written.
+-- was written. Only the bucket's policies are dropped here: Supabase
+-- blocks deleting from storage tables in SQL (`storage.protect_delete`),
+-- so the empty bucket itself is deleted through the Storage API or the
+-- dashboard (Storage -> avatars -> Delete bucket).
 --
 -- `name`, `description`, `reading_goal` and `reading_minutes_per_day`
 -- were answers an early onboarding questionnaire collected.
@@ -17,8 +20,6 @@ drop policy if exists "avatars: public read" on storage.objects;
 drop policy if exists "avatars: owner insert" on storage.objects;
 drop policy if exists "avatars: owner update" on storage.objects;
 drop policy if exists "avatars: owner delete" on storage.objects;
-
-delete from storage.buckets where id = 'avatars';
 
 alter table public.profiles
   drop column if exists avatar_url,

@@ -27,11 +27,6 @@ class _IconChoice {
 
   AppIcon resolve(Brightness brightness) =>
       (brightness == Brightness.dark ? dark : null) ?? light;
-
-  /// The thumbnail this choice shows in the grid — already resolved for
-  /// [brightness], so a reader in dark mode sees the dark rendering of
-  /// "sunset" without picking a mode explicitly.
-  String assetPath(Brightness brightness) => resolve(brightness).assetPath;
 }
 
 const _mainChoices = [
@@ -245,31 +240,35 @@ Future<bool?> _showRestartSheet(BuildContext context) {
   );
 }
 
-/// An icon preview masked the way the home screen will mask it: a circle
-/// on Android (the Pixel launcher's default adaptive-icon shape), the
-/// rounded square iOS draws everywhere else.
+/// An icon preview shaped the way the home screen will show it: the
+/// pre-cut circle on Android (the Pixel launcher's default adaptive-icon
+/// shape), the square art in iOS's rounded square everywhere else.
 class _IconImage extends StatelessWidget {
-  const _IconImage({required this.assetPath, required this.size});
+  const _IconImage({required this.icon, required this.size});
 
-  final String assetPath;
+  final AppIcon icon;
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final image = Image.asset(
-      assetPath,
-      width: size,
-      height: size,
-      fit: BoxFit.cover,
-    );
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       // iOS's icon corner radius is ~22.37% of the icon's side.
       return ClipRRect(
         borderRadius: BorderRadius.circular(size * 0.2237),
-        child: image,
+        child: Image.asset(
+          icon.assetPath,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+        ),
       );
     }
-    return ClipOval(child: image);
+    return Image.asset(
+      icon.roundAssetPath,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+    );
   }
 }
 
@@ -286,7 +285,7 @@ class _CurrentIcon extends StatelessWidget {
 
     return Row(
       children: [
-        _IconImage(assetPath: icon.assetPath, size: 56),
+        _IconImage(icon: icon, size: 56),
         const SizedBox(width: AppSpacing.md),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -364,7 +363,7 @@ class _IconGroup extends StatelessWidget {
             for (final choice in choices)
               _IconTile(
                 label: choice.label,
-                assetPath: choice.assetPath(brightness),
+                icon: choice.resolve(brightness),
                 onTap: busy ? null : () => onSelect(choice.resolve(brightness)),
               ),
           ],
@@ -381,12 +380,15 @@ class _IconGroup extends StatelessWidget {
 class _IconTile extends StatefulWidget {
   const _IconTile({
     required this.label,
-    required this.assetPath,
+    required this.icon,
     required this.onTap,
   });
 
   final String label;
-  final String assetPath;
+
+  /// Already resolved for the current brightness, so a reader in dark
+  /// mode sees the dark rendering of "sunset" without picking a mode.
+  final AppIcon icon;
   final VoidCallback? onTap;
 
   @override
@@ -421,7 +423,7 @@ class _IconTileState extends State<_IconTile> {
             scale: _pressed ? 1.18 : 1.0,
             duration: const Duration(milliseconds: 140),
             curve: Curves.easeOut,
-            child: _IconImage(assetPath: widget.assetPath, size: _size),
+            child: _IconImage(icon: widget.icon, size: _size),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(

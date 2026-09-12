@@ -104,6 +104,10 @@ extension AppIconNaming on AppIcon {
   /// pubspec.yaml.
   String get assetPath => 'assets/app_icons/$wireName.png';
 
+  /// The same thumbnail pre-cut to a circle with a transparent outside,
+  /// for places the icon is shown round — Android's launcher shape.
+  String get roundAssetPath => 'assets/app_icons/round/$wireName.png';
+
   static AppIcon fromWireName(String? name) => AppIcon.values.firstWhere(
     (icon) => icon.wireName == name,
     orElse: () => AppIcon.originalLight,
