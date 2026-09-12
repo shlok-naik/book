@@ -164,7 +164,14 @@ class _CustomisationPageState extends State<CustomisationPage> {
                         _CurrentIcon(icon: current),
                         const SizedBox(height: AppSpacing.lg),
                         for (final (i, entry) in _groups.entries.indexed) ...[
-                          if (i > 0) const SizedBox(height: AppSpacing.lg),
+                          // Same gap as _IconGroup puts between its own
+                          // label and its icons, so a group's icons sit
+                          // as far from the label above ("main") as
+                          // from the next group's label below
+                          // ("colours") — not the label-hugs-content,
+                          // section-break-is-bigger split this used to
+                          // have.
+                          if (i > 0) const SizedBox(height: AppSpacing.md),
                           _IconGroup(
                             group: entry.key,
                             choices: entry.value,
@@ -351,7 +358,7 @@ class _IconGroup extends StatelessWidget {
             color: colors.secondaryText,
           ),
         ),
-        const SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: AppSpacing.md),
         GridView.count(
           crossAxisCount: _crossAxisCount,
           shrinkWrap: true,
