@@ -15,7 +15,9 @@ import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/log_command_parser.dart';
 import '../widgets/command_input.dart';
 import '../widgets/confirmation_pill.dart';
+import '../widgets/currently_reading_card.dart';
 import '../widgets/instruction_row.dart';
+import '../widgets/reading_streak.dart';
 
 /// One AI-extracted command line and where it stands in its own
 /// execution — see [InstructionState].
@@ -72,6 +74,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   String? _message;
   Timer? _messageTimer;
+
+  /// Whether [CommandInput] currently has any typed text — what hides
+  /// the "currently reading" peek the instant typing starts, and brings
+  /// it back once the field empties again (a submit clears it, same as
+  /// backspacing to nothing).
+  bool _hasText = false;
 
   /// AI-extracted commands from the reader's last submitted sentence,
   /// null whenever the plain-message pill should show instead — only
@@ -443,11 +451,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final colors = context.colors;
     final message = _message;
     final instructions = _instructions;
+    // Reactive: rebuilds this page the moment a shelf command changes
+    // which book is most recently active, same as any other LibraryScope
+    // read in a build method.
+    final inProgress = LibraryScope.of(context).inProgress;
+    final currentBook = inProgress.isEmpty ? null : inProgress.first;
 
     Widget commandInput = CommandInput(
       focusNode: _focusNode,
       onSubmit: _run,
       style: _inputStyle(colors),
+      onHasTextChanged: (hasText) => setState(() => _hasText = hasText),
     );
     if (_aiThinking) {
       // A sliding, mirror-tiled version of [aiGradient] — same colors
@@ -522,6 +536,49 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ],
                         )
                       : const SizedBox.shrink(),
+                ),
+                // The currently-reading row and the streak readout,
+                // stacked just above the floating bottom bar (the
+                // padding below already clears it). Both disappear the
+                // instant typing starts — see [_hasText] — so neither
+                // competes with a command actually being written. A
+                // hairline (not a box — see both widgets' own doc
+                // comments on why this app doesn't use card chrome) is
+                // what keeps the two legible as separate things now
+                // that neither has a fill of its own to do that.
+                if (!_hasText) ...[
+                  if (currentBook != null)
+                    CurrentlyReadingCard(entry: currentBook)
+                  else
+                    // Same copy the streak journal's own empty state
+                    // uses for "nothing to show here yet" — one phrase
+                    // for the one situation, not two different ways of
+                    // saying it depending which screen you're on.
+                    Text(
+                      'nothing logged yet — start a book.',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 13,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.md),
+                  Divider(height: 1, thickness: 1, color: colors.divider),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                // Visibility, not a conditional in the list above: an
+                // `if` that removes this from the tree would unmount
+                // ReadingStreak's State every time typing starts, losing
+                // its already-loaded streak and forcing a fresh Supabase
+                // fetch (with a flash of nothing while it reloads) every
+                // single time the field empties back out.
+                // `maintainState: true` keeps it alive and loaded the
+                // whole session through, exactly like the streak/memory
+                // pages' own controllers do.
+                Visibility(
+                  visible: !_hasText,
+                  maintainState: true,
+                  maintainAnimation: true,
+                  child: const ReadingStreak(),
                 ),
               ],
             ),

@@ -29,6 +29,7 @@ class CommandInput extends StatefulWidget {
     required this.style,
     required this.onSubmit,
     this.hintText = '...',
+    this.onHasTextChanged,
   });
 
   /// Owned by the caller, so the page can hand focus back to the field
@@ -42,6 +43,14 @@ class CommandInput extends StatefulWidget {
   final CommandSubmitHandler onSubmit;
 
   final String hintText;
+
+  /// Fires only when the field crosses the empty/non-empty boundary, not
+  /// on every keystroke — what the page uses to hide the "currently
+  /// reading" peek the instant typing starts, and bring it back if the
+  /// field is cleared. A decision the page makes, not a look [CommandInput]
+  /// owns, so it's a callback rather than this widget reaching for that
+  /// UI itself.
+  final ValueChanged<bool>? onHasTextChanged;
 
   @override
   State<CommandInput> createState() => _CommandInputState();
@@ -90,19 +99,33 @@ class _CommandInputState extends State<CommandInput>
   /// double-tap of the return key can't fire the same command twice.
   bool _busy = false;
 
+  /// Last emptiness [widget.onHasTextChanged] was told about — so that
+  /// callback fires only on the empty/non-empty boundary, not once per
+  /// keystroke.
+  bool _hadText = false;
+
   @override
   void initState() {
     super.initState();
     _strike.addListener(_syncStrike);
+    _text.addListener(_syncHasText);
   }
 
   /// Hands the strike animation's value to the controller, which is what
   /// actually renders the line — the animation never touches the text.
   void _syncStrike() => _text.strikeProgress = _strike.value;
 
+  void _syncHasText() {
+    final hasText = _text.text.isNotEmpty;
+    if (hasText == _hadText) return;
+    _hadText = hasText;
+    widget.onHasTextChanged?.call(hasText);
+  }
+
   @override
   void dispose() {
     _strike.removeListener(_syncStrike);
+    _text.removeListener(_syncHasText);
     (_strike as CurvedAnimation).dispose();
     (_check as CurvedAnimation).dispose();
     _accept.dispose();
