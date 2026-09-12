@@ -105,6 +105,34 @@ void main() {
     });
   });
 
+  testWidgets('previews icons as rounded squares on iOS, circles on Android', (
+    tester,
+  ) async {
+    await withPlatform(TargetPlatform.iOS, () async {
+      await pumpPage(tester);
+      expect(
+        find.descendant(
+          of: find.byType(ClipRRect),
+          matching: find.byType(Image),
+        ),
+        findsWidgets,
+      );
+      expect(find.byType(ClipOval), findsNothing);
+    });
+
+    await withPlatform(TargetPlatform.android, () async {
+      await pumpPage(tester);
+      expect(find.byType(ClipOval), findsWidgets);
+      expect(
+        find.descendant(
+          of: find.byType(ClipRRect),
+          matching: find.byType(Image),
+        ),
+        findsNothing,
+      );
+    });
+  });
+
   testWidgets('names the icon actually active, above the grid', (tester) async {
     await withPlatform(TargetPlatform.iOS, () async {
       AppIconController.current.value = AppIcon.midnight;

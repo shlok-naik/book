@@ -8,7 +8,7 @@
 /// the one baked into `AppIcon.appiconset` on iOS and `ic_launcher` on
 /// Android — every other value is an alternate/alias. Keep this in step
 /// with `AppDelegate.swift`'s `alternateIconNames` and
-/// `MainActivity.kt`'s `aliasSuffixes`.
+/// `MainActivity.kt`'s `componentSuffixes`.
 enum AppIcon {
   // main — the original glyph, plus a book-lines texture behind it.
   originalLight,

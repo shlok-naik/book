@@ -245,6 +245,34 @@ Future<bool?> _showRestartSheet(BuildContext context) {
   );
 }
 
+/// An icon preview masked the way the home screen will mask it: a circle
+/// on Android (the Pixel launcher's default adaptive-icon shape), the
+/// rounded square iOS draws everywhere else.
+class _IconImage extends StatelessWidget {
+  const _IconImage({required this.assetPath, required this.size});
+
+  final String assetPath;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = Image.asset(
+      assetPath,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+    );
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      // iOS's icon corner radius is ~22.37% of the icon's side.
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.2237),
+        child: image,
+      );
+    }
+    return ClipOval(child: image);
+  }
+}
+
 /// The icon actually active right now — shown once, above the grid,
 /// rather than as a ring drawn on whichever tile matches it below.
 class _CurrentIcon extends StatelessWidget {
@@ -258,15 +286,7 @@ class _CurrentIcon extends StatelessWidget {
 
     return Row(
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          child: Image.asset(
-            icon.assetPath,
-            width: 56,
-            height: 56,
-            fit: BoxFit.cover,
-          ),
-        ),
+        _IconImage(assetPath: icon.assetPath, size: 56),
         const SizedBox(width: AppSpacing.md),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -401,15 +421,7 @@ class _IconTileState extends State<_IconTile> {
             scale: _pressed ? 1.18 : 1.0,
             duration: const Duration(milliseconds: 140),
             curve: Curves.easeOut,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              child: Image.asset(
-                widget.assetPath,
-                width: _size,
-                height: _size,
-                fit: BoxFit.cover,
-              ),
-            ),
+            child: _IconImage(assetPath: widget.assetPath, size: _size),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
