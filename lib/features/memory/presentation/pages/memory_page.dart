@@ -18,6 +18,16 @@ const _groupSpacing = AppSpacing.lg;
 /// the streak journal uses between one entry and the next in a day.
 const _entrySpacing = AppSpacing.sm;
 
+/// A note's own line box — `fontSize: 16 * height: 1.5`, the same style
+/// the streak journal's command lines use. `_MemoryLine`'s delete
+/// affordance is boxed to exactly this height rather than left to
+/// `IconButton`'s own (larger) minimum tap size, so a note's row is
+/// exactly as tall as a bare line of text — matching the streak
+/// journal's rows, which have nothing trailing them at all — instead of
+/// quietly taller and throwing off the rhythm `_entrySpacing` is
+/// supposed to guarantee between one line and the next.
+const _noteLineHeight = 16 * 1.5;
+
 /// The reader's saved notes on how a book made them feel — what "cactus
 /// pro"'s `remember` command writes, and what `recommend` grounds its
 /// picks in.
@@ -265,12 +275,24 @@ class _MemoryLine extends StatelessWidget {
         Semantics(
           button: true,
           label: 'Forget this memory',
-          child: IconButton(
-            onPressed: onForget,
-            icon: Icon(Icons.close, size: 16, color: colors.secondaryText),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
+          child: SizedBox(
+            height: _noteLineHeight,
+            child: Center(
+              child: GestureDetector(
+                onTap: onForget,
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xs,
+                  ),
+                  child: Icon(
+                    Icons.close,
+                    size: 16,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ],
