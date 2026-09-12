@@ -10,8 +10,9 @@ import '../library_scope.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/book_tile.dart';
 
-/// The reader's shelf: in-progress books in a cover grid, with finished
-/// books in their own section below.
+/// The reader's shelf: in-progress books in a cover grid, with a
+/// "to read" section for queued books (`add <book> tbr`) and a
+/// "finished" one below that.
 ///
 /// Purely a view — it reads [LibraryController] out of [LibraryScope]
 /// and rebuilds when it notifies, so a progress update from the log page
@@ -97,12 +98,19 @@ class _LibraryPageState extends State<LibraryPage> {
     }
 
     final reading = controller.inProgress;
+    final toBeRead = controller.toBeRead;
     final finished = controller.finished;
 
     return [
       if (reading.isNotEmpty) ...[
         const SliverToBoxAdapter(child: _SectionLabel('reading')),
         _BookGrid(entries: reading),
+      ],
+      // Between "reading" and "finished" — a queued book that hasn't
+      // been opened yet, in reading-journey order.
+      if (toBeRead.isNotEmpty) ...[
+        const SliverToBoxAdapter(child: _SectionLabel('to read')),
+        _BookGrid(entries: toBeRead),
       ],
       if (finished.isNotEmpty) ...[
         const SliverToBoxAdapter(child: _SectionLabel('finished')),

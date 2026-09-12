@@ -245,6 +245,8 @@ class _DayEntries extends StatelessWidget {
             : 'rated $title ${_formatStars(rating)} ${_starWord(rating)}';
       case ReadingEventType.delete:
         return null;
+      case ReadingEventType.addToBeRead:
+        return 'added $title to read';
     }
   }
 

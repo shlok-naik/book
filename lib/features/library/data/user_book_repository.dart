@@ -96,6 +96,38 @@ class UserBookRepository {
     }, friendlyMessage: "We couldn't add that book to your library.");
   }
 
+  /// Puts a book straight onto the shelf at [status] — `add <book> tbr`
+  /// / `add <book> finished` — instead of the page-0 "reading" row
+  /// [start] always creates. Same dedupe as [start]: a book already on
+  /// the shelf in any status is found rather than duplicated.
+  Future<StartOutcome> addWithStatus(String bookId, ReadingStatus status) {
+    return runSupabase(() async {
+      final existing = await _client
+          .from(_table)
+          .select()
+          .eq('book_id', bookId)
+          .maybeSingle();
+      if (existing != null) {
+        return StartOutcome(UserBook.fromRow(existing), alreadyExists: true);
+      }
+
+      final now = DateTime.now().toUtc().toIso8601String();
+      final row = await _client
+          .from(_table)
+          .insert({
+            'book_id': bookId,
+            'current_page': 0,
+            'status': status.wireValue,
+            // A queued "to be read" book hasn't been opened yet.
+            if (status != ReadingStatus.toBeRead) 'started_at': now,
+            if (status == ReadingStatus.finished) 'finished_at': now,
+          })
+          .select()
+          .single();
+      return StartOutcome(UserBook.fromRow(row), alreadyExists: false);
+    }, friendlyMessage: "We couldn't add that book to your library.");
+  }
+
   /// Persists a new page count, and the finished flag it may imply.
   ///
   /// The caller (the controller) is responsible for validating the page

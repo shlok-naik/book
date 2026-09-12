@@ -18,6 +18,47 @@ void main() {
       expect(result.message, 'Removed "Dune"');
     });
 
+    test('add <book> tbr parses the book, shelf, and confirmation', () {
+      final result = LogCommandParser.parse('add Dune tbr');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.add);
+      expect(result.title, 'Dune');
+      expect(result.shelf, 'tbr');
+      expect(result.message, 'Added "Dune" to read');
+    });
+
+    test('add <book> finished parses the book, shelf, and confirmation', () {
+      final result = LogCommandParser.parse('add Dune finished');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.add);
+      expect(result.title, 'Dune');
+      expect(result.shelf, 'finished');
+      expect(result.message, 'Added "Dune" as finished');
+    });
+
+    test('add takes the shortest title before tbr/finished', () {
+      final result = LogCommandParser.parse('add Sea of Tranquility tbr');
+      expect(result.title, 'Sea of Tranquility');
+      expect(result.shelf, 'tbr');
+    });
+
+    test('add is case-insensitive on the shelf keyword', () {
+      final result = LogCommandParser.parse('add Dune TBR');
+      expect(result.recognized, isTrue);
+      expect(result.shelf, 'tbr');
+    });
+
+    test('add without a recognized shelf keyword is unrecognized', () {
+      expect(LogCommandParser.parse('add Dune').recognized, isFalse);
+      expect(LogCommandParser.parse('add Dune later').recognized, isFalse);
+    });
+
+    test('suggests "add" for a typo of it', () {
+      final result = LogCommandParser.parse('ad Dune tbr');
+      expect(result.recognized, isFalse);
+      expect(result.message, contains('add <book> tbr'));
+    });
+
     test('rate takes just a number, no trailing "stars"', () {
       final result = LogCommandParser.parse('rate Dune 5');
       expect(result.type, LogCommandType.rate);

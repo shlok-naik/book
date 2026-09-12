@@ -1,7 +1,8 @@
 // Zero-cost, rule-based parser for Structured mode commands:
 // `start <book> [date]`, `update <book> <page> [date]`,
-// `finish <book> [date]`, `rate <book> <stars>`, `delete <book>` — the
-// optional trailing date (`YYYY-MM-DD`) backdates the reading event it
+// `finish <book> [date]`, `rate <book> <stars>`, `delete <book>`,
+// `add <book> tbr`, `add <book> finished` — the optional trailing date
+// (`YYYY-MM-DD`) on the first three backdates the reading event it
 // logs, so "I started Dune yesterday" (resolved to a concrete date by
 // cactus pro before it ever reaches this parser) logs — and streaks —
 // on that day rather than today. Plus two "cactus pro"-only commands
@@ -17,6 +18,7 @@ enum LogCommandType {
   finish,
   rate,
   delete,
+  add,
   remember,
   recommend,
   unknown,
@@ -32,6 +34,7 @@ class ParsedLogCommand {
     this.rating,
     this.note,
     this.date,
+    this.shelf,
   });
 
   /// Confirmation (or error/suggestion) text for the pill.
@@ -63,6 +66,12 @@ class ParsedLogCommand {
   /// date with no time component — callers that persist it should
   /// treat it as local midnight on that day, not UTC.
   final DateTime? date;
+
+  /// `tbr` or `finished` on `add` — the raw keyword, not a
+  /// `ReadingStatus`, so this file stays free of any dependency on the
+  /// library feature's domain; `HomePage._applyToLibrary` is what maps
+  /// it to one. Null for every other command.
+  final String? shelf;
 }
 
 abstract final class LogCommandParser {
@@ -91,6 +100,13 @@ abstract final class LogCommandParser {
     r'^delete\s+(.+)$',
     caseSensitive: false,
   );
+  // Lazy title capture again, same reasoning as `_startPattern` — tries
+  // the shortest title first so "add Sea of Tranquility tbr" doesn't
+  // swallow "tbr" into the title.
+  static final _addPattern = RegExp(
+    r'^add\s+(.+?)\s+(tbr|finished)$',
+    caseSensitive: false,
+  );
   // "::" is the separator the parse-command prompt is told to always
   // emit for these two, precisely so a title with its own colon or
   // dash doesn't get split in the wrong place the way a bare space
@@ -109,13 +125,21 @@ abstract final class LogCommandParser {
   // suggested for a typo — those two are only ever recognized when the
   // AI itself emits the exact keyword.
   static const _firstWordPattern = r'^(\S+)';
-  static const _keywords = ['start', 'update', 'finish', 'rate', 'delete'];
+  static const _keywords = [
+    'start',
+    'update',
+    'finish',
+    'rate',
+    'delete',
+    'add',
+  ];
   static const _usage = {
     'start': 'start <book> [date]',
     'update': 'update <book> <page> [date]',
     'finish': 'finish <book> [date]',
     'rate': 'rate <book> <stars>',
     'delete': 'delete <book>',
+    'add': 'add <book> tbr',
     'remember': 'remember <book> :: <note>',
     'recommend': 'recommend <book> :: <reason>',
   };
@@ -198,6 +222,21 @@ abstract final class LogCommandParser {
       );
     }
 
+    final add = _addPattern.firstMatch(text);
+    if (add != null) {
+      final title = add.group(1)!.trim();
+      final shelf = add.group(2)!.toLowerCase();
+      return ParsedLogCommand(
+        message: shelf == 'finished'
+            ? 'Added "$title" as finished'
+            : 'Added "$title" to read',
+        recognized: true,
+        type: LogCommandType.add,
+        title: title,
+        shelf: shelf,
+      );
+    }
+
     final remember = _rememberPattern.firstMatch(text);
     if (remember != null) {
       final title = remember.group(1)!.trim();
@@ -238,8 +277,9 @@ abstract final class LogCommandParser {
       }
     }
     return 'Not recognized. Try "start Dune", "update Dune 120", '
-        '"finish Dune", "rate Dune 5", or "delete Dune". Add a date — '
-        '"start Dune 2026-08-31" — to log it for another day.';
+        '"finish Dune", "rate Dune 5", "delete Dune", "add Dune tbr", or '
+        '"add Dune finished". Add a date — "start Dune 2026-08-31" — to '
+        'log it for another day.';
   }
 
   static const _months = [

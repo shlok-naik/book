@@ -18,6 +18,9 @@ class LibraryBook {
   /// (`finish <book>`) or by logging a page at/after the last one.
   bool get isFinished => progress.isFinished;
 
+  /// `add <book> tbr` — queued, never opened yet.
+  bool get isToBeRead => progress.status == ReadingStatus.toBeRead;
+
   /// `rate <book> <stars>`. Only ever set on a finished book — see
   /// [UserBook.rating] — so the UI can treat a non-null value here as
   /// safe to render without re-checking [isFinished] itself.

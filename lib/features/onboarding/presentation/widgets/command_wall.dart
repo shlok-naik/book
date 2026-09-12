@@ -39,6 +39,12 @@ class CommandWall extends StatelessWidget {
       'rate Circe 5',
       'finish 1984',
     ],
+    [
+      'add Middlemarch tbr',
+      'add The Bell Jar finished',
+      'add Piranesi tbr',
+      'add Beloved finished',
+    ],
   ];
 
   @override

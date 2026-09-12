@@ -42,10 +42,12 @@ class FakeUserBookRepository extends UserBookRepository {
   int deletes = 0;
   final List<String> deletedIds = [];
 
-  /// Tracks which book ids have already been started, so a second
-  /// [start] call can report [StartOutcome.alreadyExists] — mirrors
-  /// what the real upsert-then-select does against Supabase.
-  final Set<String> _startedBookIds = {};
+  /// Tracks the shelf status already given to a book id, so a second
+  /// [start]/[addWithStatus] call can report [StartOutcome.alreadyExists]
+  /// *and* return the row's real (unchanged) status — mirrors what the
+  /// real upsert-then-select does against Supabase's single
+  /// `user_books` table, regardless of which method created the row.
+  final Map<String, ReadingStatus> _statusByBookId = {};
 
   @override
   Future<List<LibraryBook>> fetchLibrary() async {
@@ -56,15 +58,39 @@ class FakeUserBookRepository extends UserBookRepository {
   @override
   Future<StartOutcome> start(String bookId) async {
     if (failure != null) throw failure!;
-    final isNew = _startedBookIds.add(bookId);
+    final existing = _statusByBookId[bookId];
+    _statusByBookId.putIfAbsent(bookId, () => ReadingStatus.reading);
     return StartOutcome(
       UserBook(
         id: 'progress-$bookId',
         bookId: bookId,
         currentPage: 0,
-        status: ReadingStatus.reading,
+        status: existing ?? ReadingStatus.reading,
       ),
-      alreadyExists: !isNew,
+      alreadyExists: existing != null,
+    );
+  }
+
+  @override
+  Future<StartOutcome> addWithStatus(
+    String bookId,
+    ReadingStatus status,
+  ) async {
+    if (failure != null) throw failure!;
+    final existing = _statusByBookId[bookId];
+    _statusByBookId.putIfAbsent(bookId, () => status);
+    final actual = existing ?? status;
+    return StartOutcome(
+      UserBook(
+        id: 'progress-$bookId',
+        bookId: bookId,
+        currentPage: 0,
+        status: actual,
+        finishedAt: actual == ReadingStatus.finished
+            ? DateTime.now().toUtc()
+            : null,
+      ),
+      alreadyExists: existing != null,
     );
   }
 
@@ -311,6 +337,98 @@ void main() {
         expect(events.logged, isEmpty);
       },
     );
+  });
+
+  group('addToShelf', () {
+    test(
+      'add <book> tbr puts a resolved book on the to-be-read shelf',
+      () async {
+        final controller = controllerWith([]);
+        var notifications = 0;
+        controller.addListener(() => notifications++);
+
+        final result = await controller.addToShelf(
+          'Dune',
+          ReadingStatus.toBeRead,
+        );
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Added "Dune" to read');
+        expect(controller.toBeRead.single.book.title, 'Dune');
+        expect(controller.inProgress, isEmpty);
+        expect(controller.finished, isEmpty);
+        expect(notifications, greaterThan(0));
+      },
+    );
+
+    test(
+      'add <book> finished puts a resolved book straight on the finished shelf',
+      () async {
+        final controller = controllerWith([]);
+
+        final result = await controller.addToShelf(
+          'Dune',
+          ReadingStatus.finished,
+        );
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Added "Dune" as finished');
+        expect(controller.finished.single.book.title, 'Dune');
+        expect(controller.toBeRead, isEmpty);
+        expect(controller.inProgress, isEmpty);
+      },
+    );
+
+    test('logs add <book> tbr as its own event type', () async {
+      final controller = controllerWith([]);
+
+      await controller.addToShelf('Dune', ReadingStatus.toBeRead);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.addToBeRead, title: 'Dune'),
+      ]);
+    });
+
+    test('logs add <book> finished as a finish event', () async {
+      final controller = controllerWith([]);
+
+      await controller.addToShelf('Dune', ReadingStatus.finished);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.finish, title: 'Dune'),
+      ]);
+    });
+
+    test('adding the same book twice fails the second time', () async {
+      final controller = controllerWith([]);
+
+      final first = await controller.addToShelf('Dune', ReadingStatus.toBeRead);
+      final second = await controller.addToShelf(
+        'dune',
+        ReadingStatus.finished,
+      );
+
+      expect(first.success, isTrue);
+      expect(second.success, isFalse);
+      expect(second.message, '"Dune" is already on your shelf.');
+      expect(controller.toBeRead, hasLength(1));
+      expect(controller.finished, isEmpty);
+    });
+
+    test('adding a book already started (by start) fails too', () async {
+      final controller = controllerWith([]);
+      await controller.startBook('Dune');
+
+      final result = await controller.addToShelf(
+        'dune',
+        ReadingStatus.toBeRead,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.message, '"Dune" is already on your shelf.');
+    });
   });
 
   group('updateProgress', () {

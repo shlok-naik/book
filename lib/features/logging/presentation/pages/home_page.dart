@@ -8,6 +8,7 @@ import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../library/domain/user_book.dart' show ReadingStatus;
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../memory/presentation/memory_scope.dart';
@@ -403,6 +404,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         return library.finishBook(title, loggedAt: command.date);
       case LogCommandType.delete:
         return library.deleteBook(title);
+      case LogCommandType.add:
+        final status = command.shelf == 'finished'
+            ? ReadingStatus.finished
+            : ReadingStatus.toBeRead;
+        return library.addToShelf(title, status);
       case LogCommandType.rate:
         final rating = command.rating;
         if (rating == null) {

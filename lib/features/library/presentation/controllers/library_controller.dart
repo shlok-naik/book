@@ -126,9 +126,16 @@ class LibraryController extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
 
-  /// Books still being read, most recently updated first.
-  List<LibraryBook> get inProgress =>
-      _books.where((entry) => !entry.isFinished).toList(growable: false);
+  /// Books still being read, most recently updated first. Explicitly
+  /// `reading`, not just "not finished" — a `to be read` book is
+  /// neither, and gets its own section via [toBeRead] instead.
+  List<LibraryBook> get inProgress => _books
+      .where((entry) => !entry.isFinished && !entry.isToBeRead)
+      .toList(growable: false);
+
+  /// `add <book> tbr` — queued books, rendered in their own section.
+  List<LibraryBook> get toBeRead =>
+      _books.where((entry) => entry.isToBeRead).toList(growable: false);
 
   /// Completed books — rendered in their own section on the same page.
   List<LibraryBook> get finished =>
@@ -196,6 +203,41 @@ class LibraryController extends ChangeNotifier {
       }
       _logEvent(ReadingEventType.start, book.title, occurredAt: loggedAt);
       return LibraryActionResult.success('Started "${book.title}"');
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// `add <book> tbr` / `add <book> finished` — puts a title straight
+  /// onto the shelf at [status], skipping the page-0 "reading" row
+  /// [startBook] always creates. Same dedupe as [startBook]: a book
+  /// already on the shelf in any status reports failure rather than
+  /// being duplicated or silently moved.
+  Future<LibraryActionResult> addToShelf(
+    String title,
+    ReadingStatus status,
+  ) async {
+    try {
+      final book = await lookup.findOrFetch(title);
+      final added = await userBooks.addWithStatus(book.id, status);
+      _upsertLocal(LibraryBook(book: book, progress: added.progress));
+      notifyListeners();
+      if (added.alreadyExists) {
+        return LibraryActionResult.failure(
+          '"${book.title}" is already on your shelf.',
+        );
+      }
+      _logEvent(
+        status == ReadingStatus.finished
+            ? ReadingEventType.finish
+            : ReadingEventType.addToBeRead,
+        book.title,
+      );
+      return LibraryActionResult.success(
+        status == ReadingStatus.finished
+            ? 'Added "${book.title}" as finished'
+            : 'Added "${book.title}" to read',
+      );
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
     }

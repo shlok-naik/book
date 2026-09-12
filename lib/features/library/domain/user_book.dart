@@ -2,12 +2,20 @@ import 'library_exception.dart';
 
 /// Where the reader is with a book.
 enum ReadingStatus {
+  /// `add <book> tbr` — queued, never opened yet. No `started_at`.
+  toBeRead,
   reading,
   finished;
 
-  /// Column value stored in Supabase. Kept as a lowercase string so the
-  /// table stays readable in the dashboard.
-  String get wireValue => name;
+  /// Column value stored in Supabase. Lowercase, matching the name for
+  /// [reading]/[finished] so the table stays readable in the dashboard;
+  /// [toBeRead] needs its own mapping since its Dart name isn't already
+  /// snake_case.
+  String get wireValue => switch (this) {
+    ReadingStatus.toBeRead => 'to_be_read',
+    ReadingStatus.reading => 'reading',
+    ReadingStatus.finished => 'finished',
+  };
 
   /// Unknown/unmapped values fall back to [reading] — a bad status is
   /// not worth failing a whole library load over.

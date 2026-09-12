@@ -723,6 +723,14 @@ const _chapters = <_Chapter>[
         'built from your conversational history.',
     filler: 'Sed ut perspiciatis unde omnis iste natus error sit.',
   ),
+  (
+    roman: 'IV',
+    title: 'Unparalleled Customisation',
+    body:
+        'Make cactus unmistakably yours. Choose from a wardrobe of '
+        'launcher icons and a warm, hand-tuned reading theme.',
+    filler: 'Ut enim ad minim veniam, quis nostrud exercitation ullamco.',
+  ),
 ];
 
 /// The pitch, told as chapters rather than skimmed as a feature list —

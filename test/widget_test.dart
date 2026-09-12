@@ -71,6 +71,23 @@ class _InMemoryUserBookRepository extends UserBookRepository {
     );
   }
 
+  @override
+  Future<StartOutcome> addWithStatus(
+    String bookId,
+    ReadingStatus status,
+  ) async {
+    final isNew = _started.add(bookId);
+    return StartOutcome(
+      UserBook(
+        id: 'progress-$bookId',
+        bookId: bookId,
+        currentPage: 0,
+        status: status,
+      ),
+      alreadyExists: !isNew,
+    );
+  }
+
   ReadingStatus _status = ReadingStatus.reading;
 
   @override
@@ -278,6 +295,34 @@ void main() {
 
     await submit(tester, 'rate Dune 5');
     expect(find.text('"Dune" — 5★'), findsOneWidget);
+  });
+
+  testWidgets('recognizes add <book> tbr', (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+      ),
+    );
+
+    await submit(tester, 'add Dune tbr');
+    expect(find.text('Added "Dune" to read'), findsOneWidget);
+  });
+
+  testWidgets('recognizes add <book> finished', (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+      ),
+    );
+
+    await submit(tester, 'add Dune finished');
+    expect(find.text('Added "Dune" as finished'), findsOneWidget);
   });
 
   testWidgets('strikes the command through in place, then clears the field', (
