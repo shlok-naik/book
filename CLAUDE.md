@@ -92,26 +92,26 @@ Hard rule: **no reader-authored content is ever sent** — no titles, authors, c
 
 ---
 
-## 🎨 Design System: Mono & Teal
+## 🎨 Design System: E-Ink & Forest Green
 
 ### Light Mode
 | Role | Color | Hex Code | Usage |
 | :--- | :--- | :--- | :--- |
-| **Background** | Pure White | `#FFFFFF` | Main app scaffold and empty space. |
+| **Background** | Warm Paper Cream | `#FBF9F4` | Main app scaffold and empty space. |
 | **Surface** | Off-White | `#F5F5F5` | Book cards, bottom navigation, and pop-up sheets. |
-| **Primary Text** | Pure Black | `#000000` | Book titles, main reading stats, and AI responses. |
+| **Primary Text** | Ink Black | `#2B2A27` | Book titles, main reading stats, and AI responses. |
 | **Secondary Text** | Gray | `#6B6B6B` | Author names, dates, and placeholder text. |
-| **Accent / AI** | Teal | `#1A8FBF` | Progress bars, AI assistant buttons, and active tabs. |
+| **Accent / AI** | Forest Green | `#1E3F20` | Progress bars, AI assistant buttons, and active tabs. |
 | **Dividers** | Light Gray | `#E8E8E8` | Hairlines, separators, and card borders. |
 
 ### Dark Mode
 | Role | Color | Hex Code | Usage |
 | :--- | :--- | :--- | :--- |
-| **Background** | Dark Gray | `#1A1A1A` | Main app scaffold and empty space. |
+| **Background** | Warm Charcoal | `#1E1E1E` | Main app scaffold and empty space. |
 | **Surface** | Elevated Dark Gray | `#242424` | Book cards, bottom navigation, and pop-up sheets. |
-| **Primary Text** | Off-White | `#F5F5F5` | Book titles, main reading stats, and AI responses. |
+| **Primary Text** | Soft White | `#E4E4E1` | Book titles, main reading stats, and AI responses. |
 | **Secondary Text** | Gray | `#9A9A9A` | Author names, dates, and placeholder text. |
-| **Accent / AI** | Teal | `#1B9FD9` | Progress bars, AI assistant buttons, and active tabs. |
+| **Accent / AI** | Vibrant Sage | `#5F9E65` | Progress bars, AI assistant buttons, and active tabs. Deliberately brighter than light mode's Forest Green (`#1E3F20`), which would fail contrast (~1.4:1) against this dark background — not a lighter tint of the same hex. |
 | **Dividers** | Mid Gray | `#3A3A3A` | Hairlines, separators, and card borders. |
 
 ### Typography

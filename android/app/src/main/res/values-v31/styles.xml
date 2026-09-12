@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ (API 31) shows its own system splash screen before any
+     app theme ever gets a say — by default that means the launcher
+     icon, centered, animated, as a page a reader sees between tapping
+     the icon and reaching the app. These two overrides (this file for
+     light, values-night-v31 for dark) keep that mandatory screen but
+     drop the icon from it: a transparent "icon" and a background that
+     matches launch_background.xml, so it reads as an instant transition
+     rather than a second screen. -->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@android:color/white</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>
