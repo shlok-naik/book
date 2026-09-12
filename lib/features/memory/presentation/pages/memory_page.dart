@@ -4,16 +4,31 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/memory.dart';
 import '../controllers/memory_controller.dart';
 import '../memory_scope.dart';
 
+/// Gap between one book's notes and the next book's heading — same
+/// value the streak journal uses between one day and the next.
+const _groupSpacing = AppSpacing.lg;
+
+/// Gap between one note and the next about the same book — same value
+/// the streak journal uses between one entry and the next in a day.
+const _entrySpacing = AppSpacing.sm;
+
 /// The reader's saved notes on how a book made them feel — what "cactus
 /// pro"'s `remember` command writes, and what `recommend` grounds its
 /// picks in.
+///
+/// Styled as a journal, the same way the streak tab is: a book title
+/// reads exactly like a streak day's date label, and the notes under it
+/// read exactly like a streak day's command lines. Memories group by
+/// book rather than by day — a note without one groups under "general",
+/// the same wording [Memory.bookTitle]'s own doc comment uses for it —
+/// with the most recently added-to book first, and a book's own notes
+/// oldest first underneath it, so both read top-to-bottom like a story.
 ///
 /// A whole tab rather than a section of a profile page: these are the
 /// reader's own words about their own reading, and they were previously
@@ -28,9 +43,11 @@ class MemoryPage extends StatefulWidget {
 }
 
 class _MemoryPageState extends State<MemoryPage> {
-  /// Room at the bottom for the floating tab bar to sit over, so the
-  /// last memory in a full list isn't stuck underneath it.
-  static const _barFootprint = 130.0;
+  /// The floating bottom bar's total footprint (bar height + its own
+  /// gap + the name label + its margin from the screen edge) — see
+  /// bottom_switcher.dart's _outerHeight (70) and root_shell.dart. Same
+  /// value every other tab uses.
+  static const _barFootprint = 108.0;
 
   @override
   void initState() {
@@ -53,14 +70,12 @@ class _MemoryPageState extends State<MemoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
     // `of`, not `read`: the list itself is rendered below, so this page
     // has to rebuild whenever `remember`/`forget` changes it — unlike
     // the one-off `load()` kick in `initState`.
     final memory = MemoryScope.of(context);
 
     return Scaffold(
-      backgroundColor: colors.background,
       body: SafeArea(
         child: Padding(
           // Same insets as the streaks and library headers, so all four
@@ -71,13 +86,18 @@ class _MemoryPageState extends State<MemoryPage> {
             AppSpacing.xl,
             0,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const TopBar(title: 'memory'),
-              const SizedBox(height: AppSpacing.lg),
-              Expanded(child: _MemoryList(controller: memory)),
-            ],
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(
+              bottom: _MemoryPageState._barFootprint,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const TopBar(title: 'memory'),
+                const SizedBox(height: AppSpacing.lg),
+                _MemoryJournal(controller: memory),
+              ],
+            ),
           ),
         ),
       ),
@@ -85,11 +105,11 @@ class _MemoryPageState extends State<MemoryPage> {
   }
 }
 
-/// Loading / error / empty / list, in that order of what to show. A
+/// Loading / error / empty / journal, in that order of what to show. A
 /// failed load must not look like an empty one — see CLAUDE.md
 /// § Errors, logging and startup.
-class _MemoryList extends StatelessWidget {
-  const _MemoryList({required this.controller});
+class _MemoryJournal extends StatelessWidget {
+  const _MemoryJournal({required this.controller});
 
   final MemoryController controller;
 
@@ -100,7 +120,10 @@ class _MemoryList extends StatelessWidget {
     if (controller.isLoading && controller.memories.isEmpty) {
       return Text(
         'loading memories…',
-        style: GoogleFonts.inter(fontSize: 13, color: colors.secondaryText),
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 14,
+          color: colors.secondaryText,
+        ),
       );
     }
 
@@ -108,114 +131,149 @@ class _MemoryList extends StatelessWidget {
     if (error != null && controller.memories.isEmpty) {
       return Text(
         error,
-        style: GoogleFonts.inter(fontSize: 13, color: colors.secondaryText),
+        style: GoogleFonts.inter(
+          fontSize: 14,
+          height: 1.5,
+          color: colors.secondaryText,
+        ),
       );
     }
 
     if (controller.memories.isEmpty) {
       return Text(
-        'Nothing remembered yet. On cactus pro, say something like '
-        '"I loved the ending of Dune" and it\'ll show up here — and '
-        'shape what "recommend" suggests next.',
-        style: GoogleFonts.inter(
-          fontSize: 13,
+        'nothing remembered yet — on cactus pro, say something like '
+        '"i loved the ending of dune" and it\'ll show up here, and '
+        'shape what recommend suggests next.',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 14,
           height: 1.4,
           color: colors.secondaryText,
         ),
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.only(bottom: _MemoryPageState._barFootprint),
-      itemCount: controller.memories.length,
-      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) {
-        final memory = controller.memories[index];
-        return _MemoryRow(
-          memory: memory,
-          onDelete: () => controller.forget(memory.id),
-        );
-      },
+    // Grouped here rather than by `MemoryController`, the same way the
+    // streak journal groups its own controller's flat list by day
+    // rather than asking `StreaksController` to. `groups[key] ??= []`
+    // builds fresh lists, so the sorting below never touches
+    // `controller.memories` itself.
+    final groups = <String, List<Memory>>{};
+    for (final memory in controller.memories) {
+      (groups[memory.bookTitle ?? 'general'] ??= []).add(memory);
+    }
+    final ordered = groups.entries.toList()
+      ..sort((a, b) => _latest(b.value).compareTo(_latest(a.value)));
+    for (final group in ordered) {
+      group.value.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final (i, group) in ordered.indexed) ...[
+          if (i > 0) const SizedBox(height: _groupSpacing),
+          _MemoryGroup(
+            title: group.key,
+            memories: group.value,
+            onForget: controller.forget,
+          ),
+        ],
+      ],
+    );
+  }
+
+  static DateTime _latest(List<Memory> memories) =>
+      memories.map((m) => m.createdAt).reduce((a, b) => a.isAfter(b) ? a : b);
+}
+
+/// One book's title, then every note about it — oldest first, the order
+/// they were actually remembered in, so a book's own notes read
+/// top-to-bottom like the rest of the story.
+class _MemoryGroup extends StatelessWidget {
+  const _MemoryGroup({
+    required this.title,
+    required this.memories,
+    required this.onForget,
+  });
+
+  final String title;
+  final List<Memory> memories;
+  final Future<MemoryActionResult> Function(String id) onForget;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Same face, size and color the streak journal's own date label
+        // uses — a book name is this journal's "day".
+        Text(
+          title,
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: colors.secondaryText,
+          ),
+        ),
+        const SizedBox(height: _entrySpacing),
+        for (final (i, memory) in memories.indexed) ...[
+          if (i > 0) const SizedBox(height: _entrySpacing),
+          _MemoryLine(memory: memory, onForget: () => onForget(memory.id)),
+        ],
+      ],
     );
   }
 }
 
-/// One remembered note — the book it's about (if any), then the note
-/// itself, with a delete affordance. One [Semantics] node for the whole
-/// row: a screen reader should read "Dune. I loved the ending." as a
-/// single thing, not as two unlabelled fragments.
-class _MemoryRow extends StatelessWidget {
-  const _MemoryRow({required this.memory, required this.onDelete});
+/// One remembered note, in the exact face and size the streak journal's
+/// own command lines use, plus a small "forget" affordance at the end
+/// of the line.
+class _MemoryLine extends StatelessWidget {
+  const _MemoryLine({required this.memory, required this.onForget});
 
   final Memory memory;
-  final VoidCallback onDelete;
+  final VoidCallback onForget;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final title = memory.bookTitle;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            // The note and its book title are one thought, so they are
-            // one node: "Dune. The ending gutted me." — not a title
-            // fragment followed by an orphaned sentence. Scoped to the
-            // text alone rather than the whole row, so the delete
-            // button beside it keeps its own button node.
-            child: Semantics(
-              container: true,
-              excludeSemantics: true,
-              label: title == null ? memory.note : '$title. ${memory.note}',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (title != null)
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: colors.primaryText,
-                      ),
-                    ),
-                  Text(
-                    memory.note,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: colors.secondaryText,
-                    ),
-                  ),
-                ],
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          // One node for the whole note — "Dune. I loved the ending."
+          // — not an unlabelled fragment; the delete button keeps its
+          // own node as a sibling outside this subtree.
+          child: Semantics(
+            container: true,
+            excludeSemantics: true,
+            label: title == null ? memory.note : '$title. ${memory.note}',
+            child: Text(
+              memory.note,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 16,
+                height: 1.5,
+                color: colors.primaryText,
               ),
             ),
           ),
-          Semantics(
-            button: true,
-            label: 'Forget this memory',
-            child: IconButton(
-              onPressed: onDelete,
-              icon: Icon(Icons.close, size: 18, color: colors.secondaryText),
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
+        ),
+        Semantics(
+          button: true,
+          label: 'Forget this memory',
+          child: IconButton(
+            onPressed: onForget,
+            icon: Icon(Icons.close, size: 16, color: colors.secondaryText),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

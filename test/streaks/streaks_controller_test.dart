@@ -85,6 +85,31 @@ void main() {
       ]);
     });
 
+    test(
+      'a day logged live re-sorts into place rather than landing at the end',
+      () async {
+        final controller = StreaksController(
+          events: FakeReadingEventRepository([
+            _event(
+              ReadingEventType.start,
+              DateTime.utc(2026, 1, 2),
+              title: 'A',
+            ),
+          ]),
+        );
+        await controller.load(2026);
+
+        // A fresh command lands on 11.9 — later in the same year than
+        // the 1.2 already loaded — so it has to sort *before* 1.2, not
+        // just get appended after it.
+        controller.applyEvent(
+          _event(ReadingEventType.start, DateTime.utc(2026, 11, 9), title: 'B'),
+        );
+
+        expect(controller.days, [DateTime(2026, 11, 9), DateTime(2026, 1, 2)]);
+      },
+    );
+
     test('a second call for the same year is a no-op', () async {
       final repository = FakeReadingEventRepository([
         _event(ReadingEventType.start, DateTime.utc(2026, 1, 1), title: 'Dune'),

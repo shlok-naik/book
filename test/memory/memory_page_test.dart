@@ -86,12 +86,41 @@ void main() {
     expect(find.text('I read better in the morning.'), findsOneWidget);
   });
 
+  testWidgets('groups notes about the same book under one heading', (
+    tester,
+  ) async {
+    await pumpMemoryPage(
+      tester,
+      _FakeMemoryRepository(
+        memories: [
+          _memory(id: 'm1', title: 'Dune', note: 'The ending gutted me.'),
+          _memory(id: 'm2', title: 'Dune', note: 'Paul is not a hero.'),
+        ],
+      ),
+    );
+
+    expect(find.text('Dune'), findsOneWidget);
+    expect(find.text('The ending gutted me.'), findsOneWidget);
+    expect(find.text('Paul is not a hero.'), findsOneWidget);
+  });
+
+  testWidgets('a note with no book groups under "general"', (tester) async {
+    await pumpMemoryPage(
+      tester,
+      _FakeMemoryRepository(
+        memories: [_memory(id: 'm1', note: 'I read better in the morning.')],
+      ),
+    );
+
+    expect(find.text('general'), findsOneWidget);
+  });
+
   testWidgets('says what an empty list means rather than showing nothing', (
     tester,
   ) async {
     await pumpMemoryPage(tester, _FakeMemoryRepository());
 
-    expect(find.textContaining('Nothing remembered yet'), findsOneWidget);
+    expect(find.textContaining('nothing remembered yet'), findsOneWidget);
   });
 
   testWidgets('a failed load says so, and does not read as empty', (
@@ -105,7 +134,7 @@ void main() {
     expect(find.text("You're offline."), findsOneWidget);
     // The empty-state copy would tell the reader they have never saved
     // anything, which is a different — and wrong — statement.
-    expect(find.textContaining('Nothing remembered yet'), findsNothing);
+    expect(find.textContaining('nothing remembered yet'), findsNothing);
   });
 
   testWidgets('forgetting a memory removes it and tells the repository', (
