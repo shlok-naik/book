@@ -68,6 +68,17 @@ Future<void> showPaywallPopup(
   BuildContext context, {
   PurchasesService? purchases,
   PaywallPricing? pricing,
+
+  /// When set, every way of leaving the popup — buying, restoring, or
+  /// just closing it — replaces the popup's own route with this one
+  /// instead of popping back to whatever pushed it. Onboarding's
+  /// founder's-note screen uses this to land the reader straight on
+  /// `FinishPage`: a plain pop-then-push would first reveal the
+  /// founder's note again for the pop transition's duration, since
+  /// `Navigator.push`'s returned future only resolves once that
+  /// transition finishes — a page flashing into view for a split
+  /// second before the real destination appears.
+  Route<void> Function()? nextRoute,
 }) {
   return Navigator.of(context).push(
     PageRouteBuilder<void>(
@@ -76,8 +87,11 @@ Future<void> showPaywallPopup(
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 320),
       reverseTransitionDuration: const Duration(milliseconds: 240),
-      pageBuilder: (_, _, _) =>
-          PaywallPage(purchases: purchases, pricing: pricing),
+      pageBuilder: (_, _, _) => PaywallPage(
+        purchases: purchases,
+        pricing: pricing,
+        nextRoute: nextRoute,
+      ),
       transitionsBuilder: (_, animation, _, child) {
         final curved = CurvedAnimation(
           parent: animation,
@@ -97,7 +111,7 @@ Future<void> showPaywallPopup(
 }
 
 class PaywallPage extends StatefulWidget {
-  const PaywallPage({super.key, this.pricing, this.purchases});
+  const PaywallPage({super.key, this.pricing, this.purchases, this.nextRoute});
 
   /// Prices to display. Null — the normal production path — has
   /// [_PaywallPageState] fetch the current RevenueCat offering itself
@@ -112,6 +126,9 @@ class PaywallPage extends StatefulWidget {
   /// [PurchasesService.configure] has already set up the real SDK by
   /// the time this page is ever pushed (see `main.dart`).
   final PurchasesService? purchases;
+
+  /// See [showPaywallPopup]'s parameter of the same name.
+  final Route<void> Function()? nextRoute;
 
   @override
   State<PaywallPage> createState() => _PaywallPageState();
@@ -240,13 +257,21 @@ class _PaywallPageState extends State<PaywallPage> {
   }
 
   /// Every way out of this popup, including the close button: back to
-  /// whatever the reader was doing. Guarded on [mounted] because both
-  /// purchase paths reach it from an `await`, and on `canPop` because
-  /// the celebration timer can outlive a reader who dismissed the route
+  /// whatever the reader was doing — or, when [PaywallPage.nextRoute]
+  /// is set, straight on to wherever that leads instead, replacing this
+  /// route rather than popping it so nothing underneath ever becomes
+  /// visible again first. Guarded on [mounted] because both purchase
+  /// paths reach it from an `await`, and on `canPop` because the
+  /// celebration timer can outlive a reader who dismissed the route
   /// themselves in the meantime.
   void _dismiss() {
     if (!mounted) return;
     final navigator = Navigator.of(context);
+    final nextRoute = widget.nextRoute;
+    if (nextRoute != null) {
+      navigator.pushReplacement(nextRoute());
+      return;
+    }
     if (navigator.canPop()) navigator.pop();
   }
 
@@ -564,7 +589,7 @@ class _PurchasedState extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'remember and recommend are yours now.',
+              'a plethora of pro features are at your disposal.',
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 fontSize: 14,

@@ -359,21 +359,39 @@ class _IconGroup extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        GridView.count(
-          crossAxisCount: _crossAxisCount,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: AppSpacing.md,
-          crossAxisSpacing: AppSpacing.sm,
-          childAspectRatio: 0.8,
-          children: [
-            for (final choice in choices)
-              _IconTile(
-                label: choice.label,
-                icon: choice.resolve(brightness),
-                onTap: busy ? null : () => onSelect(choice.resolve(brightness)),
-              ),
-          ],
+        // A Wrap, not a GridView — each row's height comes from its own
+        // tile's real content (icon + caption), not a guessed number or
+        // a width-derived aspect ratio. A `childAspectRatio` grid cell
+        // is exactly as tall as it is wide (times a ratio), which has
+        // nothing to do with how tall an icon-plus-caption actually is;
+        // on a wide screen that leaves slack below the caption that
+        // GridView still counts as part of the grid, so the gap from
+        // the *icons* down to the next group's label ends up bigger
+        // than the gap from *this* label down to the icons above —
+        // even though both use the same SizedBox height.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final tileWidth =
+                (constraints.maxWidth - AppSpacing.sm * (_crossAxisCount - 1)) /
+                _crossAxisCount;
+            return Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.md,
+              children: [
+                for (final choice in choices)
+                  SizedBox(
+                    width: tileWidth,
+                    child: _IconTile(
+                      label: choice.label,
+                      icon: choice.resolve(brightness),
+                      onTap: busy
+                          ? null
+                          : () => onSelect(choice.resolve(brightness)),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ],
     );

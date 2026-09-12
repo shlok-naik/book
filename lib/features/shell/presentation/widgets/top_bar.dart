@@ -86,20 +86,32 @@ class _SettingsButton extends StatelessWidget {
       button: true,
       label: 'Settings',
       excludeSemantics: true,
-      child: InkResponse(
-        onTap: () => _open(context),
-        radius: TopBar._tapTarget / 2,
-        child: SizedBox(
-          width: TopBar._tapTarget,
-          height: TopBar._tapTarget,
-          // Right-aligned inside its own tap target so the icon's right
-          // edge lines up with the page's right padding, while the
-          // target itself still spills out to a comfortable size around
-          // it.
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Icon(Icons.settings_outlined, size: 20, color: color),
-          ),
+      child: SizedBox(
+        width: TopBar._tapTarget,
+        height: TopBar._tapTarget,
+        child: Stack(
+          alignment: Alignment.centerRight,
+          children: [
+            // The full 44x44 square stays reachable — an InkResponse
+            // sized to just the icon (below) would only register taps
+            // inside its own small bounds.
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _open(context),
+              ),
+            ),
+            // Sized to the icon itself, not the tap target around it,
+            // so the ripple/highlight InkResponse centers on the icon
+            // it's drawn over — an InkResponse spanning the full 44x44
+            // target instead centers its ink there, well to the left of
+            // an icon that's right-aligned inside it.
+            InkResponse(
+              onTap: () => _open(context),
+              radius: TopBar._tapTarget / 2,
+              child: Icon(Icons.settings_outlined, size: 20, color: color),
+            ),
+          ],
         ),
       ),
     );
