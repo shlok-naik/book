@@ -116,6 +116,19 @@ class _LibraryPageState extends State<LibraryPage> {
   final _searchText = TextEditingController();
   final _searchFocus = FocusNode();
 
+  /// Shelves collapsed to just their heading — in-memory only, so a fresh
+  /// visit to the library always opens every shelf again. Ignored while
+  /// searching: collapsing a shelf and then finding a match in it should
+  /// still show that match rather than hide it.
+  final _collapsed = <ReadingStatus>{};
+
+  void _toggleCollapsed(ReadingStatus status) {
+    AppHaptics.selection();
+    setState(() {
+      if (!_collapsed.add(status)) _collapsed.remove(status);
+    });
+  }
+
   /// Every tag on the shelf by `user_books` id, fetched when search opens
   /// so a tag can be searched for. Empty if that fetch fails — search then
   /// just doesn't match tags.
@@ -410,11 +423,16 @@ class _LibraryPageState extends State<LibraryPage> {
               shelf: shelf,
               count: sections[shelf.status]!.length,
               dragging: dragging,
+              collapsed: _collapsed.contains(shelf.status) && !filtering,
+              onToggleCollapse: () => _toggleCollapsed(shelf.status),
               // Dropping on a heading puts the book first in that section.
               onAccept: (id) => _move(id, shelf.status, 0),
             ),
           ),
-          if (sections[shelf.status]! case final entries when entries.isEmpty)
+          if (_collapsed.contains(shelf.status) && !filtering)
+            const SliverToBoxAdapter(child: SizedBox.shrink())
+          else if (sections[shelf.status]! case final entries
+              when entries.isEmpty)
             SliverToBoxAdapter(
               child: _EmptyShelf(
                 key: ValueKey('empty-shelf-${shelf.status.name}'),
@@ -796,12 +814,18 @@ class _SectionHeading extends StatelessWidget {
     required this.shelf,
     required this.count,
     required this.dragging,
+    required this.collapsed,
+    required this.onToggleCollapse,
     required this.onAccept,
   });
 
   final _Shelf shelf;
   final int count;
   final bool dragging;
+
+  /// Whether this shelf is showing just its heading right now.
+  final bool collapsed;
+  final VoidCallback onToggleCollapse;
   final ValueChanged<String> onAccept;
 
   @override
@@ -812,41 +836,77 @@ class _SectionHeading extends StatelessWidget {
       onAcceptWithDetails: (details) => onAccept(details.data),
       builder: (context, candidates, _) {
         final active = candidates.isNotEmpty;
-        return Semantics(
-          header: true,
-          label: '${shelf.spoken}, $count ${count == 1 ? 'book' : 'books'}',
-          excludeSemantics: true,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.xl,
-              AppSpacing.xs,
-              AppSpacing.xl,
-              AppSpacing.sm,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 150),
-                  style: GoogleFonts.jetBrainsMono(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: active ? colors.accent : colors.secondaryText,
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.xs,
+            AppSpacing.xl,
+            AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Semantics(
+                  header: true,
+                  label:
+                      '${shelf.spoken}, $count ${count == 1 ? 'book' : 'books'}',
+                  excludeSemantics: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 150),
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: active ? colors.accent : colors.secondaryText,
+                        ),
+                        child: Text(shelf.label),
+                      ),
+                      const SizedBox(height: 2),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        height: 2,
+                        width: active ? 32 : 0,
+                        decoration: BoxDecoration(
+                          color: colors.accent,
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Text(shelf.label),
                 ),
-                const SizedBox(height: 2),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  height: 2,
-                  width: active ? 32 : 0,
-                  decoration: BoxDecoration(
-                    color: colors.accent,
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+              // Collapses the shelf to just this heading — the covers below
+              // are what take up room on a long shelf, not the heading, so
+              // this is what a reader taps to get a whole shelf out of the
+              // way without leaving the page.
+              Semantics(
+                button: true,
+                label: collapsed
+                    ? 'Show ${shelf.spoken.toLowerCase()} books'
+                    : 'Hide ${shelf.spoken.toLowerCase()} books',
+                excludeSemantics: true,
+                child: SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: InkResponse(
+                    onTap: onToggleCollapse,
+                    radius: 16,
+                    child: AnimatedRotation(
+                      duration: const Duration(milliseconds: 150),
+                      turns: collapsed ? -0.25 : 0,
+                      child: Icon(
+                        Icons.expand_more,
+                        size: 20,
+                        color: colors.secondaryText,
+                      ),
+                    ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },

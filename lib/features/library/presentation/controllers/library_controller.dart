@@ -305,6 +305,7 @@ class LibraryController extends ChangeNotifier {
       final started = await userBooks.start(book.id);
       _upsertLocal(LibraryBook(book: book, progress: started.progress));
       notifyListeners();
+      _warmEditions(book);
       if (started.alreadyExists) {
         return LibraryActionResult.failure(
           '"${book.title}" is already on your shelf.',
@@ -315,6 +316,22 @@ class LibraryController extends ChangeNotifier {
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
     }
+  }
+
+  /// Warms the shared `book_editions` cache for [book] in the background,
+  /// right after it lands on the shelf — so opening its editions page
+  /// later is a cache hit instead of a live Google Books search, for this
+  /// reader or the next one to reach the same book. A no-op once the book
+  /// already has cached editions. Fire-and-forget: a warm that fails costs
+  /// nothing beyond a slower first open, and must never affect the shelf
+  /// command that triggered it.
+  void _warmEditions(Book book) {
+    if (book.hasCachedEditions) return;
+    reportingFailure(
+      details.editionsFor(book).then((_) {}),
+      source: 'LibraryController',
+      message: 'Could not warm the edition cache for "${book.title}".',
+    );
   }
 
   /// `add shelf <shelf> <book>` — puts [title] on the [status] shelf.
@@ -344,6 +361,7 @@ class LibraryController extends ChangeNotifier {
       final entry = LibraryBook(book: book, progress: added.progress);
       _upsertLocal(entry);
       notifyListeners();
+      _warmEditions(book);
       if (added.alreadyExists) {
         // Rare race: the row appeared between the local lookup above and
         // this write landing, and came back at whatever shelf it was
@@ -944,6 +962,7 @@ class LibraryController extends ChangeNotifier {
       final started = await userBooks.start(next.id);
       _upsertLocal(LibraryBook(book: next, progress: started.progress));
       notifyListeners();
+      _warmEditions(next);
       if (!started.alreadyExists) {
         _logEvent(ReadingEventType.start, next.title);
       }

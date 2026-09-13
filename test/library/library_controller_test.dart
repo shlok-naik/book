@@ -1,10 +1,12 @@
 import 'package:book/features/library/data/book_cache_repository.dart';
+import 'package:book/features/library/data/book_details_repository.dart';
 import 'package:book/features/library/data/book_notes_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
 import 'package:book/features/library/data/reading_event_repository.dart';
 import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
+import 'package:book/features/library/domain/book_details_service.dart';
 import 'package:book/features/library/domain/book_edition.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
 import 'package:book/features/library/domain/book_note.dart';
@@ -265,6 +267,28 @@ class FakeBookNotesRepository extends BookNotesRepository {
   }
 }
 
+/// Records every book `LibraryController._warmEditions` asks it to cache,
+/// without touching the network or Supabase.
+class SpyBookDetailsService extends BookDetailsService {
+  SpyBookDetailsService()
+    : super(
+        cache: BookDetailsRepository(),
+        googleBooks: GoogleBooksApiClient(
+          client: MockClient((_) async => http.Response('unused', 500)),
+        ),
+      );
+
+  final warmed = <String>[];
+  LibraryException? failure;
+
+  @override
+  Future<List<BookEdition>> editionsFor(Book book) async {
+    warmed.add(book.title);
+    if (failure != null) throw failure!;
+    return const [];
+  }
+}
+
 /// Cache that always hits, so controller tests never depend on network
 /// behaviour (that is covered in book_lookup_service_test.dart).
 class AlwaysHitCache extends BookCacheRepository {
@@ -325,7 +349,11 @@ void main() {
   late FakeReadingEventRepository events;
   late FakeBookNotesRepository notes;
 
-  LibraryController controllerWith(List<LibraryBook> rows, {Book? cached}) {
+  LibraryController controllerWith(
+    List<LibraryBook> rows, {
+    Book? cached,
+    BookDetailsService? details,
+  }) {
     userBooks = FakeUserBookRepository(rows);
     events = FakeReadingEventRepository();
     notes = FakeBookNotesRepository();
@@ -341,6 +369,7 @@ void main() {
       userBooks: userBooks,
       events: events,
       notes: notes,
+      details: details,
     );
   }
 
@@ -386,6 +415,32 @@ void main() {
       expect(controller.inProgress.single.currentPage, 0);
       expect(notifications, greaterThan(0));
     });
+
+    test('warms the shared edition cache for the newly started book', () async {
+      final spy = SpyBookDetailsService();
+      final controller = controllerWith([], details: spy);
+
+      await controller.startBook('Dune');
+      // The warm is fire-and-forget: give its Future a turn to run.
+      await Future<void>.delayed(Duration.zero);
+
+      expect(spy.warmed, ['Dune']);
+    });
+
+    test(
+      'a failed edition warm is swallowed — it never fails the command',
+      () async {
+        final spy = SpyBookDetailsService()
+          ..failure = const RemoteDataException('offline');
+        final controller = controllerWith([], details: spy);
+
+        final result = await controller.startBook('Dune');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(result.success, isTrue);
+        expect(spy.warmed, ['Dune']);
+      },
+    );
 
     test('logs a start event and broadcasts it on loggedEvents', () async {
       final controller = controllerWith([]);
@@ -452,6 +507,16 @@ void main() {
   });
 
   group('addToShelf', () {
+    test('warms the shared edition cache for the newly shelved book', () async {
+      final spy = SpyBookDetailsService();
+      final controller = controllerWith([], details: spy);
+
+      await controller.addToShelf('Dune', ReadingStatus.toBeRead);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(spy.warmed, ['Dune']);
+    });
+
     test(
       'add shelf tbr puts a resolved book on the to-be-read shelf',
       () async {

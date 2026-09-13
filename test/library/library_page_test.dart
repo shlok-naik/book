@@ -205,6 +205,39 @@ void main() {
     expectNoPromptCopy();
   });
 
+  testWidgets(
+    'the collapse button hides a shelf\'s books without hiding its heading',
+    (tester) async {
+      await pumpPage(
+        tester,
+        controllerFor([
+          _entry(_dune, page: 120),
+          _entry(_noCover, page: 300, finished: true),
+        ]),
+      );
+
+      expect(find.text('Dune'), findsWidgets);
+      expect(find.bySemanticsLabel('Hide reading books'), findsOneWidget);
+
+      await tester.tap(find.bySemanticsLabel('Hide reading books'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // The heading (and its count) stays; the cover and its own text go.
+      expect(find.text('reading'), findsOneWidget);
+      expect(find.text('Dune'), findsNothing);
+      expect(find.bySemanticsLabel('Show reading books'), findsOneWidget);
+      // A shelf never collapsed is untouched.
+      expect(find.text('Pale Fire'), findsWidgets);
+
+      // Tapping again brings it back.
+      await tester.tap(find.bySemanticsLabel('Show reading books'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('Dune'), findsWidgets);
+    },
+  );
+
   testWidgets('an entirely empty library still shows all four shelves', (
     tester,
   ) async {
