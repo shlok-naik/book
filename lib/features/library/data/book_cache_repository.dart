@@ -31,10 +31,25 @@ class BookCacheRepository {
     return runSupabase(() async {
       final row = await _client
           .from(_table)
-          .select()
+          .select(Book.selectWithSeries)
           .eq('google_books_id', googleBooksId.trim())
           .maybeSingle();
       return row == null ? null : Book.fromRow(row);
+    }, friendlyMessage: "We couldn't check your saved books.");
+  }
+
+  /// Cache lookup by ISBN-13 or ISBN-10 — both columns are filled in once a
+  /// book's details have been fetched. Returns null on a miss.
+  Future<Book?> findByIsbn(String isbn) {
+    final clean = isbn.trim();
+    if (clean.isEmpty) return Future.value(null);
+    return runSupabase(() async {
+      final rows = await _client
+          .from(_table)
+          .select(Book.selectWithSeries)
+          .or('isbn_13.eq.$clean,isbn_10.eq.$clean')
+          .limit(1);
+      return rows.isEmpty ? null : Book.fromRow(rows.first);
     }, friendlyMessage: "We couldn't check your saved books.");
   }
 
@@ -68,7 +83,10 @@ class BookCacheRepository {
     required String titlePattern,
     String? author,
   }) async {
-    var query = _client.from(_table).select().ilike('title', titlePattern);
+    var query = _client
+        .from(_table)
+        .select(Book.selectWithSeries)
+        .ilike('title', titlePattern);
     if (author != null && author.trim().isNotEmpty) {
       query = query.ilike('author', '%${escapeLikePattern(author.trim())}%');
     }
@@ -109,6 +127,7 @@ class BookCacheRepository {
           'p_cover_url': volume.thumbnailUrl,
           'p_page_count': volume.pageCount,
           'p_description': volume.description,
+          'p_categories': volume.categories,
         },
       );
       return Book.fromRow(row);

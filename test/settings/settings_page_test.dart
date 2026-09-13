@@ -1,15 +1,26 @@
 import 'dart:async';
 
 import 'package:book/core/auth/session_service.dart';
+import 'package:book/core/platform/app_icon.dart';
+import 'package:book/core/platform/app_icon_channel.dart';
+import 'package:book/core/platform/app_icon_controller.dart';
 import 'package:book/core/purchases/entitlements.dart';
 import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/core/theme/theme_controller.dart';
+import 'package:book/features/goals/presentation/controllers/goal_controller.dart';
+import 'package:book/features/goals/presentation/goal_scope.dart';
+import 'package:book/features/logging/domain/command_catalog.dart';
+import 'package:book/features/paywall/presentation/pages/paywall_page.dart';
 import 'package:book/features/settings/data/profile_repository.dart';
+import 'package:book/features/settings/presentation/pages/commands_page.dart';
+import 'package:book/features/settings/presentation/pages/customisation_page.dart';
 import 'package:book/features/settings/presentation/pages/settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+
+import '../support/fake_goals.dart';
 
 /// The settings screen — everything the deleted profile page used to
 /// carry, plus the membership card that replaced onboarding's email
@@ -105,6 +116,7 @@ Future<void> pumpSettings(
   required PurchasesService purchases,
   required SessionService session,
   ProfileRepository? profileRepository,
+  GoalController? goals,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.625;
@@ -112,12 +124,15 @@ Future<void> pumpSettings(
   addTearDown(tester.view.resetDevicePixelRatio);
 
   await tester.pumpWidget(
-    MaterialApp(
-      theme: AppTheme.light,
-      home: SettingsPage(
-        purchases: purchases,
-        session: session,
-        profileRepository: profileRepository ?? _FakeProfileRepository(),
+    GoalScope(
+      controller: goals ?? goalControllerFor(),
+      child: MaterialApp(
+        theme: AppTheme.light,
+        home: SettingsPage(
+          purchases: purchases,
+          session: session,
+          profileRepository: profileRepository ?? _FakeProfileRepository(),
+        ),
       ),
     ),
   );
@@ -126,29 +141,45 @@ Future<void> pumpSettings(
   await tester.pump();
 }
 
+/// Scrolls the settings list until [finder] is built and on screen — its
+/// rows are built lazily, so one below the fold doesn't exist to
+/// `ensureVisible` until the list has scrolled near it.
+Future<void> scrollTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    200,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   // ThemeController is a global, and the appearance test below moves it
   // — put it back so test order can't leak a forced theme into anything
   // that runs after.
   setUp(() {
     addTearDown(() => ThemeController.select(ThemeMode.system));
+    // AppIconController is a global too — restore the real channel and
+    // its light default so a fake from one test can't leak into the
+    // next.
+    addTearDown(() {
+      AppIconController.channel = const AppIconChannel();
+      AppIconController.current.value = AppIcon.originalLight;
+    });
   });
 
-  group('the subscription card', () {
-    testWidgets('says "free plan" and offers the upgrade row', (tester) async {
+  group('the cactus pro section', () {
+    testWidgets('offers the upgrade row on the free plan', (tester) async {
       await pumpSettings(
         tester,
         purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
         session: _FakeSession(),
       );
 
-      expect(find.text('free plan'), findsOneWidget);
       expect(find.text('get cactus pro'), findsOneWidget);
     });
 
-    testWidgets('says "cactus pro" and drops the upgrade row once active', (
-      tester,
-    ) async {
+    testWidgets('drops the upgrade row once pro is active', (tester) async {
       await pumpSettings(
         tester,
         purchases: _FakePurchasesService(info: _customerInfo(pro: true)),
@@ -156,7 +187,6 @@ void main() {
       );
 
       expect(find.text('cactus pro'), findsWidgets);
-      expect(find.text('your subscription is active.'), findsOneWidget);
       // Nothing left to sell to a reader who already bought.
       expect(find.text('get cactus pro'), findsNothing);
     });
@@ -185,10 +215,95 @@ void main() {
 
       expect(ThemeController.mode.value, ThemeMode.system);
 
+      await scrollTo(tester, find.text('dark'));
       await tester.tap(find.text('dark'));
       await tester.pumpAndSettle();
 
       expect(ThemeController.mode.value, ThemeMode.dark);
+    });
+  });
+
+  group('commands', () {
+    testWidgets('the help row opens the commands reference', (tester) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
+      final row = find.text('commands');
+      await scrollTo(tester, row);
+
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CommandsPage), findsOneWidget);
+      // The new syntax is listed, and the old one is gone.
+      expect(
+        find.text('add shelf <tbr|reading|finished|dnf> <book>'),
+        findsOneWidget,
+      );
+      expect(find.text('add tag <tag> <book>'), findsOneWidget);
+      expect(find.text('add comment <comment> <book>'), findsOneWidget);
+      expect(find.textContaining('add <book> tbr'), findsNothing);
+    });
+
+    testWidgets('lists every command in the catalog', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(theme: AppTheme.light, home: const CommandsPage()),
+      );
+
+      for (final command in CommandCatalog.all) {
+        await scrollTo(tester, find.text(command.syntax));
+        expect(find.text(command.syntax), findsOneWidget);
+      }
+    });
+  });
+
+  group('customisation', () {
+    Finder row() => find.text('themes and icons');
+
+    testWidgets('a free reader sees it faded and reaches the paywall', (
+      tester,
+    ) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
+      await scrollTo(tester, row());
+
+      final opacity = tester.widget<Opacity>(
+        find.ancestor(of: row(), matching: find.byType(Opacity)).first,
+      );
+      expect(opacity.opacity, lessThan(1.0));
+
+      await tester.tap(row());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PaywallPage), findsOneWidget);
+      expect(find.byType(CustomisationPage), findsNothing);
+    });
+
+    testWidgets('a pro reader opens the customisation page', (tester) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: true)),
+        session: _FakeSession(),
+      );
+      await scrollTo(tester, row());
+      expect(
+        find.ancestor(of: row(), matching: find.byType(Opacity)),
+        findsNothing,
+      );
+
+      await tester.tap(row());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CustomisationPage), findsOneWidget);
     });
   });
 
@@ -376,5 +491,29 @@ void main() {
       await tester.scrollUntilVisible(find.text('pretend plan'), 200);
       expect(find.text('pretend plan'), findsOneWidget);
     });
+  });
+
+  testWidgets('the yearly goal row shows the goal and edits it', (
+    tester,
+  ) async {
+    final goals = goalControllerFor(goal: 20);
+    await pumpSettings(
+      tester,
+      purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+      session: _FakeSession(),
+      goals: goals,
+    );
+    await tester.pump();
+
+    expect(find.text('yearly goal'), findsOneWidget);
+    expect(find.text('20 books'), findsOneWidget);
+
+    await tester.tap(find.text('yearly goal'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('remove goal'));
+    await tester.pumpAndSettle();
+
+    expect(goals.goal, isNull);
+    expect(find.text('not set'), findsOneWidget);
   });
 }

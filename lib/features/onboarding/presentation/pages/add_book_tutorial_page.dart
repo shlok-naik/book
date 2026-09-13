@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../widgets/command_wall.dart';
-import 'natural_language_tutorial_page.dart';
+import 'tags_comments_tutorial_page.dart';
 import 'tutorial_step_page.dart';
 
 /// Step 1 of the post-welcome sequence, shown right after the welcome
@@ -12,11 +12,11 @@ import 'tutorial_step_page.dart';
 /// scrolling sideways — in place of the screenshot Pushr's equivalent
 /// step uses.
 ///
-/// The free-tier half of the tutorial's two steps — the fixed commands
-/// a reader can type. [NaturalLanguageTutorialPage] follows with the
-/// Pro-tier's natural language instead, kept as its own step rather
-/// than more scrolling on this one so each half gets its own
-/// illustrating wall above it.
+/// The free-tier half of the tutorial — the fixed commands a reader can
+/// type. [TagsCommentsTutorialPage] follows with tags and comments, then
+/// `NaturalLanguageTutorialPage` with the Pro tier's natural language,
+/// each kept as its own step rather than more scrolling on this one so
+/// every step gets its own illustrating wall above it.
 class AddBookTutorialPage extends StatelessWidget {
   const AddBookTutorialPage({super.key});
 
@@ -28,8 +28,10 @@ class AddBookTutorialPage extends StatelessWidget {
       description: const _TutorialCopy(),
       onContinue: () => Navigator.of(context).push(
         MaterialPageRoute(
-          settings: const RouteSettings(name: 'onboarding_nl_tutorial'),
-          builder: (_) => const NaturalLanguageTutorialPage(),
+          settings: const RouteSettings(
+            name: 'onboarding_tags_comments_tutorial',
+          ),
+          builder: (_) => const TagsCommentsTutorialPage(),
         ),
       ),
     );
@@ -42,6 +44,7 @@ const _commands = [
   'update <book> <page number>',
   'finish <book>',
   'rate <book> <number of stars>',
+  'add shelf <tbr, reading, finished or dnf> <book>',
 ];
 
 class _TutorialCopy extends StatelessWidget {
@@ -59,9 +62,9 @@ class _TutorialCopy extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         const Text(
           'in the free tier, you can use a variety of commands to '
-          'start, update, finish and rate books - i tried to make the '
-          'commands as simple as possible so anyone can use the app '
-          'easily. the commands are:',
+          'start, update, finish and rate books - i tried to make '
+          'the commands as simple as possible so anyone can use the '
+          'app easily. the commands are:',
         ),
         const SizedBox(height: AppSpacing.sm),
         for (final command in _commands) _CommandLine(command),

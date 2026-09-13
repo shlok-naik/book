@@ -1,10 +1,13 @@
 import 'package:book/features/library/data/book_cache_repository.dart';
+import 'package:book/features/library/data/book_notes_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
 import 'package:book/features/library/data/reading_event_repository.dart';
 import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
+import 'package:book/features/library/domain/book_edition.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
+import 'package:book/features/library/domain/book_note.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
@@ -42,10 +45,12 @@ class FakeUserBookRepository extends UserBookRepository {
   int deletes = 0;
   final List<String> deletedIds = [];
 
-  /// Tracks which book ids have already been started, so a second
-  /// [start] call can report [StartOutcome.alreadyExists] — mirrors
-  /// what the real upsert-then-select does against Supabase.
-  final Set<String> _startedBookIds = {};
+  /// Tracks the shelf status already given to a book id, so a second
+  /// [start]/[addWithStatus] call can report [StartOutcome.alreadyExists]
+  /// *and* return the row's real (unchanged) status — mirrors what the
+  /// real upsert-then-select does against Supabase's single
+  /// `user_books` table, regardless of which method created the row.
+  final Map<String, ReadingStatus> _statusByBookId = {};
 
   @override
   Future<List<LibraryBook>> fetchLibrary() async {
@@ -56,15 +61,40 @@ class FakeUserBookRepository extends UserBookRepository {
   @override
   Future<StartOutcome> start(String bookId) async {
     if (failure != null) throw failure!;
-    final isNew = _startedBookIds.add(bookId);
+    final existing = _statusByBookId[bookId];
+    _statusByBookId.putIfAbsent(bookId, () => ReadingStatus.reading);
     return StartOutcome(
       UserBook(
         id: 'progress-$bookId',
         bookId: bookId,
         currentPage: 0,
-        status: ReadingStatus.reading,
+        status: existing ?? ReadingStatus.reading,
       ),
-      alreadyExists: !isNew,
+      alreadyExists: existing != null,
+    );
+  }
+
+  @override
+  Future<StartOutcome> addWithStatus(
+    String bookId,
+    ReadingStatus status, {
+    int currentPage = 0,
+  }) async {
+    if (failure != null) throw failure!;
+    final existing = _statusByBookId[bookId];
+    _statusByBookId.putIfAbsent(bookId, () => status);
+    final actual = existing ?? status;
+    return StartOutcome(
+      UserBook(
+        id: 'progress-$bookId',
+        bookId: bookId,
+        currentPage: existing == null ? currentPage : 0,
+        status: actual,
+        finishedAt: actual == ReadingStatus.finished
+            ? DateTime.now().toUtc()
+            : null,
+      ),
+      alreadyExists: existing != null,
     );
   }
 
@@ -91,6 +121,51 @@ class FakeUserBookRepository extends UserBookRepository {
     deletes++;
     if (failure != null) throw failure!;
     deletedIds.add(userBookId);
+  }
+
+  final List<UserBook> shelfChanges = [];
+  final List<List<String>> savedOrders = [];
+  final List<(String, String?, int)> ownedEditions = [];
+
+  /// Set to fail only [saveShelfOrder], after a [changeShelf] succeeded —
+  /// the half-way failure a drag between sections has to roll back.
+  LibraryException? orderFailure;
+
+  @override
+  Future<UserBook> changeShelf(UserBook updated) async {
+    if (failure != null) throw failure!;
+    shelfChanges.add(updated);
+    _statusByBookId[updated.bookId] = updated.status;
+    // Mirrors the server: the row comes back as written, with the
+    // position cleared by the status-change trigger.
+    return updated.copyWith(clearShelfPosition: true);
+  }
+
+  @override
+  Future<void> saveShelfOrder(List<String> orderedIds) async {
+    if (failure != null) throw failure!;
+    if (orderFailure != null) throw orderFailure!;
+    savedOrders.add(orderedIds);
+  }
+
+  @override
+  Future<UserBook> setOwnedEdition(
+    String userBookId,
+    String? editionId, {
+    required int currentPage,
+  }) async {
+    if (failure != null) throw failure!;
+    ownedEditions.add((userBookId, editionId, currentPage));
+    final existing = rows.firstWhere((e) => e.progress.id == userBookId);
+    return editionId == null
+        ? existing.progress.copyWith(
+            clearOwnedEdition: true,
+            currentPage: currentPage,
+          )
+        : existing.progress.copyWith(
+            ownedEditionId: editionId,
+            currentPage: currentPage,
+          );
   }
 
   int rates = 0;
@@ -156,6 +231,40 @@ class FakeReadingEventRepository extends ReadingEventRepository {
   }
 }
 
+/// In-memory `book_tags`/`book_comments` for the `add tag`/`add comment`
+/// commands.
+class FakeBookNotesRepository extends BookNotesRepository {
+  final List<(String userBookId, String tag)> tags = [];
+  final List<(String userBookId, String body)> comments = [];
+  LibraryException? failure;
+
+  @override
+  Future<BookTag> addTag(String userBookId, String tag) async {
+    final clean = BookNotesRepository.validateTag(tag);
+    if (failure != null) throw failure!;
+    tags.add((userBookId, clean));
+    return BookTag(
+      id: 'tag-${tags.length}',
+      userBookId: userBookId,
+      tag: clean,
+      createdAt: DateTime(2026),
+    );
+  }
+
+  @override
+  Future<BookComment> addComment(String userBookId, String body) async {
+    final clean = BookNotesRepository.validateComment(body);
+    if (failure != null) throw failure!;
+    comments.add((userBookId, clean));
+    return BookComment(
+      id: 'comment-${comments.length}',
+      userBookId: userBookId,
+      body: clean,
+      createdAt: DateTime(2026),
+    );
+  }
+}
+
 /// Cache that always hits, so controller tests never depend on network
 /// behaviour (that is covered in book_lookup_service_test.dart).
 class AlwaysHitCache extends BookCacheRepository {
@@ -173,25 +282,53 @@ class AlwaysHitCache extends BookCacheRepository {
   Future<Book> cache(GoogleBook volume) async => book;
 }
 
-LibraryBook _entry(Book book, {int page = 0, bool finished = false}) {
+LibraryBook _entry(
+  Book book, {
+  int page = 0,
+  bool finished = false,
+  ReadingStatus? status,
+  double? position,
+  double? rating,
+}) {
   return LibraryBook(
     book: book,
     progress: UserBook(
       id: 'progress-${book.id}',
       bookId: book.id,
       currentPage: page,
-      status: finished ? ReadingStatus.finished : ReadingStatus.reading,
+      status:
+          status ?? (finished ? ReadingStatus.finished : ReadingStatus.reading),
+      shelfPosition: position,
+      rating: rating,
     ),
   );
 }
 
+const _circe = Book(
+  id: 'book-3',
+  googleBooksId: 'gb-circe',
+  title: 'Circe',
+  author: 'Madeline Miller',
+  pageCount: 300,
+);
+
+const _duneMessiah = Book(
+  id: 'book-4',
+  googleBooksId: 'gb-messiah',
+  title: 'Dune Messiah',
+  author: 'Frank Herbert',
+  pageCount: 250,
+);
+
 void main() {
   late FakeUserBookRepository userBooks;
   late FakeReadingEventRepository events;
+  late FakeBookNotesRepository notes;
 
   LibraryController controllerWith(List<LibraryBook> rows, {Book? cached}) {
     userBooks = FakeUserBookRepository(rows);
     events = FakeReadingEventRepository();
+    notes = FakeBookNotesRepository();
     return LibraryController(
       lookup: BookLookupService(
         cache: AlwaysHitCache(cached ?? _dune),
@@ -203,6 +340,7 @@ void main() {
       ),
       userBooks: userBooks,
       events: events,
+      notes: notes,
     );
   }
 
@@ -311,6 +449,690 @@ void main() {
         expect(events.logged, isEmpty);
       },
     );
+  });
+
+  group('addToShelf', () {
+    test(
+      'add shelf tbr puts a resolved book on the to-be-read shelf',
+      () async {
+        final controller = controllerWith([]);
+        var notifications = 0;
+        controller.addListener(() => notifications++);
+
+        final result = await controller.addToShelf(
+          'Dune',
+          ReadingStatus.toBeRead,
+        );
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Added "Dune" to read');
+        expect(controller.toBeRead.single.book.title, 'Dune');
+        expect(controller.toBeRead.single.currentPage, 0);
+        expect(controller.inProgress, isEmpty);
+        expect(controller.finished, isEmpty);
+        expect(notifications, greaterThan(0));
+      },
+    );
+
+    test(
+      'add shelf finished puts a new book on the finished shelf at 100%',
+      () async {
+        final controller = controllerWith([]);
+
+        final result = await controller.addToShelf(
+          'Dune',
+          ReadingStatus.finished,
+        );
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Added "Dune" as finished');
+        final entry = controller.finished.single;
+        expect(entry.book.title, 'Dune');
+        expect(entry.currentPage, 400, reason: 'the last page — 100%');
+        expect(entry.completion, 1);
+      },
+    );
+
+    test('add shelf reading adds a new book at page 0', () async {
+      final controller = controllerWith([]);
+
+      final result = await controller.addToShelf('Dune', ReadingStatus.reading);
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Started "Dune"');
+      expect(controller.inProgress.single.currentPage, 0);
+    });
+
+    test('logs each shelf as its own journal event', () async {
+      for (final (status, type) in [
+        (ReadingStatus.toBeRead, ReadingEventType.addToBeRead),
+        (ReadingStatus.finished, ReadingEventType.finish),
+        (ReadingStatus.dnf, ReadingEventType.dnf),
+        (ReadingStatus.reading, ReadingEventType.start),
+      ]) {
+        final controller = controllerWith([]);
+
+        await controller.addToShelf('Dune', status);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(events.loggedTypesAndTitles, [(type: type, title: 'Dune')]);
+      }
+    });
+
+    test('adding a book to the shelf it is already on fails', () async {
+      final controller = controllerWith([]);
+
+      await controller.addToShelf('Dune', ReadingStatus.toBeRead);
+      final second = await controller.addToShelf(
+        'dune',
+        ReadingStatus.toBeRead,
+      );
+
+      expect(second.success, isFalse);
+      expect(second.message, '"Dune" is already on your to-read shelf.');
+      expect(controller.toBeRead, hasLength(1));
+    });
+
+    test('refuses a book already marked DNF', () async {
+      final controller = controllerWith([]);
+      await controller.addToShelf('Dune', ReadingStatus.dnf);
+
+      final result = await controller.addToShelf('Dune', ReadingStatus.dnf);
+
+      expect(result.success, isFalse);
+      expect(result.message, '"Dune" is already marked as DNF.');
+    });
+  });
+
+  group('shelf changes and their side effects', () {
+    test('moving a reading book to finished sets it to 100%', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+
+      final result = await controller.addToShelf(
+        'Dune',
+        ReadingStatus.finished,
+      );
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Finished "Dune"');
+      final entry = controller.finished.single;
+      expect(entry.currentPage, 400);
+      expect(entry.completion, 1);
+      expect(entry.progress.finishedAt, isNotNull);
+      expect(userBooks.shelfChanges.single.currentPage, 400);
+    });
+
+    test('moving a book to finished without a page count keeps its page but '
+        'still reads as complete', () async {
+      final controller = controllerWith([
+        _entry(_untitledLength, page: 80),
+      ], cached: _untitledLength);
+      await controller.load();
+
+      await controller.addToShelf('Pale Fire', ReadingStatus.finished);
+
+      final entry = controller.finished.single;
+      expect(entry.currentPage, 80);
+      expect(entry.completion, 1);
+    });
+
+    test('moving a book to to read resets it to page 0', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+
+      await controller.addToShelf('Dune', ReadingStatus.toBeRead);
+
+      expect(controller.toBeRead.single.currentPage, 0);
+      expect(controller.toBeRead.single.completion, 0);
+      expect(userBooks.shelfChanges.single.currentPage, 0);
+    });
+
+    test(
+      'moving a finished book back to reading resets it to page 0 and clears '
+      'its finish date',
+      () async {
+        final controller = controllerWith([
+          _entry(_dune, page: 400, finished: true),
+        ]);
+        await controller.load();
+
+        await controller.addToShelf('Dune', ReadingStatus.reading);
+
+        final entry = controller.inProgress.single;
+        expect(entry.currentPage, 0);
+        expect(entry.progress.finishedAt, isNull);
+      },
+    );
+
+    test('moving a book to DNF keeps the page it reached', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+
+      final result = await controller.addToShelf('Dune', ReadingStatus.dnf);
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Marked "Dune" as DNF');
+      expect(controller.didNotFinish.single.currentPage, 120);
+    });
+
+    test('rolls a shelf change back when the write fails', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+      userBooks.failure = const NetworkException("You're offline");
+
+      final result = await controller.addToShelf('Dune', ReadingStatus.dnf);
+
+      expect(result.success, isFalse);
+      expect(result.message, "You're offline");
+      expect(controller.inProgress.single.currentPage, 120);
+      expect(controller.didNotFinish, isEmpty);
+    });
+
+    test('finish applies the same 100% rule as a shelf move', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 12, status: ReadingStatus.toBeRead),
+      ]);
+      await controller.load();
+
+      await controller.finishBook('Dune');
+
+      expect(controller.finished.single.currentPage, 400);
+    });
+  });
+
+  group('moveBook (drag and drop)', () {
+    test(
+      'reorders within a section without touching progress or the journal',
+      () async {
+        final controller = controllerWith([
+          _entry(_dune, page: 10),
+          _entry(_circe, page: 20),
+          _entry(_duneMessiah, page: 30),
+        ]);
+        await controller.load();
+        expect(controller.inProgress.map((e) => e.book.title), [
+          'Dune',
+          'Circe',
+          'Dune Messiah',
+        ]);
+
+        final result = await controller.moveBook(
+          'progress-book-4',
+          ReadingStatus.reading,
+          0,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(result.success, isTrue);
+        expect(result.message, isNull);
+        expect(controller.inProgress.map((e) => e.book.title), [
+          'Dune Messiah',
+          'Dune',
+          'Circe',
+        ]);
+        expect(controller.inProgress.first.currentPage, 30);
+        expect(userBooks.shelfChanges, isEmpty);
+        expect(userBooks.savedOrders.single, [
+          'progress-book-4',
+          'progress-book-1',
+          'progress-book-3',
+        ]);
+        expect(events.logged, isEmpty);
+      },
+    );
+
+    test(
+      'moving down within a section accounts for its own old slot',
+      () async {
+        final controller = controllerWith([
+          _entry(_dune),
+          _entry(_circe),
+          _entry(_duneMessiah),
+        ]);
+        await controller.load();
+
+        // Dropped "before index 2" (before Dune Messiah) — lands second.
+        await controller.moveBook('progress-book-1', ReadingStatus.reading, 2);
+
+        expect(controller.inProgress.map((e) => e.book.title), [
+          'Circe',
+          'Dune',
+          'Dune Messiah',
+        ]);
+      },
+    );
+
+    test('dropping a book back where it was is a silent no-op', () async {
+      final controller = controllerWith([_entry(_dune), _entry(_circe)]);
+      await controller.load();
+
+      final result = await controller.moveBook(
+        'progress-book-1',
+        ReadingStatus.reading,
+        0,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.message, isNull);
+      expect(userBooks.savedOrders, isEmpty);
+    });
+
+    test('moving into another section applies the shelf side effects and lands '
+        'at the drop index', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 120),
+        _entry(_circe, page: 300, finished: true, position: 0),
+        _entry(_duneMessiah, page: 250, finished: true, position: 1),
+      ]);
+      await controller.load();
+
+      final result = await controller.moveBook(
+        'progress-book-1',
+        ReadingStatus.finished,
+        1,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Finished "Dune"');
+      expect(controller.inProgress, isEmpty);
+      expect(controller.finished.map((e) => e.book.title), [
+        'Circe',
+        'Dune',
+        'Dune Messiah',
+      ]);
+      expect(controller.finished[1].currentPage, 400);
+      expect(userBooks.shelfChanges.single.status, ReadingStatus.finished);
+      expect(userBooks.savedOrders.single, [
+        'progress-book-3',
+        'progress-book-1',
+        'progress-book-4',
+      ]);
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.finish, title: 'Dune'),
+      ]);
+    });
+
+    test('dragging into to read resets progress to 0', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+
+      await controller.moveBook('progress-book-1', ReadingStatus.toBeRead, 0);
+
+      expect(controller.toBeRead.single.currentPage, 0);
+    });
+
+    test('rolls the whole shelf back if saving the order fails after the shelf '
+        'change landed', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 120),
+        _entry(_circe, finished: true, page: 300),
+      ]);
+      await controller.load();
+      userBooks.orderFailure = const NetworkException("You're offline");
+
+      final result = await controller.moveBook(
+        'progress-book-1',
+        ReadingStatus.finished,
+        0,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.message, "You're offline");
+      expect(controller.inProgress.single.currentPage, 120);
+      expect(controller.finished.single.book.title, 'Circe');
+    });
+
+    test('unplaced books sort ahead of placed ones', () async {
+      final controller = controllerWith([
+        _entry(_dune, position: 1),
+        _entry(_circe),
+        _entry(_duneMessiah, position: 0),
+      ]);
+      await controller.load();
+
+      expect(controller.inProgress.map((e) => e.book.title), [
+        'Circe',
+        'Dune Messiah',
+        'Dune',
+      ]);
+    });
+
+    test('currentlyReading ignores manual order', () async {
+      final controller = controllerWith([
+        _entry(_dune, position: 1),
+        _entry(_circe, position: 0),
+      ]);
+      await controller.load();
+
+      expect(controller.inProgress.first.book.title, 'Circe');
+      expect(
+        controller.currentlyReading?.book.title,
+        'Dune',
+        reason: 'the most recently updated reading book, not the top tile',
+      );
+    });
+  });
+
+  group('tags and comments commands', () {
+    test('add tag tags a book on the shelf', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+
+      final result = await controller.addTag('dune', 'sci-fi');
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Tagged "Dune" sci-fi');
+      expect(notes.tags.single, ('progress-book-1', 'sci-fi'));
+    });
+
+    test('add tag refuses a book that is not on the shelf', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+
+      final result = await controller.addTag('Dune', 'sci-fi');
+
+      expect(result.success, isFalse);
+      expect(result.message, contains("isn't on your shelf yet"));
+      expect(notes.tags, isEmpty);
+    });
+
+    test('add tag reports an invalid tag without writing', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+
+      final result = await controller.addTag('Dune', 'x' * 41);
+
+      expect(result.success, isFalse);
+      expect(result.message, 'Tags can be at most 40 characters.');
+    });
+
+    test('add tag surfaces a repository failure', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+      notes.failure = const NetworkException("You're offline");
+
+      final result = await controller.addTag('Dune', 'sci-fi');
+
+      expect(result.success, isFalse);
+      expect(result.message, "You're offline");
+    });
+
+    test('a quoted comment goes to the named book', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+
+      final result = await controller.addComment(
+        'loved the ending',
+        title: 'Dune',
+      );
+
+      expect(result.success, isTrue);
+      expect(notes.comments.single, ('progress-book-1', 'loved the ending'));
+    });
+
+    test(
+      'an unquoted comment is split on the longest trailing title',
+      () async {
+        final controller = controllerWith([
+          _entry(_dune),
+          _entry(_duneMessiah),
+        ]);
+        await controller.load();
+
+        final result = await controller.addComment(
+          'even better than the first dune messiah',
+        );
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Commented on "Dune Messiah"');
+        expect(notes.comments.single, (
+          'progress-book-4',
+          'even better than the first',
+        ));
+      },
+    );
+
+    test(
+      'an unquoted comment with no book on the shelf fails with a hint',
+      () async {
+        final controller = controllerWith([_entry(_dune)]);
+        await controller.load();
+
+        final result = await controller.addComment('great read circe');
+
+        expect(result.success, isFalse);
+        expect(result.message, contains('add comment "your comment" <book>'));
+        expect(notes.comments, isEmpty);
+      },
+    );
+
+    test(
+      'splitTrailingTitle always leaves at least one word of comment',
+      () async {
+        final controller = controllerWith([_entry(_dune)]);
+        await controller.load();
+
+        expect(controller.splitTrailingTitle('Dune'), isNull);
+        expect(controller.splitTrailingTitle('wow Dune')?.prefix, 'wow');
+      },
+    );
+  });
+
+  group('detail page by-id commands', () {
+    test('updateProgressById writes the page for exactly that row', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 10),
+        _entry(_duneMessiah, page: 10),
+      ]);
+      await controller.load();
+
+      final result = await controller.updateProgressById('progress-book-4', 50);
+
+      expect(result.success, isTrue);
+      expect(controller.findById('progress-book-4')!.currentPage, 50);
+      expect(controller.findById('progress-book-1')!.currentPage, 10);
+    });
+
+    test('updateProgressById validates the page', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.updateProgressById(
+        'progress-book-1',
+        999,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.message, '"Dune" only has 400 pages.');
+    });
+
+    test('pageForPercent is the one percent-to-page rule', () {
+      final dune = _entry(_dune);
+      expect(LibraryController.pageForPercent(dune, 50).page, 200);
+      expect(LibraryController.pageForPercent(dune, 101).page, isNull);
+      expect(LibraryController.pageForPercent(dune, double.nan).page, isNull);
+      expect(
+        LibraryController.pageForPercent(_entry(_untitledLength), 50).failure,
+        contains("don't know how many pages"),
+      );
+    });
+
+    test('rateBookById refuses an unfinished book', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.rateBookById('progress-book-1', 4);
+
+      expect(result.success, isFalse);
+      expect(result.message, 'Finish "Dune" before rating it.');
+    });
+
+    group('setOwnedEdition', () {
+      const shortEbook = BookEdition(
+        id: 'edition-short',
+        googleBooksId: 'g-short',
+        title: 'Dune',
+        author: 'Frank Herbert',
+        format: EditionFormat.ebook,
+        publisher: 'Penguin',
+        pageCount: 200,
+        coverUrl: 'https://example.test/short.jpg',
+      );
+      const noLength = BookEdition(
+        id: 'edition-unknown',
+        googleBooksId: 'g-unknown',
+        title: 'Dune',
+        author: 'Frank Herbert',
+        format: EditionFormat.physical,
+      );
+
+      test(
+        'makes the edition the book for this reader, keeping their place',
+        () async {
+          final controller = controllerWith([_entry(_dune, page: 100)]);
+          await controller.load();
+
+          final result = await controller.setOwnedEdition(
+            'progress-book-1',
+            shortEbook,
+          );
+
+          final entry = controller.findById('progress-book-1')!;
+          expect(result.success, isTrue);
+          // 100 of 400 is 25%; 25% of 200 is page 50.
+          expect(entry.currentPage, 50);
+          expect(entry.pageCount, 200);
+          expect(entry.completion, closeTo(0.25, 0.001));
+          expect(entry.displayBook.coverUrl, 'https://example.test/short.jpg');
+          expect(entry.displayBook.publisher, 'Penguin');
+          // The work itself is untouched — titles still match commands.
+          expect(entry.book.pageCount, 400);
+          expect(entry.displayBook.title, 'Dune');
+          expect(result.message, 'Saved your edition — now page 50 of 200');
+          expect(userBooks.ownedEditions.single, (
+            'progress-book-1',
+            'edition-short',
+            50,
+          ));
+        },
+      );
+
+      test('clearing it goes back to the work and rescales again', () async {
+        final controller = controllerWith([_entry(_dune, page: 100)]);
+        await controller.load();
+        await controller.setOwnedEdition('progress-book-1', shortEbook);
+
+        final result = await controller.setOwnedEdition(
+          'progress-book-1',
+          null,
+        );
+
+        final entry = controller.findById('progress-book-1')!;
+        expect(result.message, 'Cleared your edition — now page 100 of 400');
+        expect(entry.currentPage, 100);
+        expect(entry.ownedEdition, isNull);
+        expect(entry.displayBook.coverUrl, _dune.coverUrl);
+      });
+
+      test('a finished book stays finished at the new last page', () async {
+        final controller = controllerWith([
+          _entry(_dune, page: 400, finished: true),
+        ]);
+        await controller.load();
+
+        final result = await controller.setOwnedEdition(
+          'progress-book-1',
+          shortEbook,
+        );
+
+        final entry = controller.findById('progress-book-1')!;
+        expect(entry.currentPage, 200);
+        expect(entry.isFinished, isTrue);
+        expect(result.message, 'Saved your edition');
+      });
+
+      test(
+        'an edition without a length keeps the work length and page',
+        () async {
+          final controller = controllerWith([_entry(_dune, page: 100)]);
+          await controller.load();
+
+          await controller.setOwnedEdition('progress-book-1', noLength);
+
+          final entry = controller.findById('progress-book-1')!;
+          expect(entry.currentPage, 100);
+          expect(entry.pageCount, 400);
+          // No cover of its own: the work's cover stays rather than a blank.
+          expect(entry.displayBook.coverUrl, _dune.coverUrl);
+          // No publisher of its own: nothing, rather than the work's.
+          expect(entry.displayBook.publisher, isNull);
+        },
+      );
+
+      test('rolls back the edition and the page on failure', () async {
+        final controller = controllerWith([_entry(_dune, page: 100)]);
+        await controller.load();
+        userBooks.failure = const RemoteDataException('nope');
+
+        final result = await controller.setOwnedEdition(
+          'progress-book-1',
+          shortEbook,
+        );
+
+        final entry = controller.findById('progress-book-1')!;
+        expect(result.success, isFalse);
+        expect(entry.progress.ownedEditionId, isNull);
+        expect(entry.ownedEdition, isNull);
+        expect(entry.currentPage, 100);
+        expect(entry.pageCount, 400);
+      });
+
+      test('refuses an edition that was never cached', () async {
+        final controller = controllerWith([_entry(_dune, page: 100)]);
+        await controller.load();
+
+        final result = await controller.setOwnedEdition(
+          'progress-book-1',
+          const BookEdition(
+            googleBooksId: 'g',
+            title: 'Dune',
+            author: 'Frank Herbert',
+            format: EditionFormat.ebook,
+          ),
+        );
+
+        expect(result.success, isFalse);
+        expect(userBooks.ownedEditions, isEmpty);
+      });
+
+      test('progress commands use the owned edition length', () async {
+        final controller = controllerWith([_entry(_dune, page: 100)]);
+        await controller.load();
+        await controller.setOwnedEdition('progress-book-1', shortEbook);
+
+        final tooFar = await controller.updateProgress('Dune', 300);
+        expect(tooFar.message, '"Dune" only has 200 pages.');
+
+        final half = await controller.updateProgressByPercent('Dune', 50);
+        expect(half.success, isTrue);
+        expect(controller.findById('progress-book-1')!.currentPage, 100);
+      });
+
+      test('a later shelf write keeps the edition on the local row', () async {
+        final controller = controllerWith([_entry(_dune, page: 100)]);
+        await controller.load();
+        await controller.setOwnedEdition('progress-book-1', shortEbook);
+
+        await controller.updateProgress('Dune', 120);
+
+        expect(
+          controller.findById('progress-book-1')!.displayBook.coverUrl,
+          'https://example.test/short.jpg',
+        );
+      });
+    });
   });
 
   group('updateProgress', () {
@@ -474,6 +1296,49 @@ void main() {
         isEmpty,
         reason: 'a rolled-back write must not log an event',
       );
+    });
+  });
+
+  group('updateProgressByPercent', () {
+    test('resolves a percentage to a page against the total', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.updateProgressByPercent('Dune', 50);
+
+      expect(result.success, isTrue);
+      expect(controller.inProgress.single.currentPage, 200);
+    });
+
+    test('100% finishes the book, same as reaching the last page', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.updateProgressByPercent('Dune', 100);
+
+      expect(result.success, isTrue);
+      expect(controller.finished.single.book.title, 'Dune');
+    });
+
+    test('rejects a percentage outside 0-100 without writing', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.updateProgressByPercent('Dune', 120);
+
+      expect(result.success, isFalse);
+      expect(userBooks.saves, 0);
+      expect(controller.inProgress.single.currentPage, 10);
+    });
+
+    test('refuses a percentage when the total page count is unknown', () async {
+      final controller = controllerWith([_entry(_untitledLength, page: 3)]);
+      await controller.load();
+
+      final result = await controller.updateProgressByPercent('Pale Fire', 50);
+
+      expect(result.success, isFalse);
+      expect(userBooks.saves, 0);
     });
   });
 

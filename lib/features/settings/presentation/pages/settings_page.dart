@@ -10,13 +10,20 @@ import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
+import '../../../goals/presentation/goal_scope.dart';
+import '../../../goals/presentation/widgets/goal_sheet.dart';
+import '../../../library/presentation/library_scope.dart';
+import '../../../library_transfer/presentation/library_exporter.dart';
+import '../../../library_transfer/presentation/pages/import_page.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
 import '../../data/profile_repository.dart';
 import '../widgets/membership_card.dart';
+import '../widgets/settings_header.dart';
 import '../widgets/settings_section.dart';
+import 'commands_page.dart';
+import 'customisation_page.dart';
 
 /// Everything that isn't reading: the account the shelf actually belongs
 /// to, the subscription, how the app looks, and the legal small print.
@@ -44,6 +51,7 @@ class SettingsPage extends StatefulWidget {
     this.purchases,
     this.session,
     this.profileRepository,
+    this.exporter,
   });
 
   /// Injection point for tests: a fake wrapping fake customer info
@@ -58,6 +66,9 @@ class SettingsPage extends StatefulWidget {
   /// instead of the real SDK. Null in the app. Threaded straight through
   /// to [MembershipCard].
   final ProfileRepository? profileRepository;
+
+  /// Injection point for tests: a fake that doesn't open a share sheet.
+  final LibraryExporter? exporter;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -180,7 +191,7 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const _SettingsHeader(),
+              const SettingsHeader(title: 'settings'),
               const SizedBox(height: AppSpacing.lg),
               Expanded(
                 child: ListView(
@@ -190,11 +201,6 @@ class _SettingsPageState extends State<SettingsPage> {
                       session: session,
                       isPro: isPro,
                       profileRepository: widget.profileRepository,
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    _SubscriptionCard(
-                      loading: info == null && error == null,
-                      isPro: isPro,
                     ),
                     if (error != null) ...[
                       const SizedBox(height: AppSpacing.sm),
@@ -229,7 +235,18 @@ class _SettingsPageState extends State<SettingsPage> {
                       ],
                     ),
                     const SizedBox(height: AppSpacing.lg),
+                    const _ReadingSection(),
+                    const SizedBox(height: AppSpacing.lg),
+                    _LibraryDataSection(exporter: widget.exporter),
+                    const SizedBox(height: AppSpacing.lg),
+                    const _HelpSection(),
+                    const SizedBox(height: AppSpacing.lg),
                     const _AppearanceSection(),
+                    const SizedBox(height: AppSpacing.lg),
+                    _CustomisationSection(
+                      isPro: isPro,
+                      onLocked: _busy ? null : _upgrade,
+                    ),
                     const SizedBox(height: AppSpacing.lg),
                     SettingsSection(
                       title: 'about',
@@ -265,149 +282,129 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
-/// The screen's own heading: the name, flush left at the exact same
-/// position [TopBar]'s own title sits at on every other page, then a
-/// back chevron in the same top-right slot the gear occupies everywhere
-/// else — this is the one page that slot leads *back* from rather than
-/// *to*.
-///
-/// Deliberately not an [AppBar]. Nothing else in this app has one, and
-/// its Material defaults — the surface tint, the elevation shadow on
-/// scroll, the centred title — would make the one screen a reader opens
-/// least look like it came from a different app than the four they use
-/// daily. The geometry matches [TopBar] exactly — title first, icon
-/// last, both in the same 44pt row — so "settings" lands pixel-for-
-/// pixel where "library"/"streak"/"memory"/"add" do, not shifted right
-/// by a leading icon the way a naive "back, then title" row would.
-class _SettingsHeader extends StatelessWidget {
-  const _SettingsHeader();
-
-  /// The same 44pt square [TopBar] gives its gear.
-  static const _tapTarget = 44.0;
+/// The reader's yearly goal — the same value onboarding asked for and the
+/// stats page shows progress against. Free.
+class _ReadingSection extends StatelessWidget {
+  const _ReadingSection();
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-
-    return SizedBox(
-      height: _tapTarget,
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'settings',
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: colors.primaryText,
-              ),
-            ),
-          ),
-          Semantics(
-            button: true,
-            label: 'Back',
-            excludeSemantics: true,
-            child: InkResponse(
-              onTap: Navigator.of(context).pop,
-              radius: _tapTarget / 2,
-              child: SizedBox(
-                width: _tapTarget,
-                height: _tapTarget,
-                // Right-aligned inside the target, exactly where
-                // `TopBar`'s own gear sits on every other page.
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Icon(
-                    Icons.chevron_left,
-                    size: 24,
-                    color: colors.secondaryText,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    final goals = GoalScope.of(context);
+    final goal = goals.goal;
+    return SettingsSection(
+      title: 'reading',
+      rows: [
+        SettingsRow(
+          icon: Icons.flag_outlined,
+          label: 'yearly goal',
+          value: !goals.isLoaded
+              ? null
+              : goal == null
+              ? 'not set'
+              : '$goal ${goal == 1 ? 'book' : 'books'}',
+          onTap: () {
+            AppHaptics.selection();
+            showGoalSheet(context);
+          },
+        ),
+      ],
     );
   }
 }
 
-/// Loading / free / pro — the three states worth showing at a glance,
-/// before the reader ever has to open Customer Center to find out.
-class _SubscriptionCard extends StatelessWidget {
-  const _SubscriptionCard({required this.loading, required this.isPro});
+/// Getting a library out (CSV) and in (a Goodreads export, which replaces
+/// the library). Both free.
+class _LibraryDataSection extends StatefulWidget {
+  const _LibraryDataSection({this.exporter});
 
-  final bool loading;
-  final bool isPro;
+  final LibraryExporter? exporter;
+
+  @override
+  State<_LibraryDataSection> createState() => _LibraryDataSectionState();
+}
+
+class _LibraryDataSectionState extends State<_LibraryDataSection> {
+  bool _exporting = false;
+  String? _message;
+
+  Future<void> _export() async {
+    AppHaptics.selection();
+    setState(() {
+      _exporting = true;
+      _message = null;
+    });
+    final error = await (widget.exporter ?? const LibraryExporter()).export(
+      LibraryScope.read(context),
+    );
+    if (!mounted) return;
+    setState(() {
+      _exporting = false;
+      _message = error;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-
-    final String title;
-    final String subtitle;
-    if (loading) {
-      title = 'checking subscription…';
-      subtitle = '';
-    } else if (isPro) {
-      title = 'cactus pro';
-      subtitle = 'your subscription is active.';
-    } else {
-      title = 'free plan';
-      subtitle = 'remember and recommend are pro commands.';
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: (isPro ? colors.accent : colors.secondaryText).withValues(
-                alpha: 0.15,
-              ),
-              shape: BoxShape.circle,
+    final message = _message;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SettingsSection(
+          title: 'your library',
+          rows: [
+            SettingsRow(
+              icon: Icons.ios_share,
+              label: _exporting ? 'exporting…' : 'export as csv',
+              onTap: _exporting ? null : _export,
             ),
-            child: Icon(
-              isPro ? Icons.auto_awesome : Icons.person_outline,
-              color: isPro ? colors.accent : colors.secondaryText,
-              size: 20,
+            SettingsRow(
+              icon: Icons.upload_file_outlined,
+              label: 'import from goodreads',
+              onTap: () {
+                AppHaptics.selection();
+                openGoodreadsImport(context);
+              },
             ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.inter(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: colors.primaryText,
-                  ),
-                ),
-                if (subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: colors.secondaryText,
-                    ),
-                  ),
-                ],
-              ],
-            ),
+          ],
+        ),
+        if (message != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            message,
+            style: GoogleFonts.inter(fontSize: 13, color: colors.secondaryText),
           ),
         ],
-      ),
+      ],
+    );
+  }
+}
+
+/// The one row that leads to [CommandsPage] — every text command, for a
+/// reader who has forgotten one. Free, unlike customisation: knowing what
+/// you can type is part of using the app at all.
+class _HelpSection extends StatelessWidget {
+  const _HelpSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsSection(
+      title: 'help',
+      rows: [
+        SettingsRow(
+          icon: Icons.terminal,
+          label: 'commands',
+          onTap: () {
+            AppHaptics.selection();
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'commands'),
+                builder: (_) => const CommandsPage(),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }
@@ -448,6 +445,48 @@ class _AppearanceSection extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// The one row that leads to [CustomisationPage] — sixteen launcher
+/// icons across three groups, plus (today) nothing else, though the
+/// label leaves room for whatever else "how the app looks" grows to
+/// mean. A "cactus pro" feature like `remember`/`recommend`: free
+/// readers see the row faded rather than hidden — same
+/// discoverability-without-access `HomePage` gives those two commands —
+/// and tapping it opens the paywall instead of the page.
+class _CustomisationSection extends StatelessWidget {
+  const _CustomisationSection({required this.isPro, required this.onLocked});
+
+  final bool isPro;
+
+  /// Opens the paywall. Null while a subscription action is already in
+  /// flight elsewhere on this screen, same guard every other row here
+  /// uses.
+  final VoidCallback? onLocked;
+
+  void _open(BuildContext context) {
+    AppHaptics.selection();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'customisation'),
+        builder: (_) => const CustomisationPage(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final row = SettingsRow(
+      icon: Icons.palette_outlined,
+      label: 'themes and icons',
+      onTap: isPro ? () => _open(context) : onLocked,
+    );
+
+    return SettingsSection(
+      title: 'customisation',
+      rows: [isPro ? row : Opacity(opacity: 0.4, child: row)],
     );
   }
 }

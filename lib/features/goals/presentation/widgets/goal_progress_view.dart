@@ -1,0 +1,175 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_radius.dart';
+import '../../../../core/theme/app_spacing.dart';
+import '../../domain/reading_goal.dart';
+
+/// Progress towards the yearly goal — "7 of 24 books in 2026", a bar, and
+/// whether that's ahead of or behind a steady pace. Tapping it edits the
+/// goal. With no goal set it becomes a single "set a reading goal" prompt.
+///
+/// [compact] is the add tab's version: one line and a thin bar, sized to sit
+/// between the currently-reading row and the streak.
+class GoalProgressView extends StatelessWidget {
+  const GoalProgressView({
+    super.key,
+    required this.progress,
+    required this.onEdit,
+    this.compact = false,
+    this.now,
+  });
+
+  /// Null when the reader has no goal.
+  final ReadingGoal? progress;
+  final VoidCallback onEdit;
+  final bool compact;
+
+  /// Test seam for the pace label.
+  final DateTime? now;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final progress = this.progress;
+
+    if (progress == null) {
+      return Semantics(
+        button: true,
+        child: InkWell(
+          onTap: onEdit,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+            child: Row(
+              children: [
+                Icon(Icons.flag_outlined, size: 16, color: colors.accent),
+                const SizedBox(width: 6),
+                Text(
+                  'set a reading goal',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: colors.accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final pace = progress.paceLabel(now ?? DateTime.now());
+    final percent = (progress.fraction * 100).round();
+
+    return Semantics(
+      button: true,
+      label:
+          'Reading goal: ${progress.summary}, $percent percent, $pace. '
+          'Double tap to change it.',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onEdit,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (compact)
+                Row(
+                  children: [
+                    Icon(Icons.flag_outlined, size: 16, color: colors.accent),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        progress.summary,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: colors.primaryText,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      pace,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 12,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  ],
+                )
+              else ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      '${progress.finished}',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 40,
+                        fontWeight: FontWeight.w600,
+                        color: colors.primaryText,
+                      ),
+                    ),
+                    Text(
+                      ' / ${progress.goal} books',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 16,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      Icons.edit_outlined,
+                      size: 16,
+                      color: colors.secondaryText,
+                    ),
+                  ],
+                ),
+                Text(
+                  '${progress.year} goal · $pace',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 13,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ],
+              SizedBox(height: compact ? AppSpacing.sm : AppSpacing.md),
+              _Bar(fraction: progress.fraction, thickness: compact ? 4 : 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Bar extends StatelessWidget {
+  const _Bar({required this.fraction, required this.thickness});
+
+  final double fraction;
+  final double thickness;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final radius = BorderRadius.circular(AppRadius.pill);
+    return Container(
+      height: thickness,
+      decoration: BoxDecoration(color: colors.divider, borderRadius: radius),
+      alignment: Alignment.centerLeft,
+      child: FractionallySizedBox(
+        widthFactor: fraction,
+        child: Container(
+          decoration: BoxDecoration(color: colors.accent, borderRadius: radius),
+        ),
+      ),
+    );
+  }
+}

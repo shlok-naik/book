@@ -10,6 +10,19 @@ class GoogleBook {
     this.thumbnailUrl,
     this.description,
     this.pageCount,
+    this.subtitle,
+    this.publisher,
+    this.publishedDate,
+    this.categories = const [],
+    this.language,
+    this.isbn10,
+    this.isbn13,
+    this.averageRating,
+    this.ratingsCount,
+    this.maturityRating,
+    this.previewLink,
+    this.printType,
+    this.isEbook = false,
   });
 
   final String id;
@@ -21,6 +34,29 @@ class GoogleBook {
   /// Total pages, when the volume reports it. Needed to turn a logged
   /// page number into a completion percentage.
   final int? pageCount;
+
+  // ---- Extended fields — used by the book detail page's info section and
+  // by `EditionFilter` to tell an ebook from a physical book from a
+  // magazine. All optional; Google omits any of them freely.
+
+  final String? subtitle;
+  final String? publisher;
+  final String? publishedDate;
+  final List<String> categories;
+  final String? language;
+  final String? isbn10;
+  final String? isbn13;
+  final double? averageRating;
+  final int? ratingsCount;
+  final String? maturityRating;
+  final String? previewLink;
+
+  /// `BOOK` or `MAGAZINE` (Google's only two values today).
+  final String? printType;
+
+  /// `saleInfo.isEbook` — Google's own statement that this volume is sold
+  /// as an ebook.
+  final bool isEbook;
 
   /// Authors joined the way the app renders them everywhere (one line).
   String get authorLine =>
@@ -35,6 +71,18 @@ class GoogleBook {
         (json['volumeInfo'] as Map<String, dynamic>?) ?? const {};
     final imageLinks =
         (volumeInfo['imageLinks'] as Map<String, dynamic>?) ?? const {};
+
+    final saleInfo = (json['saleInfo'] as Map<String, dynamic>?) ?? const {};
+    final identifiers = <String, String>{
+      for (final identifier
+          in (volumeInfo['industryIdentifiers'] as List<dynamic>?) ?? const [])
+        if (identifier is Map<String, dynamic> &&
+            identifier['type'] is String &&
+            identifier['identifier'] is String)
+          identifier['type'] as String: identifier['identifier'] as String,
+    };
+    final rawRating = volumeInfo['averageRating'];
+    final rawRatingsCount = volumeInfo['ratingsCount'];
 
     final rawPageCount = volumeInfo['pageCount'];
     final pageCount = switch (rawPageCount) {
@@ -57,7 +105,30 @@ class GoogleBook {
       thumbnailUrl: _httpsUrl(imageLinks['thumbnail'] as String?),
       description: volumeInfo['description'] as String?,
       pageCount: (pageCount != null && pageCount > 0) ? pageCount : null,
+      subtitle: _text(volumeInfo['subtitle']),
+      publisher: _text(volumeInfo['publisher']),
+      publishedDate: _text(volumeInfo['publishedDate']),
+      categories:
+          (volumeInfo['categories'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList() ??
+          const [],
+      language: _text(volumeInfo['language']),
+      isbn10: identifiers['ISBN_10'],
+      isbn13: identifiers['ISBN_13'],
+      averageRating: rawRating is num ? rawRating.toDouble() : null,
+      ratingsCount: rawRatingsCount is num ? rawRatingsCount.toInt() : null,
+      maturityRating: _text(volumeInfo['maturityRating']),
+      previewLink: _httpsUrl(_text(volumeInfo['previewLink'])),
+      printType: _text(volumeInfo['printType']),
+      isEbook: saleInfo['isEbook'] == true,
     );
+  }
+
+  static String? _text(Object? value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   static String? _httpsUrl(String? url) {

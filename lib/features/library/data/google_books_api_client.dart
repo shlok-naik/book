@@ -39,22 +39,77 @@ class GoogleBooksApiClient {
       throw const InvalidInputException('Enter a book title to search for.');
     }
 
-    final apiKey = Env.googleBooksApiKeyOrNull;
-    final uri = Uri.parse(_baseUrl).replace(
-      queryParameters: {
-        'q': trimmed,
-        // Google caps maxResults at 40; keep the request inside that.
-        'maxResults': '${maxResults.clamp(1, 40)}',
-        'key': ?apiKey,
-      },
-    );
+    final uri = _uri(_baseUrl, {
+      'q': trimmed,
+      // Google caps maxResults at 40; keep the request inside that.
+      'maxResults': '${maxResults.clamp(1, 40)}',
+    });
 
+    final body = await _getJson(uri, subject: 'Book search');
+    try {
+      final items = (body['items'] as List<dynamic>?) ?? const [];
+      return items
+          .whereType<Map<String, dynamic>>()
+          .map(GoogleBook.fromJson)
+          // A volume with no id cannot be cached or de-duplicated, so
+          // drop it rather than writing an unmatchable cache row.
+          .where((book) => book.id.isNotEmpty)
+          .toList();
+    } on TypeError catch (error) {
+      throw RemoteDataException(
+        'Google Books sent back something we could not read.',
+        cause: error,
+      );
+    }
+  }
+
+  /// Fetches one volume by its Google Books id — the full record, which
+  /// (unlike a search result) carries the complete description, categories
+  /// and ratings the book detail page shows.
+  ///
+  /// Same error contract as [search], plus [BookNotFoundException] for a
+  /// 404: the volume was withdrawn from Google Books after we cached it.
+  Future<GoogleBook> fetchVolume(String googleBooksId) async {
+    final id = googleBooksId.trim();
+    if (id.isEmpty) {
+      throw const InvalidInputException("That book doesn't have a Google id.");
+    }
+
+    final uri = _uri('$_baseUrl/${Uri.encodeComponent(id)}', const {});
+    final body = await _getJson(uri, subject: 'Book info');
+    try {
+      final volume = GoogleBook.fromJson(body);
+      if (volume.id.isEmpty) {
+        throw const FormatException('Volume without an id.');
+      }
+      return volume;
+    } on Object catch (error) {
+      if (error is LibraryException) rethrow;
+      throw RemoteDataException(
+        'Google Books sent back something we could not read.',
+        cause: error,
+      );
+    }
+  }
+
+  Uri _uri(String base, Map<String, String> query) {
+    final apiKey = Env.googleBooksApiKeyOrNull;
+    return Uri.parse(base).replace(queryParameters: {...query, 'key': ?apiKey});
+  }
+
+  /// One GET, with every transport/status/parse failure translated into a
+  /// [LibraryException]. [subject] names the request in the user-facing
+  /// timeout message ("Book search timed out", "Book info timed out").
+  Future<Map<String, dynamic>> _getJson(
+    Uri uri, {
+    required String subject,
+  }) async {
     final http.Response response;
     try {
       response = await _client.get(uri).timeout(_timeout);
     } on TimeoutException catch (error) {
       throw NetworkException(
-        'Book search timed out. Check your connection and try again.',
+        '$subject timed out. Check your connection and try again.',
         cause: error,
       );
     } on SocketException catch (error) {
@@ -69,16 +124,22 @@ class GoogleBooksApiClient {
       );
     }
 
-    if (response.statusCode >= 500) {
-      // Server-side and therefore worth retrying later.
+    if (response.statusCode >= 500 || response.statusCode == 429) {
+      // Server-side or rate-limited, and therefore worth retrying later.
       throw NetworkException(
         'Google Books is having trouble right now. Try again shortly.',
         cause: 'HTTP ${response.statusCode}: ${response.body}',
       );
     }
+    if (response.statusCode == 404) {
+      throw BookNotFoundException(
+        "Google Books doesn't have that book any more.",
+        cause: 'HTTP 404: ${response.body}',
+      );
+    }
     if (response.statusCode != 200) {
-      // 4xx: bad key, exhausted quota, malformed query — retrying the
-      // same call will not help, so this is a data/config error.
+      // 4xx: bad key, malformed query — retrying the same call will not
+      // help, so this is a data/config error.
       throw RemoteDataException(
         "Book search isn't available right now.",
         cause: 'HTTP ${response.statusCode}: ${response.body}',
@@ -90,20 +151,8 @@ class GoogleBooksApiClient {
       if (body is! Map<String, dynamic>) {
         throw const FormatException('Expected a JSON object at the root.');
       }
-      final items = (body['items'] as List<dynamic>?) ?? const [];
-      return items
-          .whereType<Map<String, dynamic>>()
-          .map(GoogleBook.fromJson)
-          // A volume with no id cannot be cached or de-duplicated, so
-          // drop it rather than writing an unmatchable cache row.
-          .where((book) => book.id.isNotEmpty)
-          .toList();
+      return body;
     } on FormatException catch (error) {
-      throw RemoteDataException(
-        'Google Books sent back something we could not read.',
-        cause: error,
-      );
-    } on TypeError catch (error) {
       throw RemoteDataException(
         'Google Books sent back something we could not read.',
         cause: error,

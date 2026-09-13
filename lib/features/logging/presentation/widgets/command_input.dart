@@ -5,12 +5,20 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import 'strikethrough_text_editing_controller.dart';
 
-/// Runs a submitted command.
-///
-/// Returning true accepts it — the line is struck through, a checkmark
-/// pops in, and the field clears. Returning false rejects it — the field
-/// shakes and keeps the text, ready to be corrected.
-typedef CommandSubmitHandler = Future<bool> Function(String command);
+/// How a submitted command turned out, as far as the field is concerned.
+enum CommandOutcome {
+  /// Struck through, a checkmark pops in, and the field clears.
+  accepted,
+
+  /// The field shakes and keeps the text, ready to be corrected.
+  rejected,
+
+  /// The reader backed out (e.g. cancelled a delete confirmation): the
+  /// text stays, with no shake — nothing went wrong.
+  dismissed,
+}
+
+typedef CommandSubmitHandler = Future<CommandOutcome> Function(String command);
 
 /// The log page's command line.
 ///
@@ -29,6 +37,7 @@ class CommandInput extends StatefulWidget {
     required this.style,
     required this.onSubmit,
     this.hintText = '...',
+    this.onHasTextChanged,
   });
 
   /// Owned by the caller, so the page can hand focus back to the field
@@ -42,6 +51,14 @@ class CommandInput extends StatefulWidget {
   final CommandSubmitHandler onSubmit;
 
   final String hintText;
+
+  /// Fires only when the field crosses the empty/non-empty boundary, not
+  /// on every keystroke — what the page uses to hide the "currently
+  /// reading" peek the instant typing starts, and bring it back if the
+  /// field is cleared. A decision the page makes, not a look [CommandInput]
+  /// owns, so it's a callback rather than this widget reaching for that
+  /// UI itself.
+  final ValueChanged<bool>? onHasTextChanged;
 
   @override
   State<CommandInput> createState() => _CommandInputState();
@@ -90,19 +107,33 @@ class _CommandInputState extends State<CommandInput>
   /// double-tap of the return key can't fire the same command twice.
   bool _busy = false;
 
+  /// Last emptiness [widget.onHasTextChanged] was told about — so that
+  /// callback fires only on the empty/non-empty boundary, not once per
+  /// keystroke.
+  bool _hadText = false;
+
   @override
   void initState() {
     super.initState();
     _strike.addListener(_syncStrike);
+    _text.addListener(_syncHasText);
   }
 
   /// Hands the strike animation's value to the controller, which is what
   /// actually renders the line — the animation never touches the text.
   void _syncStrike() => _text.strikeProgress = _strike.value;
 
+  void _syncHasText() {
+    final hasText = _text.text.isNotEmpty;
+    if (hasText == _hadText) return;
+    _hadText = hasText;
+    widget.onHasTextChanged?.call(hasText);
+  }
+
   @override
   void dispose() {
     _strike.removeListener(_syncStrike);
+    _text.removeListener(_syncHasText);
     (_strike as CurvedAnimation).dispose();
     (_check as CurvedAnimation).dispose();
     _accept.dispose();
@@ -123,12 +154,12 @@ class _CommandInputState extends State<CommandInput>
     if (command.isEmpty || _busy) return;
 
     setState(() => _busy = true);
-    final accepted = await widget.onSubmit(command);
+    final outcome = await widget.onSubmit(command);
     if (!mounted) return;
 
-    if (!accepted) {
+    if (outcome != CommandOutcome.accepted) {
       setState(() => _busy = false);
-      _shake.forward(from: 0);
+      if (outcome == CommandOutcome.rejected) _shake.forward(from: 0);
       widget.focusNode.requestFocus();
       return;
     }

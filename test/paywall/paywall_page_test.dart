@@ -650,6 +650,21 @@ void main() {
       expect(find.text('chapter II'), findsOneWidget);
       expect(find.text('A Mind of Its Own'), findsOneWidget);
     });
+
+    testWidgets('a fourth chapter pitches icon/theme customisation', (
+      tester,
+    ) async {
+      await pumpPaywall(tester);
+
+      // I -> II -> III -> IV: three swipes land on the new chapter.
+      for (var i = 0; i < 3; i++) {
+        await tester.drag(find.byType(PageView), const Offset(-400, 0));
+        await settleFrames(tester);
+      }
+
+      expect(find.text('chapter IV'), findsOneWidget);
+      expect(find.text('Unparalleled Customisation'), findsOneWidget);
+    });
   });
 
   group('accessibility', () {

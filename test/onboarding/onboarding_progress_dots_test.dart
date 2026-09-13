@@ -4,7 +4,7 @@ import 'package:book/features/onboarding/presentation/widgets/onboarding_progres
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Three steps now — tutorial, look, finish. The two account steps and
+/// Four steps now — tutorial, look, goal, finish. The two account steps and
 /// the bypass loop that used to hop around them went with the sign-up
 /// flow: onboarding no longer creates an account, so there is no longer
 /// a branch for the line to draw.
@@ -44,7 +44,10 @@ void main() {
 
     expect(decorations, hasLength(OnboardingProgressDots.stepCount));
     expect(decorations.where((d) => d.color == colors.accent).length, 2);
-    expect(decorations.where((d) => d.color == colors.divider).length, 1);
+    expect(
+      decorations.where((d) => d.color == colors.divider).length,
+      OnboardingProgressDots.stepCount - 2,
+    );
   });
 
   testWidgets('fills every dot on the last step', (tester) async {

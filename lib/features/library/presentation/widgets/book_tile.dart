@@ -73,9 +73,9 @@ class BookTile extends StatelessWidget {
               color: entry.isFinished ? colors.accent : colors.secondaryText,
             ),
           ),
-          // Only ever set on a finished book (LibraryController.rateBook
-          // enforces that), so no separate isFinished check is needed here.
-          if (entry.rating != null) ...[
+          // Only ever *set* on a finished book, but it survives a move off
+          // the finished shelf — shown only while the book is finished.
+          if (entry.isFinished && entry.rating != null) ...[
             const SizedBox(height: 2),
             _StarRating(rating: entry.rating!, color: colors.accent),
           ],
@@ -105,7 +105,7 @@ class BookTile extends StatelessWidget {
       }
     }
 
-    final rating = entry.rating;
+    final rating = entry.isFinished ? entry.rating : null;
     if (rating != null) {
       // "4 stars", not "4.0 stars".
       final stars = rating == rating.roundToDouble()

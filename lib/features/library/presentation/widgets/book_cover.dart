@@ -74,6 +74,19 @@ class _CoverPlaceholder extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
 
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Too small for a readable title (a series list thumbnail): just
+        // the blank cover, rather than text that overflows it.
+        if (constraints.maxHeight < 96) {
+          return ColoredBox(color: colors.surface);
+        }
+        return _labelled(colors);
+      },
+    );
+  }
+
+  Widget _labelled(AppColors colors) {
     return Container(
       color: colors.surface,
       padding: const EdgeInsets.all(AppSpacing.sm),

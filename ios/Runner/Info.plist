@@ -8,6 +8,124 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>cactus</string>
+	<!-- The primary icon (original · light) stays on the AppIcon asset
+	     catalog set as usual. Every other style/mode combination is an
+	     alternate here, backed by a plain "AppIcon-<Pascal>" image set in
+	     Assets.xcassets (not an app-icon set — that's enough for a named
+	     alternate icon) that AppDelegate's setAlternateIconName call
+	     switches to. Keep this list in step with `AppIcon` in
+	     lib/core/platform/app_icon.dart. -->
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundleAlternateIcons</key>
+		<dict>
+			<key>OriginalDark</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-OriginalDark</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>BooklinesLight</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-BooklinesLight</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>BooklinesDark</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-BooklinesDark</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>Lavender</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-Lavender</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>Midnight</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-Midnight</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>Mint</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-Mint</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>Raspberry</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-Raspberry</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>Rose</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-Rose</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>Sunflower</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-Sunflower</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>SunsetLight</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-SunsetLight</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>SunsetDark</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-SunsetDark</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>CloudsLight</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-CloudsLight</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>CloudsDark</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-CloudsDark</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>TrianglesLight</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-TrianglesLight</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+			<key>TrianglesDark</key>
+			<dict>
+				<key>CFBundleIconFiles</key>
+				<array><string>AppIcon-TrianglesDark</string></array>
+				<key>UIPrerenderedIcon</key>
+				<false/>
+			</dict>
+		</dict>
+	</dict>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

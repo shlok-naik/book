@@ -4,6 +4,11 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../env/env.dart';
+import 'account_link.dart';
+
+export 'account_link.dart';
+
 /// A failure from any [SessionService] call, already written for a
 /// human — the UI shows [message] verbatim. The original error is kept
 /// in [cause] for logging only, never rendered.
@@ -42,9 +47,29 @@ class SessionService {
   /// The client is resolved lazily rather than captured in the
   /// constructor, so a `SessionService` can be built before (or without)
   /// `Supabase.initialize` — widget tests construct one without it.
-  SessionService({SupabaseClient? client}) : _injectedClient = client;
+  SessionService({SupabaseClient? client, this.secondaryClientFactory})
+    : _injectedClient = client;
 
   final SupabaseClient? _injectedClient;
+
+  /// Test seam for the sign-in client; null in the app.
+  final SupabaseClient Function()? secondaryClientFactory;
+
+  /// The client [sendSignInCode] signs in with — separate from the app's
+  /// own, in memory only and never refreshed, so signing in to an email
+  /// account can't replace this device's session behind the reader's back.
+  SupabaseClient _newSecondaryClient() =>
+      secondaryClientFactory?.call() ??
+      SupabaseClient(
+        Env.supabaseUrl,
+        Env.supabaseAnonKey,
+        authOptions: const AuthClientOptions(
+          autoRefreshToken: false,
+          authFlowType: AuthFlowType.implicit,
+        ),
+      );
+
+  SupabaseClient? _signInClient;
 
   SupabaseClient get _client => _injectedClient ?? Supabase.instance.client;
 
@@ -99,11 +124,154 @@ class SessionService {
   /// a fresh `signInWithOtp`: the latter would provision a second
   /// account and abandon this one's shelf, whereas this keeps the same
   /// uid — see the class comment.
-  Future<void> linkEmail(String email) {
-    return _run(
-      () => _client.auth.updateUser(UserAttributes(email: email.trim())),
+  ///
+  /// Throws [EmailInUseException] when the address already belongs to
+  /// another account — the start of the "which library?" flow.
+  Future<void> linkEmail(String email) async {
+    try {
+      await _client.auth.updateUser(UserAttributes(email: email.trim()));
+    } on AuthException catch (error) {
+      if (error.code == 'email_exists' ||
+          error.message.toLowerCase().contains('already been registered')) {
+        throw EmailInUseException(email.trim());
+      }
+      throw SessionException(error.message, cause: error);
+    } on Object catch (error) {
+      await _run<void>(() => Future.error(error));
+    }
+  }
+
+  /// Mails a sign-in code for an email that already has an account, on a
+  /// separate client (see [_newSecondaryClient]). `shouldCreateUser: false`
+  /// — this only ever reaches an account that exists.
+  Future<void> sendSignInCode(String email) async {
+    final previous = _signInClient;
+    _signInClient = null;
+    await previous?.dispose();
+    final client = _signInClient = _newSecondaryClient();
+    await _run(
+      () => client.auth.signInWithOtp(
+        email: email.trim(),
+        shouldCreateUser: false,
+      ),
     );
   }
+
+  /// Confirms [sendSignInCode]'s code. The device's own session is
+  /// untouched; the returned [PendingAccount] holds the email account's.
+  Future<PendingAccount> verifySignInCode({
+    required String email,
+    required String code,
+  }) async {
+    final client = _signInClient;
+    if (client == null) {
+      throw const SessionException('Send a code first.');
+    }
+    final response = await _run(
+      () => client.auth.verifyOTP(
+        type: OtpType.email,
+        email: email.trim(),
+        token: code.trim(),
+      ),
+    );
+    final session = response.session;
+    if (session == null) {
+      throw const SessionException("That code didn't sign you in. Try again.");
+    }
+    _signInClient = null;
+    return PendingAccount(
+      userId: session.user.id,
+      email: email.trim(),
+      refreshToken: session.refreshToken,
+      client: client,
+    );
+  }
+
+  /// What's on this device's own account.
+  Future<LibrarySummary> deviceSummary() => _summary(_client);
+
+  /// What's on [account].
+  Future<LibrarySummary> accountSummary(PendingAccount account) {
+    final client = account.client;
+    if (client == null) {
+      throw const SessionException('Sign in to your email again.');
+    }
+    return _summary(client);
+  }
+
+  Future<LibrarySummary> _summary(SupabaseClient client) {
+    return _run(() async {
+      final rows = await client.rpc<List<dynamic>>('library_summary');
+      final row = rows.isEmpty ? null : rows.first;
+      if (row is! Map<String, dynamic>) {
+        return const LibrarySummary(
+          bookCount: 0,
+          memoryCount: 0,
+          eventCount: 0,
+        );
+      }
+      return LibrarySummary.fromRow(row);
+    });
+  }
+
+  /// Settles the choice: this device switches to [account]'s session, and
+  /// the `link-account` edge function keeps either that account's library
+  /// ([keepDevice] false) or this device's (moved onto the account), then
+  /// deletes the anonymous account the device started on.
+  ///
+  /// The switch happens *before* the function runs. If the function then
+  /// fails, nothing is lost — the anonymous account and its library still
+  /// exist — and calling this again with the same [account] retries with
+  /// the token captured the first time.
+  Future<void> keepLibrary(
+    PendingAccount account, {
+    required bool keepDevice,
+  }) async {
+    var deviceToken = _pendingDeviceToken;
+    if (deviceToken == null) {
+      final current = _client.auth.currentSession;
+      if (current == null) {
+        throw const SessionException("This device isn't signed in.");
+      }
+      if (current.user.id != account.userId) {
+        final refreshed = await _run(() => _client.auth.refreshSession());
+        deviceToken = refreshed.session?.accessToken ?? current.accessToken;
+        _pendingDeviceToken = deviceToken;
+      }
+    }
+
+    final refreshToken = account.refreshToken;
+    if (_client.auth.currentUser?.id != account.userId) {
+      if (refreshToken == null) {
+        throw const SessionException('Sign in to your email again.');
+      }
+      await _run(() => _client.auth.setSession(refreshToken));
+    }
+
+    if (deviceToken != null) {
+      try {
+        await _client.functions.invoke(
+          'link-account',
+          body: {
+            'anonymous_access_token': deviceToken,
+            'keep': keepDevice ? 'device' : 'account',
+          },
+        );
+      } on FunctionException catch (error) {
+        final details = error.details;
+        final message = details is Map && details['error'] is String
+            ? details['error'] as String
+            : "We couldn't finish linking your email. Try again.";
+        throw SessionException(message, cause: error);
+      } on Object catch (error) {
+        await _run<void>(() => Future.error(error));
+      }
+    }
+    _pendingDeviceToken = null;
+    await account.dispose();
+  }
+
+  String? _pendingDeviceToken;
 
   /// Confirms the code [linkEmail] mailed. [OtpType.emailChange] is the
   /// type that pairs with `updateUser(email:)`; [OtpType.email] would

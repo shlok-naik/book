@@ -35,6 +35,20 @@ class ProfileRepository {
     }, friendlyMessage: "We couldn't load your profile.");
   }
 
+  /// Stamps which device last opened this account and when — what the
+  /// library choice shows when an email is linked on a second device.
+  Future<void> recordDevice(String userId, {String? deviceName}) {
+    return _run<void>(() async {
+      await _client
+          .from('profiles')
+          .update({
+            'device_name': ?deviceName,
+            'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('id', userId);
+    }, friendlyMessage: "We couldn't update your profile.");
+  }
+
   Future<T> _run<T>(
     Future<T> Function() action, {
     required String friendlyMessage,

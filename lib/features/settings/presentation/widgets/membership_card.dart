@@ -11,6 +11,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../data/profile_repository.dart';
 import '../../domain/profile_exception.dart';
 import '../pages/email_sheet.dart';
+import '../pages/library_conflict_page.dart';
 
 /// The settings screen's own "cactus" card — a flat membership card,
 /// not another settings row: the wordmark and a PRO badge on top, when
@@ -103,8 +104,20 @@ class _MembershipCardState extends State<MembershipCard> {
   /// that does. Same sheet, same two Supabase calls either way — see
   /// [showEmailSheet].
   Future<void> _editEmail() async {
-    final verified = await showEmailSheet(context, session: widget.session);
-    if (verified == true && mounted) setState(() {});
+    final result = await showEmailSheet(context, session: widget.session);
+    if (result == null || !mounted) return;
+    final existing = result.existingAccount;
+    if (existing != null) {
+      await openLibraryConflict(
+        context,
+        session: widget.session,
+        account: existing,
+      );
+      if (!mounted) return;
+      _loading = true;
+      await _loadProfile();
+    }
+    if (mounted) setState(() {});
   }
 
   /// `m.d.yy`, no leading zeros — matches the streak journal's own date
@@ -134,7 +147,10 @@ class _MembershipCardState extends State<MembershipCard> {
         DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: colors.divider),
+            // A pure black outline, deliberately not a theme token — it's
+            // what gives the card a drawn, cut-out edge instead of just a
+            // soft drop shadow, in both light and dark mode alike.
+            border: Border.all(color: Colors.black, width: 1.5),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: isLight ? 0.14 : 0.5),

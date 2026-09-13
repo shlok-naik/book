@@ -6,12 +6,24 @@ enum ReadingEventType {
   update,
   finish,
   rate,
-  delete;
+  delete,
 
-  /// Column value stored in Supabase. Lowercase, matches the name — kept
-  /// as a string (not an int) so the table stays readable in the
-  /// dashboard, same convention as `ReadingStatus.wireValue`.
-  String get wireValue => name;
+  /// `add <book> tbr` — `add <book> finished` logs as [finish] instead,
+  /// since that's exactly what happened; there's nothing else to name.
+  addToBeRead,
+
+  /// `add <book> dnf`.
+  dnf;
+
+  /// Column value stored in Supabase. Lowercase, matches the name for
+  /// every other value — kept as a string (not an int) so the table
+  /// stays readable in the dashboard, same convention as
+  /// `ReadingStatus.wireValue`. [addToBeRead] needs its own mapping
+  /// since its Dart name isn't already snake_case.
+  String get wireValue => switch (this) {
+    ReadingEventType.addToBeRead => 'add_to_be_read',
+    _ => name,
+  };
 
   static ReadingEventType? fromWire(Object? value) {
     for (final type in ReadingEventType.values) {

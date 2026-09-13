@@ -1,0 +1,1573 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../../../../core/diagnostics/app_logger.dart';
+import '../../../../core/feedback/app_haptics.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_radius.dart';
+import '../../../../core/theme/app_spacing.dart';
+import '../../../logging/presentation/widgets/confirmation_pill.dart';
+import '../../../settings/presentation/widgets/settings_header.dart';
+import '../../domain/book.dart';
+import '../../domain/book_edition.dart';
+import '../../domain/book_note.dart';
+import '../../domain/library_book.dart';
+import '../../domain/user_book.dart';
+import '../controllers/book_detail_controller.dart';
+import '../controllers/library_controller.dart';
+import '../library_scope.dart';
+import '../widgets/book_cover.dart';
+import '../widgets/detail_text_field.dart';
+import '../widgets/info_section.dart';
+import '../widgets/star_rating_input.dart';
+import 'editions_page.dart';
+
+/// Opens the detail page for [entry]. The one way it should be pushed, so
+/// the route always carries its analytics name — see `AppAnalytics`.
+Future<void> openBookDetail(BuildContext context, LibraryBook entry) {
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'book_detail'),
+      builder: (_) => BookDetailPage(userBookId: entry.id),
+    ),
+  );
+}
+
+/// Everything about one book on the reader's shelf, top to bottom in the
+/// order a reader looks for it:
+///
+/// 1. **The book** — cover, title, author, and one line saying where the
+///    reader is with it ("reading · 78%") and which edition they own;
+/// 2. **Key facts** — pages, published, publisher, language — in a strip
+///    that reads at a glance;
+/// 3. **Editions** — one row that opens the [EditionsPage] gallery;
+/// 4. **Your reading** — progress (page and percent, kept in sync) and
+///    rating (finished books only);
+/// 5. **Tags** and **comments**;
+/// 6. **About** — the blurb, genre, ISBN and the Google Books rating.
+///
+/// Which shelf a book is on is shown here but not changed here — moving
+/// between shelves belongs to the library page (drag, keyboard or
+/// screen-reader actions) and the `add shelf` command.
+///
+/// ## Where the state lives
+///
+/// * The **shelf row** — status, page, rating, owned edition — is read
+///   from [LibraryController] by id on every build, and every change to it
+///   goes through that controller, the single mutation point for shelf
+///   state.
+/// * Everything else — extended info, editions, tags, comments — is
+///   per-page state in a [BookDetailController], built once when the page
+///   opens and thrown away when it closes. The editions page borrows the
+///   same controller rather than fetching again.
+///
+/// Every section loads and fails independently, with its own retry, so
+/// Google Books being unreachable never hides the reader's own notes.
+class BookDetailPage extends StatefulWidget {
+  const BookDetailPage({super.key, required this.userBookId});
+
+  final String userBookId;
+
+  @override
+  State<BookDetailPage> createState() => _BookDetailPageState();
+}
+
+class _BookDetailPageState extends State<BookDetailPage> {
+  static const _messageLifetime = Duration(seconds: 3);
+
+  BookDetailController? _detail;
+
+  final _page = TextEditingController();
+  final _percent = TextEditingController();
+  final _pageFocus = FocusNode();
+  final _percentFocus = FocusNode();
+  final _tag = TextEditingController();
+  final _comment = TextEditingController();
+
+  /// The page the progress fields were last filled from, so an outside
+  /// change (a command logged elsewhere, a save landing) refills them —
+  /// but typing in them doesn't get overwritten mid-edit.
+  int? _filledFromPage;
+  ReadingStatus? _filledFromStatus;
+  String? _progressError;
+
+  bool _savingProgress = false;
+
+  /// Guards against a double tap pushing the editions page twice.
+  bool _openingEditions = false;
+
+  String? _message;
+  Timer? _messageTimer;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_detail != null) return;
+    final library = LibraryScope.read(context);
+    final entry = library.findById(widget.userBookId);
+    if (entry == null) return;
+    _detail = BookDetailController(
+      userBookId: entry.id,
+      book: entry.book,
+      details: library.details,
+      notes: library.notes,
+    );
+    // Loads are async and notify as they land; nothing here depends on
+    // them finishing. `load` never throws — each section records its own
+    // failure.
+    unawaited(_detail!.load());
+  }
+
+  @override
+  void dispose() {
+    _detail?.dispose();
+    _page.dispose();
+    _percent.dispose();
+    _pageFocus.dispose();
+    _percentFocus.dispose();
+    _tag.dispose();
+    _comment.dispose();
+    _messageTimer?.cancel();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------- feedback
+
+  /// Reports a finished action: a haptic for its outcome and, when there is
+  /// something to say, the same confirmation pill the add tab uses.
+  void _report(LibraryActionResult result) {
+    if (!mounted) return;
+    if (result.success) {
+      AppHaptics.accepted();
+    } else {
+      AppHaptics.rejected();
+    }
+    final message = result.message;
+    if (message != null) _showMessage(message);
+  }
+
+  void _showMessage(String message) {
+    setState(() => _message = message);
+    _messageTimer?.cancel();
+    _messageTimer = Timer(_messageLifetime, () {
+      if (mounted) setState(() => _message = null);
+    });
+  }
+
+  /// Runs a user action that returns a result, turning anything it throws
+  /// that it shouldn't into a failure the reader sees, rather than an
+  /// unhandled error and a control that silently did nothing.
+  Future<void> _run(
+    String what,
+    Future<LibraryActionResult> Function() action,
+  ) async {
+    try {
+      _report(await action());
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'BookDetailPage',
+        'Unexpected failure: $what.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _report(LibraryActionResult.failure("We couldn't $what. Try again."));
+    }
+  }
+
+  // ---------------------------------------------------------------- editions
+
+  Future<void> _openEditions(LibraryBook entry) async {
+    final detail = _detail;
+    if (detail == null || _openingEditions) return;
+    _openingEditions = true;
+    AppHaptics.selection();
+    try {
+      await openBookEditions(context, userBookId: entry.id, detail: detail);
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'BookDetailPage',
+        'Opening the editions page failed.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) _showMessage("We couldn't open the editions. Try again.");
+    } finally {
+      _openingEditions = false;
+    }
+  }
+
+  // ---------------------------------------------------------------- progress
+
+  /// Refills the page/percent fields from [entry] whenever its progress
+  /// changed from outside and neither field is being edited.
+  void _syncProgressFields(LibraryBook entry) {
+    final editing = _pageFocus.hasFocus || _percentFocus.hasFocus;
+    if (editing) return;
+    if (_filledFromPage == entry.currentPage &&
+        _filledFromStatus == entry.status) {
+      return;
+    }
+    _filledFromPage = entry.currentPage;
+    _filledFromStatus = entry.status;
+    _page.text = '${entry.currentPage}';
+    final completion = entry.completion;
+    _percent.text = completion == null ? '' : _formatPercent(completion * 100);
+    _progressError = null;
+  }
+
+  /// Page typed → percent follows. Invalid or out-of-range input leaves
+  /// the percent alone and says why, rather than silently clamping.
+  void _onPageChanged(LibraryBook entry, String text) {
+    final page = int.tryParse(text.trim());
+    final total = entry.pageCount;
+    setState(() {
+      if (text.trim().isEmpty) {
+        _progressError = null;
+        return;
+      }
+      if (page == null || page < 0) {
+        _progressError = 'Enter a whole page number.';
+      } else if (total != null && page > total) {
+        _progressError = '"${entry.book.title}" only has $total pages.';
+      } else {
+        _progressError = null;
+        if (total != null) _percent.text = _formatPercent(page / total * 100);
+      }
+    });
+  }
+
+  /// Percent typed → page follows, through the same conversion the
+  /// `update <book> <percent>%` command uses.
+  void _onPercentChanged(LibraryBook entry, String text) {
+    final percent = double.tryParse(text.trim());
+    setState(() {
+      if (text.trim().isEmpty) {
+        _progressError = null;
+        return;
+      }
+      if (percent == null) {
+        _progressError = 'Enter a percentage from 0 to 100.';
+        return;
+      }
+      final resolved = LibraryController.pageForPercent(entry, percent);
+      final page = resolved.page;
+      if (page == null) {
+        _progressError = resolved.failure;
+      } else {
+        _progressError = null;
+        _page.text = '$page';
+      }
+    });
+  }
+
+  Future<void> _saveProgress(LibraryBook entry) async {
+    if (_savingProgress) return;
+    final page = int.tryParse(_page.text.trim());
+    if (page == null) {
+      setState(() => _progressError = 'Enter a whole page number.');
+      AppHaptics.rejected();
+      return;
+    }
+    if (_progressError != null) {
+      AppHaptics.rejected();
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    if (page == entry.currentPage && entry.isReading) return;
+
+    setState(() => _savingProgress = true);
+    final library = LibraryScope.read(context);
+    LibraryActionResult result;
+    try {
+      result = await library.updateProgressById(entry.id, page);
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'BookDetailPage',
+        'Saving progress failed unexpectedly.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      result = const LibraryActionResult.failure(
+        "We couldn't save your progress. Try again.",
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      _savingProgress = false;
+      // Force a refill from whatever the shelf now says — the saved page
+      // on success, the old one after a rollback.
+      _filledFromPage = null;
+      if (!result.success) _progressError = result.message;
+    });
+    _report(result);
+  }
+
+  static String _formatPercent(double percent) {
+    final rounded = (percent * 10).round() / 10;
+    return rounded == rounded.roundToDouble()
+        ? rounded.toInt().toString()
+        : rounded.toStringAsFixed(1);
+  }
+
+  // ------------------------------------------------------------------ build
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final library = LibraryScope.of(context);
+    final entry = library.findById(widget.userBookId);
+    final detail = _detail;
+
+    return Scaffold(
+      backgroundColor: colors.background,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.md,
+            AppSpacing.xl,
+            0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SettingsHeader(title: 'book'),
+              const SizedBox(height: AppSpacing.md),
+              Expanded(
+                child: entry == null || detail == null
+                    ? _Gone(colors: colors)
+                    : ListenableBuilder(
+                        listenable: detail,
+                        builder: (context, _) => _content(entry, detail),
+                      ),
+              ),
+              if (_message case final message?)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  child: Semantics(
+                    liveRegion: true,
+                    child: ConfirmationPill(message: message),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _content(LibraryBook entry, BookDetailController detail) {
+    _syncProgressFields(entry);
+    // The detailed row once it has loaded, else the shelf's own copy —
+    // then as the reader's own edition, when they've picked one, so its
+    // cover, publisher, ISBN and length are what the page shows.
+    final work = detail.book.data ?? entry.book;
+    final owned = entry.ownedEdition;
+    final book = owned == null ? work : work.withEdition(owned);
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      children: [
+        _Heading(entry: entry, book: book),
+        const SizedBox(height: AppSpacing.lg),
+        _FactsStrip(book: book, loading: detail.book.isLoading),
+        const SizedBox(height: AppSpacing.md),
+        InfoSection(
+          rows: [
+            _EditionsRow(
+              section: detail.editions,
+              owned: entry.ownedEdition,
+              onTap: () => _openEditions(entry),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        InfoSection(
+          title: 'your reading',
+          rows: [_progressRow(entry), _ratingRow(entry)],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _tagsSection(detail),
+        const SizedBox(height: AppSpacing.lg),
+        _commentsSection(entry, detail),
+        const SizedBox(height: AppSpacing.lg),
+        _aboutSection(
+          book,
+          detail,
+          seriesLabel: entry.book.seriesLabel ?? book.seriesLabel,
+        ),
+      ],
+    );
+  }
+
+  Widget _progressRow(LibraryBook entry) {
+    final colors = context.colors;
+    final total = entry.pageCount;
+    final completion = entry.completion;
+    final error = _progressError;
+
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _RowLabel(
+            'progress',
+            trailing: completion == null
+                ? null
+                : '${(completion * 100).round()}%',
+          ),
+          if (completion != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Semantics(
+              label: 'Progress',
+              value: '${(completion * 100).round()} percent',
+              excludeSemantics: true,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                child: LinearProgressIndicator(
+                  value: completion,
+                  minHeight: 4,
+                  color: colors.accent,
+                  backgroundColor: colors.divider,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: DetailTextField(
+                  controller: _page,
+                  hintText: 'page',
+                  semanticsLabel: 'Current page',
+                  suffixText: total == null ? null : '/ $total',
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.done,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  onChanged: (text) => _onPageChanged(entry, text),
+                  onSubmitted: (_) => _saveProgress(entry),
+                ).withFocus(_pageFocus),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              SizedBox(
+                width: 96,
+                child: DetailTextField(
+                  controller: _percent,
+                  hintText: total == null ? '—' : '0',
+                  semanticsLabel: 'Percent complete',
+                  suffixText: '%',
+                  enabled: total != null,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
+                  maxLength: 5,
+                  onChanged: (text) => _onPercentChanged(entry, text),
+                  onSubmitted: (_) => _saveProgress(entry),
+                ).withFocus(_percentFocus),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              TextButton(
+                onPressed: _savingProgress ? null : () => _saveProgress(entry),
+                child: _savingProgress
+                    ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colors.accent,
+                          semanticsLabel: 'Saving progress',
+                        ),
+                      )
+                    : Text(
+                        'save',
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 13,
+                          color: colors.accent,
+                        ),
+                      ),
+              ),
+            ],
+          ),
+          if (error != null || total == null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Semantics(
+              liveRegion: error != null,
+              child: Text(
+                error ??
+                    "google books doesn't list a page count, so progress is "
+                        'by page only.',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: error == null
+                      ? colors.secondaryText
+                      : colors.primaryText,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _ratingRow(LibraryBook entry) {
+    final colors = context.colors;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _RowLabel('rating'),
+          const SizedBox(height: AppSpacing.xs),
+          StarRatingInput(
+            // A rating kept from before the book left the finished shelf
+            // isn't shown as current — it isn't rateable now.
+            rating: entry.isFinished ? entry.rating : null,
+            onChanged: entry.isFinished
+                ? (stars) {
+                    AppHaptics.selection();
+                    unawaited(
+                      _run(
+                        'save that rating',
+                        () => LibraryScope.read(
+                          context,
+                        ).rateBookById(entry.id, stars),
+                      ),
+                    );
+                  }
+                : null,
+          ),
+          if (!entry.isFinished)
+            Text(
+              'finish this book to rate it.',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: colors.secondaryText,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tagsSection(BookDetailController detail) {
+    final colors = context.colors;
+    final section = detail.tags;
+    final tags = section.data ?? const <BookTag>[];
+
+    Future<void> submit() async {
+      final text = _tag.text;
+      if (text.trim().isEmpty) return;
+      _tag.clear();
+      await _run('save that tag', () async {
+        final result = await detail.addTag(text);
+        // Put the text back if it was refused, so a typo can be fixed
+        // rather than retyped.
+        if (!result.success && _tag.text.isEmpty) _tag.text = text;
+        return result;
+      });
+    }
+
+    return InfoSection(
+      title: 'tags',
+      rows: [
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (section.isLoading && !section.hasData)
+                _Hint('loading tags…', colors: colors)
+              else if (section.error != null && !section.hasData)
+                _Retry(
+                  message: section.error!,
+                  onRetry: detail.loadTags,
+                  colors: colors,
+                )
+              else if (tags.isNotEmpty) ...[
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    for (final tag in tags)
+                      _TagChip(
+                        tag: tag,
+                        onRemove: BookDetailController.isPending(tag.id)
+                            ? null
+                            : () => _run(
+                                'remove that tag',
+                                () => detail.removeTag(tag.id),
+                              ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              Row(
+                children: [
+                  Expanded(
+                    child: DetailTextField(
+                      controller: _tag,
+                      hintText: tags.isEmpty ? 'add a tag' : 'add another tag',
+                      semanticsLabel: 'New tag',
+                      maxLength: BookTag.maxLength,
+                      onSubmitted: (_) => submit(),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Add tag',
+                    onPressed: submit,
+                    icon: Icon(Icons.add, color: colors.accent),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _commentsSection(LibraryBook entry, BookDetailController detail) {
+    final colors = context.colors;
+    final section = detail.comments;
+    final comments = section.data ?? const <BookComment>[];
+
+    Future<void> submit() async {
+      final text = _comment.text;
+      if (text.trim().isEmpty) return;
+      _comment.clear();
+      FocusScope.of(context).unfocus();
+      await _run('save that comment', () async {
+        final result = await detail.addComment(text);
+        if (!result.success && _comment.text.isEmpty) _comment.text = text;
+        return result;
+      });
+    }
+
+    return InfoSection(
+      title: 'comments',
+      rows: [
+        if (section.isLoading && !section.hasData)
+          _padded(_Hint('loading comments…', colors: colors))
+        else if (section.error != null && !section.hasData)
+          _padded(
+            _Retry(
+              message: section.error!,
+              onRetry: detail.loadComments,
+              colors: colors,
+            ),
+          )
+        else
+          for (final comment in comments)
+            _CommentRow(
+              comment: comment,
+              onEdit: () => _editComment(detail, comment),
+              onDelete: () => _deleteComment(detail, comment),
+            ),
+        _padded(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DetailTextField(
+                controller: _comment,
+                // A DNF is exactly when a reader has something to say
+                // about why — ask the question outright.
+                hintText: entry.isDnf
+                    ? "why didn't you finish it?"
+                    : 'write a comment',
+                semanticsLabel: 'New comment',
+                maxLines: 4,
+                maxLength: BookComment.maxLength,
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: submit,
+                  child: Text(
+                    'post',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 13,
+                      color: colors.accent,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _editComment(
+    BookDetailController detail,
+    BookComment comment,
+  ) async {
+    final edited = await showDialog<String>(
+      context: context,
+      builder: (_) => _EditCommentDialog(initial: comment.body),
+    );
+    if (edited == null || !mounted) return;
+    await _run(
+      'update that comment',
+      () => detail.editComment(comment.id, edited),
+    );
+  }
+
+  Future<void> _deleteComment(
+    BookDetailController detail,
+    BookComment comment,
+  ) async {
+    final colors = context.colors;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: colors.surface,
+        title: Text(
+          'delete comment?',
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: colors.primaryText,
+          ),
+        ),
+        content: Text(
+          "this can't be undone.",
+          style: GoogleFonts.inter(color: colors.secondaryText),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(
+              'cancel',
+              style: TextStyle(color: colors.secondaryText),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('delete', style: TextStyle(color: colors.accent)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _run('delete that comment', () => detail.deleteComment(comment.id));
+  }
+
+  Widget _aboutSection(
+    Book book,
+    BookDetailController detail, {
+    String? seriesLabel,
+  }) {
+    final colors = context.colors;
+    final section = detail.book;
+    // Publisher, published, pages and language are in the facts strip at
+    // the top; these are the details a reader looks up rather than scans.
+    final facts = <(String, String)>[
+      if (seriesLabel != null) ('series', seriesLabel),
+      if (book.categories.isNotEmpty) ('genre', book.categories.join(', ')),
+      if (book.isbn13 ?? book.isbn10 case final isbn?) ('isbn', isbn),
+      if (book.averageRating case final rating?)
+        (
+          'google books rating',
+          '$rating / 5${book.ratingsCount == null ? '' : ' (${book.ratingsCount} ratings)'}',
+        ),
+    ];
+
+    return InfoSection(
+      title: 'about',
+      rows: [
+        _padded(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (book.description case final blurb?)
+                _Blurb(text: blurb, colors: colors)
+              else if (!section.isLoading)
+                _Hint('no blurb available for this book.', colors: colors),
+              if (section.isLoading) ...[
+                if (book.description != null)
+                  const SizedBox(height: AppSpacing.sm),
+                _Hint('loading more from google books…', colors: colors),
+              ],
+              if (section.error != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                _Retry(
+                  message: section.error!,
+                  onRetry: detail.loadDetails,
+                  colors: colors,
+                ),
+              ],
+            ],
+          ),
+        ),
+        for (final (label, value) in facts)
+          MergeSemantics(
+            child: _padded(
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 132,
+                    child: Text(
+                      label,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 12,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: SelectableText(
+                      value,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        color: colors.primaryText,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  static Widget _padded(Widget child) =>
+      Padding(padding: const EdgeInsets.all(AppSpacing.md), child: child);
+}
+
+extension on DetailTextField {
+  /// Attaches a focus node without widening [DetailTextField]'s own API —
+  /// only the progress fields care whether they're focused.
+  Widget withFocus(FocusNode node) => Focus(
+    focusNode: node,
+    skipTraversal: true,
+    canRequestFocus: false,
+    child: this,
+  );
+}
+
+/// A small caption inside a row ("progress", "rating"), with an optional
+/// right-aligned readout.
+class _RowLabel extends StatelessWidget {
+  const _RowLabel(this.text, {this.trailing});
+
+  final String text;
+  final String? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final readout = trailing;
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            text,
+            style: GoogleFonts.inter(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: colors.primaryText,
+            ),
+          ),
+        ),
+        if (readout != null)
+          ExcludeSemantics(
+            child: Text(
+              readout,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 13,
+                color: colors.accent,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Cover, title, author, where the reader is with the book, and which
+/// edition they own — the one block a reader needs to recognise the page.
+class _Heading extends StatelessWidget {
+  const _Heading({required this.entry, required this.book});
+
+  final LibraryBook entry;
+
+  /// Already the reader's own edition, when they picked one.
+  final Book book;
+
+  /// "reading · 78%", "to read", "finished", "did not finish · stopped at
+  /// 34%" — the shelf and, where it means something, how far.
+  static String status(LibraryBook entry) {
+    final completion = entry.completion;
+    final percent = completion == null
+        ? null
+        : '${(completion * 100).round()}%';
+    final page = entry.currentPage == 0 ? null : 'page ${entry.currentPage}';
+    return switch (entry.status) {
+      ReadingStatus.reading =>
+        'reading${percent != null
+            ? ' · $percent'
+            : page != null
+            ? ' · $page'
+            : ''}',
+      ReadingStatus.toBeRead => 'to read',
+      ReadingStatus.finished => 'finished',
+      ReadingStatus.dnf =>
+        entry.currentPage == 0
+            ? 'did not finish'
+            : 'did not finish · stopped at ${percent ?? page}',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final owned = entry.ownedEdition;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 104,
+          child: ExcludeSemantics(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: BookCover(
+                title: book.title,
+                author: book.author,
+                coverUrl: book.coverUrl,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                header: true,
+                child: Text(
+                  book.title,
+                  style: GoogleFonts.fraunces(
+                    fontSize: 24,
+                    height: 1.15,
+                    fontWeight: FontWeight.w600,
+                    color: colors.primaryText,
+                  ),
+                ),
+              ),
+              if (book.subtitle case final subtitle?) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.fraunces(
+                    fontSize: 15,
+                    height: 1.25,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ],
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                book.author,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: colors.secondaryText,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                status(entry),
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: colors.accent,
+                ),
+              ),
+              if (owned != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'you own the '
+                  '${owned.format == EditionFormat.ebook ? 'ebook' : 'physical edition'}'
+                  '${owned.year == null ? '' : ' (${owned.year})'}',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 12,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Pages, published, publisher, language — a row of small label-over-value
+/// cells on one surface, the details a reader scans for first. Cells only
+/// appear for what's known; while Google Books is still being asked and
+/// nothing is known yet, the strip says so instead of rendering empty.
+class _FactsStrip extends StatelessWidget {
+  const _FactsStrip({required this.book, required this.loading});
+
+  final Book book;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final facts = <(String, String)>[
+      if (book.pageCount case final pages?) ('pages', '$pages'),
+      if (book.publishedDate case final date?)
+        ('published', formatPublishedDate(date)),
+      if (book.publisher case final publisher?) ('publisher', publisher),
+      if (book.language case final language?)
+        ('language', language.toUpperCase()),
+    ];
+
+    if (facts.isEmpty) {
+      return loading
+          ? _Hint('loading details…', colors: colors)
+          : const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm + 4,
+      ),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Wrap(
+        spacing: AppSpacing.lg,
+        runSpacing: AppSpacing.sm,
+        children: [
+          for (final (label, value) in facts)
+            MergeSemantics(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 200),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      value,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: colors.primaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The single entry point to the editions gallery: a settings-style row
+/// with the same shape every time — "editions" with how many there are on
+/// the right, and, when the reader owns one, which one on its own line
+/// underneath. (The count used to be *replaced* by "you own the ebook" once
+/// editions had loaded, so the same row read differently from one visit to
+/// the next.) The owned edition comes from the shelf row itself, so that
+/// line is there from the first frame, not only after editions load.
+class _EditionsRow extends StatelessWidget {
+  const _EditionsRow({
+    required this.section,
+    required this.owned,
+    required this.onTap,
+  });
+
+  final DetailSection<List<BookEdition>> section;
+  final BookEdition? owned;
+  final VoidCallback onTap;
+
+  /// The right-hand readout: always about the list, never the owned one.
+  String _count() {
+    final editions = section.data;
+    if (editions == null) {
+      if (section.isLoading) return 'loading';
+      if (section.error != null) return 'unavailable';
+      return '';
+    }
+    return editions.isEmpty ? 'none found' : '${editions.length}';
+  }
+
+  /// "ebook · Penguin · 2010".
+  static String describeOwned(BookEdition edition) => [
+    edition.format == EditionFormat.ebook ? 'ebook' : 'physical',
+    ?edition.publisher,
+    ?edition.year,
+  ].join(' · ');
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final count = _count();
+    final ownedEdition = owned;
+    final ownedLine = ownedEdition == null ? null : describeOwned(ownedEdition);
+
+    return Semantics(
+      button: true,
+      label: [
+        'Editions',
+        if (count.isNotEmpty) count,
+        if (ownedLine != null) 'yours: $ownedLine',
+      ].join(', '),
+      hint: 'Opens every ebook and physical edition',
+      excludeSemantics: true,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.library_books_outlined,
+                  size: 20,
+                  color: colors.secondaryText,
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'editions',
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: colors.primaryText,
+                        ),
+                      ),
+                      if (ownedLine != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'yours: $ownedLine',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.jetBrainsMono(
+                            fontSize: 12,
+                            color: colors.accent,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                // A fixed-width slot, so the chevron doesn't jump as the
+                // readout goes from a spinner to a number.
+                SizedBox(
+                  width: 80,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: section.isLoading && !section.hasData
+                        ? SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colors.secondaryText,
+                            ),
+                          )
+                        : Text(
+                            count,
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              color: colors.secondaryText,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: colors.secondaryText,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TagChip extends StatelessWidget {
+  const _TagChip({required this.tag, required this.onRemove});
+
+  final BookTag tag;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Opacity(
+      opacity: onRemove == null ? 0.5 : 1,
+      child: Container(
+        padding: const EdgeInsets.only(left: AppSpacing.md),
+        decoration: BoxDecoration(
+          color: colors.accent.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              tag.tag,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 13,
+                color: colors.primaryText,
+              ),
+            ),
+            Semantics(
+              // Its own node, so "Remove tag sci-fi" isn't merged into the
+              // chip's text and read as one unactionable label.
+              container: true,
+              button: true,
+              label: 'Remove tag ${tag.tag}',
+              excludeSemantics: true,
+              child: InkResponse(
+                onTap: onRemove,
+                radius: 16,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  child: Icon(
+                    Icons.close,
+                    size: 14,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CommentRow extends StatelessWidget {
+  const _CommentRow({
+    required this.comment,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final BookComment comment;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  static String _date(DateTime at) {
+    final local = at.toLocal();
+    return '${local.month}.${local.day}.${local.year % 100}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final pending = BookDetailController.isPending(comment.id);
+
+    return Opacity(
+      opacity: pending ? 0.5 : 1,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.md,
+          AppSpacing.xs,
+          AppSpacing.xs,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              comment.body,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.5,
+                color: colors.primaryText,
+              ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${_date(comment.createdAt)}'
+                    '${comment.isEdited ? ' · edited' : ''}'
+                    '${pending ? ' · saving…' : ''}',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 11,
+                      color: colors.secondaryText,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Edit comment',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: pending ? null : onEdit,
+                  icon: Icon(
+                    Icons.edit_outlined,
+                    size: 18,
+                    color: colors.secondaryText,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Delete comment',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: pending ? null : onDelete,
+                  icon: Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EditCommentDialog extends StatefulWidget {
+  const _EditCommentDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_EditCommentDialog> createState() => _EditCommentDialogState();
+}
+
+class _EditCommentDialogState extends State<_EditCommentDialog> {
+  late final _controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return AlertDialog(
+      backgroundColor: colors.surface,
+      title: Text(
+        'edit comment',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: colors.primaryText,
+        ),
+      ),
+      content: DetailTextField(
+        controller: _controller,
+        hintText: 'comment',
+        semanticsLabel: 'Comment',
+        maxLines: 6,
+        maxLength: BookComment.maxLength,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('cancel', style: TextStyle(color: colors.secondaryText)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: Text('save', style: TextStyle(color: colors.accent)),
+        ),
+      ],
+    );
+  }
+}
+
+/// The blurb, clamped to a few lines with a "more" toggle — some run to
+/// several screens.
+class _Blurb extends StatefulWidget {
+  const _Blurb({required this.text, required this.colors});
+
+  final String text;
+  final AppColors colors;
+
+  @override
+  State<_Blurb> createState() => _BlurbState();
+}
+
+class _BlurbState extends State<_Blurb> {
+  static const _collapsedLines = 6;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = GoogleFonts.inter(
+      fontSize: 14,
+      height: 1.6,
+      color: widget.colors.primaryText,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final painter = TextPainter(
+          text: TextSpan(text: widget.text, style: style),
+          maxLines: _collapsedLines,
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+        )..layout(maxWidth: constraints.maxWidth);
+        final overflows = painter.didExceedMaxLines;
+        painter.dispose();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.text,
+              style: style,
+              maxLines: _expanded ? null : _collapsedLines,
+              overflow: _expanded ? null : TextOverflow.fade,
+            ),
+            if (overflows)
+              TextButton(
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(44, 32),
+                  alignment: Alignment.centerLeft,
+                ),
+                onPressed: () => setState(() => _expanded = !_expanded),
+                child: Text(
+                  _expanded ? 'less' : 'more',
+                  semanticsLabel: _expanded
+                      ? 'Show less of the description'
+                      : 'Show the full description',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 13,
+                    color: widget.colors.accent,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _Hint extends StatelessWidget {
+  const _Hint(this.text, {required this.colors});
+
+  final String text;
+  final AppColors colors;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    style: GoogleFonts.jetBrainsMono(fontSize: 13, color: colors.secondaryText),
+  );
+}
+
+/// A section's load failure: the friendly message, and a retry.
+class _Retry extends StatelessWidget {
+  const _Retry({
+    required this.message,
+    required this.onRetry,
+    required this.colors,
+  });
+
+  final String message;
+  final Future<void> Function() onRetry;
+  final AppColors colors;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            message,
+            style: GoogleFonts.inter(fontSize: 13, color: colors.secondaryText),
+          ),
+        ),
+        TextButton(
+          onPressed: onRetry,
+          child: Text(
+            'try again',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 13,
+              color: colors.accent,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// The book was deleted (by a command, on another device) while this page
+/// was open, or never existed.
+class _Gone extends StatelessWidget {
+  const _Gone({required this.colors});
+
+  final AppColors colors;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Semantics(
+      liveRegion: true,
+      child: Text(
+        "this book isn't on your shelf any more.",
+        textAlign: TextAlign.center,
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 13,
+          color: colors.secondaryText,
+        ),
+      ),
+    ),
+  );
+}

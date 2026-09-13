@@ -8,14 +8,22 @@ import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/widgets/confirm_dialog.dart';
+import '../../../goals/presentation/goal_scope.dart';
+import '../../../goals/presentation/widgets/goal_progress_view.dart';
+import '../../../goals/presentation/widgets/goal_sheet.dart';
+import '../../../library/domain/user_book.dart' show ReadingStatus;
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../memory/presentation/memory_scope.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
+import '../../../streaks/domain/reading_stats.dart';
 import '../../domain/log_command_parser.dart';
 import '../widgets/command_input.dart';
 import '../widgets/confirmation_pill.dart';
+import '../widgets/currently_reading_card.dart';
 import '../widgets/instruction_row.dart';
+import '../widgets/reading_streak.dart';
 
 /// One AI-extracted command line and where it stands in its own
 /// execution — see [InstructionState].
@@ -72,6 +80,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   String? _message;
   Timer? _messageTimer;
+
+  /// Whether [CommandInput] currently has any typed text — what hides
+  /// the "currently reading" peek the instant typing starts, and brings
+  /// it back once the field empties again (a submit clears it, same as
+  /// backspacing to nothing).
+  bool _hasText = false;
 
   /// AI-extracted commands from the reader's last submitted sentence,
   /// null whenever the plain-message pill should show instead — only
@@ -150,7 +164,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// parser, or (on "cactus pro") the AI's natural-language extraction.
   /// Read at submit time rather than cached, so a mid-session plan
   /// switch takes effect on the very next command.
-  Future<bool> _run(String command) {
+  Future<CommandOutcome> _run(String command) {
     return PlanController.isPro.value ? _runAi(command) : _runManual(command);
   }
 
@@ -161,20 +175,33 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// line can be refused it hit: syntax the parser doesn't recognize,
   /// or syntax it does recognize but that the library rejects (offline,
   /// a book already on the shelf, a page past the end).
-  Future<({bool success, String message})> _runCommand(String command) async {
+  Future<({bool success, bool cancelled, String message})> _runCommand(
+    String command,
+  ) async {
     final parsed = LogCommandParser.parse(command);
     if (!parsed.recognized) {
-      return (success: false, message: parsed.message);
+      return (success: false, cancelled: false, message: parsed.message);
     }
 
     final outcome = await _applyToLibrary(parsed);
     if (outcome != null && !outcome.success) {
       return (
         success: false,
+        cancelled: outcome.cancelled,
         message: outcome.message ?? 'Something went wrong.',
       );
     }
-    return (success: true, message: parsed.message);
+    // The parser's own optimistic message is the pill text for every
+    // command — except the ones it couldn't name a book for (an unquoted
+    // `add comment`), where only the library's result knows which book.
+    final libraryMessage = outcome?.message;
+    return (
+      success: true,
+      cancelled: false,
+      message: parsed.title == null && libraryMessage != null
+          ? libraryMessage
+          : parsed.message,
+    );
   }
 
   /// The one place a command's outcome turns into a haptic — both the
@@ -194,12 +221,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// Runs [command] through [_runCommand] and reports it through the
   /// pill, returning whether it was taken — which is what turns into
   /// [CommandInput]'s strike-through or its shake.
-  Future<bool> _runManual(String command) async {
+  Future<CommandOutcome> _runManual(String command) async {
     final result = await _runCommand(command);
-    if (!mounted) return false;
-    _feedback(success: result.success);
+    if (!mounted) return CommandOutcome.rejected;
+    if (!result.cancelled) _feedback(success: result.success);
     _showMessage(result.message);
-    return result.success;
+    if (result.cancelled) return CommandOutcome.dismissed;
+    return result.success ? CommandOutcome.accepted : CommandOutcome.rejected;
   }
 
   /// Sends a free-form sentence to the AI and, once it comes back, swaps
@@ -224,7 +252,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// outright, before anything is even attempted — [CommandInput] is
   /// still there to shake in that case, never a silent fallback to
   /// manual parsing, and never a retry.
-  Future<bool> _runAi(String command) async {
+  Future<CommandOutcome> _runAi(String command) async {
     setState(() => _aiThinking = true);
     _thinkingGradient.repeat();
     final library = LibraryScope.read(context);
@@ -249,13 +277,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       );
     } on AiCommandException catch (error) {
       _thinkingGradient.stop();
-      if (!mounted) return false;
+      if (!mounted) return CommandOutcome.rejected;
       setState(() => _aiThinking = false);
       _showMessage(error.message);
-      return false;
+      return CommandOutcome.rejected;
     }
     _thinkingGradient.stop();
-    if (!mounted) return false;
+    if (!mounted) return CommandOutcome.rejected;
 
     // The prompt asks for a literal "gibberish" line rather than
     // an empty list when it finds nothing — this is a defensive fallback
@@ -271,7 +299,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ];
     });
     unawaited(_runInstructions());
-    return true;
+    return CommandOutcome.accepted;
   }
 
   /// Runs [_instructions] one at a time, in order, each through
@@ -298,7 +326,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     for (final instruction in instructions) {
       final result = await _runCommand(instruction.text);
       if (!mounted) return;
-      _feedback(success: result.success);
+      if (!result.cancelled) _feedback(success: result.success);
       _showMessage(result.message);
 
       setState(() {
@@ -313,7 +341,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       // here worth stopping to actually read, not just glimpse before
       // it's replaced.
       await Future<void>.delayed(
-        result.success ? const Duration(milliseconds: 750) : _messageLifetime,
+        result.success || result.cancelled
+            ? const Duration(milliseconds: 750)
+            : _messageLifetime,
       );
       if (!mounted) return;
     }
@@ -342,10 +372,34 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// plan check stay two separate concerns — the same reasoning
   /// `_run`'s own free/pro branch already follows.
   Future<LibraryActionResult?> _applyToLibrary(ParsedLogCommand command) {
+    final library = LibraryScope.read(context);
+
+    // An unquoted `add comment` is the one recognized command that has no
+    // title yet — the library has to find where the comment ends and the
+    // book begins. Handled before the title check below, which would
+    // otherwise wave it through as a silent success.
+    if (command.type == LogCommandType.addComment && command.title == null) {
+      final note = command.note;
+      if (note == null || note.isEmpty) {
+        return Future.value(
+          const LibraryActionResult.failure('That comment was empty.'),
+        );
+      }
+      return library.addComment(note);
+    }
+
+    if (command.type == LogCommandType.startSeries) {
+      final name = command.series;
+      if (name == null || name.isEmpty) {
+        return Future.value(
+          const LibraryActionResult.failure('Name the series to start.'),
+        );
+      }
+      return library.startSeries(name);
+    }
+
     final title = command.title;
     if (title == null || title.isEmpty) return Future.value(null);
-
-    final library = LibraryScope.read(context);
 
     switch (command.type) {
       case LogCommandType.remember:
@@ -382,6 +436,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.start:
         return library.startBook(title, loggedAt: command.date);
       case LogCommandType.update:
+        final percent = command.percent;
+        if (percent != null) {
+          return library.updateProgressByPercent(
+            title,
+            percent,
+            loggedAt: command.date,
+          );
+        }
         final page = command.page;
         if (page == null) {
           return Future.value(
@@ -394,7 +456,37 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.finish:
         return library.finishBook(title, loggedAt: command.date);
       case LogCommandType.delete:
-        return library.deleteBook(title);
+        return _confirmDelete(library, title);
+      case LogCommandType.addShelf:
+        final status = switch (command.shelf) {
+          'reading' => ReadingStatus.reading,
+          'finished' => ReadingStatus.finished,
+          'dnf' => ReadingStatus.dnf,
+          _ => ReadingStatus.toBeRead,
+        };
+        return library.addToShelf(title, status);
+      case LogCommandType.addTag:
+        final tag = command.tag;
+        if (tag == null || tag.isEmpty) {
+          return Future.value(
+            const LibraryActionResult.failure("That tag didn't have a name."),
+          );
+        }
+        return library.addTag(title, tag);
+      case LogCommandType.addComment:
+        // Only the quoted form gets here — an unquoted comment has no
+        // title and was routed at the top of this method.
+        return library.addComment(command.note ?? '', title: title);
+      case LogCommandType.series:
+        final name = command.series;
+        if (name == null || name.isEmpty) {
+          return Future.value(
+            const LibraryActionResult.failure('Name the series first.'),
+          );
+        }
+        return library.setSeries(title, name, position: command.seriesPosition);
+      case LogCommandType.startSeries:
+        return Future.value(null);
       case LogCommandType.rate:
         final rating = command.rating;
         if (rating == null) {
@@ -408,6 +500,31 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.unknown:
         return Future.value(null);
     }
+  }
+
+  /// `delete` asks first: it takes the book's tags, comments and journal
+  /// history with it, and nothing brings those back. A title that matches
+  /// nothing skips the question and lets the library report that.
+  Future<LibraryActionResult> _confirmDelete(
+    LibraryController library,
+    String title,
+  ) async {
+    final entry = library.match(title);
+    if (entry == null) return library.deleteBook(title);
+
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'delete ${entry.book.title}?',
+      message:
+          'this removes it from your library along with its tags, comments '
+          "and journal history. this can't be undone.",
+      confirmLabel: 'delete',
+      routeName: 'confirm_delete',
+    );
+    if (!confirmed) {
+      return LibraryActionResult.cancelled('Kept "${entry.book.title}"');
+    }
+    return library.deleteBook(entry.book.title);
   }
 
   /// Puts [message] in the pill and (re)starts its fade-in / lifetime /
@@ -443,11 +560,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final colors = context.colors;
     final message = _message;
     final instructions = _instructions;
+    // Reactive: rebuilds this page the moment a shelf command changes
+    // which book is most recently active, same as any other LibraryScope
+    // read in a build method.
+    // The most recently *active* reading book, not the top of the reading
+    // section — the reader may have dragged that one there by hand.
+    final library = LibraryScope.of(context);
+    final currentBook = library.currentlyReading;
+    final goals = GoalScope.of(context);
 
     Widget commandInput = CommandInput(
       focusNode: _focusNode,
       onSubmit: _run,
       style: _inputStyle(colors),
+      onHasTextChanged: (hasText) => setState(() => _hasText = hasText),
     );
     if (_aiThinking) {
       // A sliding, mirror-tiled version of [aiGradient] — same colors
@@ -522,6 +648,64 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ],
                         )
                       : const SizedBox.shrink(),
+                ),
+                // The currently-reading row and the streak readout,
+                // stacked just above the floating bottom bar (the
+                // padding below already clears it). Both disappear the
+                // instant typing starts — see [_hasText] — so neither
+                // competes with a command actually being written. A
+                // hairline (not a box — see both widgets' own doc
+                // comments on why this app doesn't use card chrome) is
+                // what keeps the two legible as separate things now
+                // that neither has a fill of its own to do that.
+                if (!_hasText) ...[
+                  if (currentBook != null)
+                    CurrentlyReadingCard(entry: currentBook)
+                  else
+                    // Same copy the streak journal's own empty state
+                    // uses for "nothing to show here yet" — one phrase
+                    // for the one situation, not two different ways of
+                    // saying it depending which screen you're on.
+                    Text(
+                      'nothing logged yet — start a book.',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 13,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.md),
+                  Divider(height: 1, thickness: 1, color: colors.divider),
+                  const SizedBox(height: AppSpacing.md),
+                  // The yearly goal sits between the book and the streak:
+                  // hidden until it has loaded, so a reader who has one
+                  // never sees a "set a goal" prompt flash first.
+                  if (goals.isLoaded) ...[
+                    GoalProgressView(
+                      compact: true,
+                      progress: ReadingStats.from(
+                        library.books,
+                      ).goalProgress(goals.goal),
+                      onEdit: () => showGoalSheet(context),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Divider(height: 1, thickness: 1, color: colors.divider),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                ],
+                // Visibility, not a conditional in the list above: an
+                // `if` that removes this from the tree would unmount
+                // ReadingStreak's State every time typing starts, losing
+                // its already-loaded streak and forcing a fresh Supabase
+                // fetch (with a flash of nothing while it reloads) every
+                // single time the field empties back out.
+                // `maintainState: true` keeps it alive and loaded the
+                // whole session through, exactly like the streak/memory
+                // pages' own controllers do.
+                Visibility(
+                  visible: !_hasText,
+                  maintainState: true,
+                  maintainAnimation: true,
+                  child: const ReadingStreak(),
                 ),
               ],
             ),

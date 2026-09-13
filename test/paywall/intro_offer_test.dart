@@ -2,6 +2,7 @@ import 'package:book/core/purchases/entitlements.dart';
 import 'package:book/core/purchases/plan_controller.dart';
 import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
+import 'package:book/features/goals/presentation/goal_scope.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
@@ -25,6 +26,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+
+import '../support/fake_goals.dart';
 
 /// The one-time intro paywall. The rule it exists to enforce is narrow
 /// and easy to get wrong in the direction that annoys people: show it
@@ -164,13 +167,16 @@ Future<void> pumpShell(
   addTearDown(memory.dispose);
 
   await tester.pumpWidget(
-    LibraryScope(
-      controller: library,
-      child: MemoryScope(
-        controller: memory,
-        child: MaterialApp(
-          theme: AppTheme.light,
-          home: RootShell(introOffer: introOffer, purchases: purchases),
+    GoalScope(
+      controller: goalControllerFor(),
+      child: LibraryScope(
+        controller: library,
+        child: MemoryScope(
+          controller: memory,
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: RootShell(introOffer: introOffer, purchases: purchases),
+          ),
         ),
       ),
     ),
@@ -273,5 +279,110 @@ void main() {
     // The log page's own field is the proof the reader landed back in
     // the app rather than on another screen.
     expect(find.byType(TextField), findsOneWidget);
+  });
+
+  group('memory tab', () {
+    int shownTab(WidgetTester tester) =>
+        tester.widget<IndexedStack>(find.byType(IndexedStack)).index!;
+
+    Future<void> tapMemory(WidgetTester tester) async {
+      await tester.tap(find.bySemanticsLabel('Memory'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('on the free plan, tapping it opens the paywall instead', (
+      tester,
+    ) async {
+      await pumpShell(
+        tester,
+        introOffer: _FakeIntroOfferStore(seen: true),
+        purchases: _FakePurchasesService(pro: false),
+      );
+      expect(shownTab(tester), 3);
+
+      await tapMemory(tester);
+
+      expect(find.byType(PaywallPage), findsOneWidget);
+      expect(shownTab(tester), 3, reason: 'still on the add tab behind it');
+    });
+
+    testWidgets('a store that cannot be reached shows the paywall too', (
+      tester,
+    ) async {
+      await pumpShell(
+        tester,
+        introOffer: _FakeIntroOfferStore(seen: true),
+        purchases: _FakePurchasesService(
+          pro: false,
+          failure: const PurchasesException('offline'),
+        ),
+      );
+
+      await tapMemory(tester);
+
+      expect(find.byType(PaywallPage), findsOneWidget);
+      expect(shownTab(tester), 3);
+    });
+
+    testWidgets('a real subscriber opens it, without a paywall', (
+      tester,
+    ) async {
+      await pumpShell(
+        tester,
+        introOffer: _FakeIntroOfferStore(seen: true),
+        purchases: _FakePurchasesService(pro: true),
+      );
+
+      await tapMemory(tester);
+
+      expect(find.byType(PaywallPage), findsNothing);
+      expect(shownTab(tester), 0);
+    });
+
+    testWidgets('the pro plan opens it directly', (tester) async {
+      PlanController.isPro.value = true;
+      await pumpShell(
+        tester,
+        introOffer: _FakeIntroOfferStore(seen: true),
+        purchases: _FakePurchasesService(pro: false),
+      );
+
+      await tapMemory(tester);
+
+      expect(find.byType(PaywallPage), findsNothing);
+      expect(shownTab(tester), 0);
+    });
+
+    testWidgets('losing pro while on it moves the reader off it', (
+      tester,
+    ) async {
+      PlanController.isPro.value = true;
+      await pumpShell(
+        tester,
+        introOffer: _FakeIntroOfferStore(seen: true),
+        purchases: _FakePurchasesService(pro: false),
+      );
+      await tapMemory(tester);
+      expect(shownTab(tester), 0);
+
+      PlanController.isPro.value = false;
+      await tester.pumpAndSettle();
+
+      expect(shownTab(tester), 3);
+    });
+
+    testWidgets('other tabs are never gated', (tester) async {
+      await pumpShell(
+        tester,
+        introOffer: _FakeIntroOfferStore(seen: true),
+        purchases: _FakePurchasesService(pro: false),
+      );
+
+      await tester.tap(find.bySemanticsLabel('Library'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PaywallPage), findsNothing);
+      expect(shownTab(tester), 2);
+    });
   });
 }

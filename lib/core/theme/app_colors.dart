@@ -27,22 +27,28 @@ class AppColors extends ThemeExtension<AppColors> {
   /// "something happened" from the rest of the app's chrome.
   final Color loggedMark;
 
+  // E-ink & forest green palette: warm paper/charcoal neutrals instead
+  // of stark white/black, with a single forest-green accent tuned per
+  // mode — the light mode's near-black forest green (#1E3F20, ~11:1
+  // against the paper background) is too dark to read against the dark
+  // mode's charcoal (~1.4:1), so dark mode uses a brighter sage instead
+  // (#5F9E65, ~5.2:1) rather than a lighter tint of the same hex.
   static const light = AppColors(
-    background: Color(0xFFFFFFFF),
+    background: Color(0xFFFBF9F4),
     surface: Color(0xFFF5F5F5),
-    primaryText: Color(0xFF000000),
+    primaryText: Color(0xFF2B2A27),
     secondaryText: Color(0xFF6B6B6B),
-    accent: Color(0xFF1A8FBF),
+    accent: Color(0xFF1E3F20),
     divider: Color(0xFFE8E8E8),
     loggedMark: Color(0xFF2F6FED),
   );
 
   static const dark = AppColors(
-    background: Color(0xFF1A1A1A),
+    background: Color(0xFF1E1E1E),
     surface: Color(0xFF242424),
-    primaryText: Color(0xFFF5F5F5),
+    primaryText: Color(0xFFE4E4E1),
     secondaryText: Color(0xFF9A9A9A),
-    accent: Color(0xFF1B9FD9),
+    accent: Color(0xFF5F9E65),
     divider: Color(0xFF3A3A3A),
     loggedMark: Color(0xFF2F6FED),
   );

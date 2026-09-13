@@ -2,12 +2,25 @@ import 'library_exception.dart';
 
 /// Where the reader is with a book.
 enum ReadingStatus {
+  /// `add shelf tbr <book>` — queued, never opened yet.
+  toBeRead,
   reading,
-  finished;
+  finished,
 
-  /// Column value stored in Supabase. Kept as a lowercase string so the
-  /// table stays readable in the dashboard.
-  String get wireValue => name;
+  /// `add shelf dnf <book>` — dropped. A reason, if the reader wants to
+  /// give one, is a comment on the book (`add comment <comment> <book>`).
+  dnf;
+
+  /// Column value stored in Supabase. Lowercase, matching the name for
+  /// [reading]/[finished]/[dnf] so the table stays readable in the
+  /// dashboard; [toBeRead] needs its own mapping since its Dart name
+  /// isn't already snake_case.
+  String get wireValue => switch (this) {
+    ReadingStatus.toBeRead => 'to_be_read',
+    ReadingStatus.reading => 'reading',
+    ReadingStatus.finished => 'finished',
+    ReadingStatus.dnf => 'dnf',
+  };
 
   /// Unknown/unmapped values fall back to [reading] — a bad status is
   /// not worth failing a whole library load over.
@@ -31,6 +44,8 @@ class UserBook {
     this.startedAt,
     this.finishedAt,
     this.rating,
+    this.ownedEditionId,
+    this.shelfPosition,
   });
 
   final String id;
@@ -49,13 +64,34 @@ class UserBook {
   /// itself allows one on any row.
   final double? rating;
 
+  /// The `book_editions` row the reader says they own — picked on the
+  /// book detail page. Null until picked. The database's composite foreign
+  /// key guarantees it is an edition of *this* book.
+  final String? ownedEditionId;
+
+  /// Manual order inside its shelf section, written by drag-to-reorder.
+  /// Null means "never placed by hand" — see `ShelfRules.sortSection` for
+  /// how placed and unplaced rows interleave, and the `touch_updated_at`
+  /// trigger for why a status change resets it to null server-side.
+  final double? shelfPosition;
+
   bool get isFinished => status == ReadingStatus.finished;
 
+  /// `clearFinishedAt`/`clearShelfPosition`/`clearOwnedEdition` exist
+  /// because a plain `null` argument can't be told apart from "not given" —
+  /// and each of those three genuinely needs to go back to null (a book
+  /// moved off the finished shelf, a book moved into a new section, an
+  /// edition deselected).
   UserBook copyWith({
     int? currentPage,
     ReadingStatus? status,
     DateTime? finishedAt,
+    bool clearFinishedAt = false,
     double? rating,
+    String? ownedEditionId,
+    bool clearOwnedEdition = false,
+    double? shelfPosition,
+    bool clearShelfPosition = false,
   }) {
     return UserBook(
       id: id,
@@ -63,8 +99,14 @@ class UserBook {
       currentPage: currentPage ?? this.currentPage,
       status: status ?? this.status,
       startedAt: startedAt,
-      finishedAt: finishedAt ?? this.finishedAt,
+      finishedAt: clearFinishedAt ? null : finishedAt ?? this.finishedAt,
       rating: rating ?? this.rating,
+      ownedEditionId: clearOwnedEdition
+          ? null
+          : ownedEditionId ?? this.ownedEditionId,
+      shelfPosition: clearShelfPosition
+          ? null
+          : shelfPosition ?? this.shelfPosition,
     );
   }
 
@@ -95,7 +137,11 @@ class UserBook {
       status: ReadingStatus.fromWire(row['status']),
       startedAt: _parseDate(row['started_at']),
       finishedAt: _parseDate(row['finished_at']),
-      rating: _parseRating(row['rating']),
+      rating: _parseDouble(row['rating']),
+      ownedEditionId: row['owned_edition_id'] is String
+          ? row['owned_edition_id'] as String
+          : null,
+      shelfPosition: _parseDouble(row['shelf_position']),
     );
   }
 
@@ -107,7 +153,7 @@ class UserBook {
 
   /// Postgres `numeric` columns come back over the REST API as a String
   /// (to avoid float rounding), not a num — normalize either shape.
-  static double? _parseRating(Object? value) {
+  static double? _parseDouble(Object? value) {
     if (value is double) return value;
     if (value is num) return value.toDouble();
     if (value is String) return double.tryParse(value);

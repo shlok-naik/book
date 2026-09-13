@@ -46,10 +46,16 @@ class FoundersNotePage extends StatelessWidget {
   Future<void> _continue(BuildContext context) async {
     await (introOffer ?? const IntroOfferStore()).markSeen();
     if (!context.mounted) return;
-    await showPaywallPopup(context, purchases: purchases, pricing: pricing);
-    if (!context.mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
+    // nextRoute, not a separate push once this awaited future resolves:
+    // the popup's own future only completes after its pop transition
+    // finishes, so a plain pop-then-push would flash this page back
+    // into view for that transition's duration before FinishPage
+    // appeared on top of it.
+    await showPaywallPopup(
+      context,
+      purchases: purchases,
+      pricing: pricing,
+      nextRoute: () => MaterialPageRoute(
         settings: const RouteSettings(name: 'onboarding_finish'),
         builder: (_) => const FinishPage(),
       ),
@@ -62,7 +68,7 @@ class FoundersNotePage extends StatelessWidget {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 3,
+      progressStep: 4,
       // Inter itself resolves a monochrome glyph for the bare U+2764
       // codepoint, so `fontFamilyFallback` never even gets consulted —
       // this has to name the color emoji font directly as the primary

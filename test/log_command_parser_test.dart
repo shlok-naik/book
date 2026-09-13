@@ -18,6 +18,152 @@ void main() {
       expect(result.message, 'Removed "Dune"');
     });
 
+    group('add shelf', () {
+      for (final (shelf, message) in [
+        ('tbr', 'Added "Dune" to read'),
+        ('reading', 'Moved "Dune" to reading'),
+        ('finished', 'Added "Dune" as finished'),
+        ('dnf', 'Marked "Dune" as DNF'),
+      ]) {
+        test('add shelf $shelf <book> parses the shelf, book and message', () {
+          final result = LogCommandParser.parse('add shelf $shelf Dune');
+          expect(result.recognized, isTrue);
+          expect(result.type, LogCommandType.addShelf);
+          expect(result.title, 'Dune');
+          expect(result.shelf, shelf);
+          expect(result.message, message);
+        });
+      }
+
+      test('everything after the shelf keyword is the title', () {
+        final result = LogCommandParser.parse('add shelf tbr The Bell Jar');
+        expect(result.title, 'The Bell Jar');
+        final tricky = LogCommandParser.parse(
+          'add shelf dnf Finished Business',
+        );
+        expect(tricky.shelf, 'dnf');
+        expect(tricky.title, 'Finished Business');
+      });
+
+      test('is case-insensitive on the keywords', () {
+        final result = LogCommandParser.parse('Add Shelf TBR Dune');
+        expect(result.recognized, isTrue);
+        expect(result.shelf, 'tbr');
+      });
+
+      test('an unknown shelf or a missing title is unrecognized', () {
+        expect(
+          LogCommandParser.parse('add shelf later Dune').recognized,
+          isFalse,
+        );
+        expect(LogCommandParser.parse('add shelf tbr').recognized, isFalse);
+      });
+
+      test('the old "add <book> <shelf>" syntax is no longer recognized', () {
+        final result = LogCommandParser.parse('add Dune tbr');
+        expect(result.recognized, isFalse);
+        expect(
+          result.message,
+          contains('add shelf <tbr|reading|finished|dnf>'),
+        );
+      });
+
+      test('suggests add shelf for a typo of add', () {
+        final result = LogCommandParser.parse('ad shelf tbr Dune');
+        expect(result.recognized, isFalse);
+        expect(result.message, contains('add shelf'));
+      });
+    });
+
+    group('add tag', () {
+      test('parses a one-word tag and the book', () {
+        final result = LogCommandParser.parse('add tag sci-fi Dune Messiah');
+        expect(result.recognized, isTrue);
+        expect(result.type, LogCommandType.addTag);
+        expect(result.tag, 'sci-fi');
+        expect(result.title, 'Dune Messiah');
+        expect(result.message, 'Tagged "Dune Messiah" sci-fi');
+      });
+
+      test('a quoted tag can contain spaces, straight or curly quotes', () {
+        final straight = LogCommandParser.parse('add tag "space opera" Dune');
+        expect(straight.tag, 'space opera');
+        expect(straight.title, 'Dune');
+        final curly = LogCommandParser.parse('add tag “book club” Circe');
+        expect(curly.tag, 'book club');
+        expect(curly.title, 'Circe');
+      });
+
+      test('a tag with no book, or an empty quoted tag, is unrecognized', () {
+        expect(LogCommandParser.parse('add tag sci-fi').recognized, isFalse);
+        expect(LogCommandParser.parse('add tag "  " Dune').recognized, isFalse);
+      });
+
+      test('suggests add tag for a typo of tag', () {
+        final result = LogCommandParser.parse('add tags sci-fi Dune');
+        expect(result.recognized, isFalse);
+        expect(result.message, contains('add tag <tag> <book>'));
+      });
+    });
+
+    group('add comment', () {
+      test('a quoted comment is split from the book here', () {
+        final result = LogCommandParser.parse(
+          'add comment "lost me in the middle" Dune',
+        );
+        expect(result.recognized, isTrue);
+        expect(result.type, LogCommandType.addComment);
+        expect(result.note, 'lost me in the middle');
+        expect(result.title, 'Dune');
+        expect(result.message, 'Commented on "Dune"');
+      });
+
+      test('an unquoted comment leaves the split to the library', () {
+        final result = LogCommandParser.parse('add comment loved it Dune');
+        expect(result.recognized, isTrue);
+        expect(result.type, LogCommandType.addComment);
+        expect(result.title, isNull);
+        expect(result.note, 'loved it Dune');
+      });
+
+      test('a comment keeps apostrophes and inner punctuation', () {
+        final result = LogCommandParser.parse(
+          "add comment \"didn't click: too slow\" Ulysses",
+        );
+        expect(result.note, "didn't click: too slow");
+        expect(result.title, 'Ulysses');
+      });
+
+      test('a single word after add comment is unrecognized', () {
+        expect(LogCommandParser.parse('add comment Dune').recognized, isFalse);
+        expect(
+          LogCommandParser.parse('add comment "" Dune').recognized,
+          isFalse,
+        );
+      });
+    });
+
+    test('update <book> <percent>% parses the book, percent, and '
+        'confirmation', () {
+      final result = LogCommandParser.parse('update The Shining 74%');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.update);
+      expect(result.title, 'The Shining');
+      expect(result.percent, 74);
+      expect(result.page, isNull);
+      expect(result.message, '"The Shining" — 74%');
+    });
+
+    test('update percent keeps a real fraction but drops a trailing '
+        '".0"', () {
+      final wholeNumber = LogCommandParser.parse('update Dune 50%');
+      expect(wholeNumber.message, '"Dune" — 50%');
+
+      final fraction = LogCommandParser.parse('update Dune 50.5%');
+      expect(fraction.percent, 50.5);
+      expect(fraction.message, '"Dune" — 50.5%');
+    });
+
     test('rate takes just a number, no trailing "stars"', () {
       final result = LogCommandParser.parse('rate Dune 5');
       expect(result.type, LogCommandType.rate);
@@ -47,7 +193,7 @@ void main() {
     test('suggests "update" for a typo of it', () {
       final result = LogCommandParser.parse('updat Dune 50');
       expect(result.recognized, isFalse);
-      expect(result.message, contains('update <book> <page>'));
+      expect(result.message, contains('update <book> <page or percent%>'));
     });
 
     test('suggests "finish" for a longer, messier typo', () {
@@ -160,6 +306,60 @@ void main() {
           expect(result.date, isNull);
         },
       );
+    });
+  });
+
+  group('series', () {
+    test('series <name> #n <book>', () {
+      final result = LogCommandParser.parse('series dune #2 Dune Messiah');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.series);
+      expect(result.series, 'dune');
+      expect(result.seriesPosition, 2);
+      expect(result.title, 'Dune Messiah');
+      expect(result.message, 'Filed "Dune Messiah" under dune #2');
+    });
+
+    test('a quoted multi-word series, no number', () {
+      final result = LogCommandParser.parse(
+        'series "the expanse" Leviathan Wakes',
+      );
+      expect(result.type, LogCommandType.series);
+      expect(result.series, 'the expanse');
+      expect(result.seriesPosition, isNull);
+      expect(result.title, 'Leviathan Wakes');
+    });
+
+    test('a half-numbered novella', () {
+      final result = LogCommandParser.parse('series dune #1.5 Dune: A Novella');
+      expect(result.seriesPosition, 1.5);
+      expect(result.message, 'Filed "Dune: A Novella" under dune #1.5');
+    });
+
+    test('series without a book is not recognized', () {
+      final result = LogCommandParser.parse('series dune');
+      expect(result.recognized, isFalse);
+      expect(result.message, contains('series <series> [#n] <book>'));
+    });
+
+    test('start series takes the rest of the line as the series', () {
+      final result = LogCommandParser.parse('start series the expanse');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.startSeries);
+      expect(result.series, 'the expanse');
+      expect(result.title, isNull);
+    });
+
+    test('start series with a quoted name', () {
+      final result = LogCommandParser.parse('start series "Dune"');
+      expect(result.type, LogCommandType.startSeries);
+      expect(result.series, 'Dune');
+    });
+
+    test('plain start is unaffected', () {
+      final result = LogCommandParser.parse('start Seriously Funny');
+      expect(result.type, LogCommandType.start);
+      expect(result.title, 'Seriously Funny');
     });
   });
 }

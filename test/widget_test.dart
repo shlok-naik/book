@@ -1,11 +1,13 @@
 import 'package:book/core/auth/session_service.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
+import 'package:book/features/library/data/book_notes_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
 import 'package:book/features/library/data/reading_event_repository.dart';
 import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
+import 'package:book/features/library/domain/book_note.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
@@ -21,6 +23,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import 'support/fake_goals.dart';
 
 /// The log page's own flow (parsing, animation, timers) is what these
 /// tests exercise — not the real Supabase/Google Books integration
@@ -71,6 +75,24 @@ class _InMemoryUserBookRepository extends UserBookRepository {
     );
   }
 
+  @override
+  Future<StartOutcome> addWithStatus(
+    String bookId,
+    ReadingStatus status, {
+    int currentPage = 0,
+  }) async {
+    final isNew = _started.add(bookId);
+    return StartOutcome(
+      UserBook(
+        id: 'progress-$bookId',
+        bookId: bookId,
+        currentPage: 0,
+        status: status,
+      ),
+      alreadyExists: !isNew,
+    );
+  }
+
   ReadingStatus _status = ReadingStatus.reading;
 
   @override
@@ -102,6 +124,11 @@ class _InMemoryUserBookRepository extends UserBookRepository {
       rating: rating,
     );
   }
+
+  final deleted = <String>[];
+
+  @override
+  Future<void> delete(String userBookId) async => deleted.add(userBookId);
 }
 
 /// A session that answers without a Supabase client behind it. There is
@@ -149,6 +176,27 @@ class _FakeReadingEventRepository extends ReadingEventRepository {
   }
 }
 
+/// In-memory tags and comments, so `add tag`/`add comment` never reach the
+/// uninitialized Supabase client.
+class _InMemoryNotesRepository extends BookNotesRepository {
+  @override
+  Future<BookTag> addTag(String userBookId, String tag) async => BookTag(
+    id: 'tag',
+    userBookId: userBookId,
+    tag: BookNotesRepository.validateTag(tag),
+    createdAt: DateTime(2026),
+  );
+
+  @override
+  Future<BookComment> addComment(String userBookId, String body) async =>
+      BookComment(
+        id: 'comment',
+        userBookId: userBookId,
+        body: BookNotesRepository.validateComment(body),
+        createdAt: DateTime(2026),
+      );
+}
+
 LibraryController _newLibraryController({LibraryException? eventsFailure}) {
   return LibraryController(
     lookup: BookLookupService(
@@ -159,6 +207,7 @@ LibraryController _newLibraryController({LibraryException? eventsFailure}) {
     ),
     userBooks: _InMemoryUserBookRepository(),
     events: _FakeReadingEventRepository(failure: eventsFailure),
+    notes: _InMemoryNotesRepository(),
   );
 }
 
@@ -200,8 +249,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  Future<void> goToStreaksPage(WidgetTester tester) async {
-    await tester.tap(find.byIcon(Icons.local_fire_department_outlined));
+  Future<void> goToStatsPage(WidgetTester tester) async {
+    await tester.tap(find.byIcon(Icons.insights_outlined));
     await tester.pumpAndSettle();
   }
 
@@ -245,6 +294,7 @@ void main() {
           libraryController: _newLibraryController(),
           memoryController: _newMemoryController(),
           sessionService: _FakeSession(),
+          goalController: goalControllerFor(),
         ),
       );
 
@@ -264,6 +314,7 @@ void main() {
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
         sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
       ),
     );
 
@@ -280,6 +331,75 @@ void main() {
     expect(find.text('"Dune" — 5★'), findsOneWidget);
   });
 
+  for (final (command, confirmation) in [
+    ('add shelf tbr Dune', 'Added "Dune" to read'),
+    ('add shelf finished Dune', 'Added "Dune" as finished'),
+    ('add shelf dnf Dune', 'Marked "Dune" as DNF'),
+  ]) {
+    testWidgets('recognizes $command', (WidgetTester tester) async {
+      await useDeviceSize(tester);
+      await tester.pumpWidget(
+        BookApp(
+          libraryController: _newLibraryController(),
+          memoryController: _newMemoryController(),
+          sessionService: _FakeSession(),
+          goalController: goalControllerFor(),
+        ),
+      );
+
+      await submit(tester, command);
+      expect(find.text(confirmation), findsOneWidget);
+    });
+  }
+
+  testWidgets('tags and comments a book already on the shelf', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+
+    await submit(tester, 'start Dune');
+    await submit(tester, 'add tag sci-fi Dune');
+    expect(find.text('Tagged "Dune" sci-fi'), findsOneWidget);
+
+    await submit(tester, 'add comment "slow first half" Dune');
+    expect(find.text('Commented on "Dune"'), findsOneWidget);
+
+    // Unquoted: only the library knows where the comment stops — so the
+    // pill names the book the library found, not the parser's guess.
+    await submit(tester, 'add comment slow first half dune');
+    expect(find.text('Commented on "Dune"'), findsOneWidget);
+  });
+
+  testWidgets('refuses a tag for a book that is not on the shelf', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+
+    await submit(tester, 'add tag sci-fi Dune');
+    expect(
+      find.text(
+        '"Dune" isn\'t on your shelf yet — try "add shelf tbr Dune" first.',
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('strikes the command through in place, then clears the field', (
     WidgetTester tester,
   ) async {
@@ -289,6 +409,7 @@ void main() {
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
         sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
       ),
     );
 
@@ -315,6 +436,7 @@ void main() {
           libraryController: _newLibraryController(),
           memoryController: _newMemoryController(),
           sessionService: _FakeSession(),
+          goalController: goalControllerFor(),
         ),
       );
 
@@ -358,6 +480,7 @@ void main() {
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
         sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
       ),
     );
 
@@ -405,6 +528,7 @@ void main() {
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
         sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
       ),
     );
 
@@ -426,6 +550,7 @@ void main() {
           libraryController: _newLibraryController(),
           memoryController: _newMemoryController(),
           sessionService: _FakeSession(),
+          goalController: goalControllerFor(),
         ),
       );
 
@@ -456,6 +581,7 @@ void main() {
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
         sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
       ),
     );
 
@@ -477,6 +603,7 @@ void main() {
           libraryController: _newLibraryController(),
           memoryController: _newMemoryController(),
           sessionService: _FakeSession(),
+          goalController: goalControllerFor(),
         ),
       );
 
@@ -509,6 +636,7 @@ void main() {
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
         sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
       ),
     );
 
@@ -525,10 +653,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(SettingsPage), findsOneWidget);
-    expect(find.text('appearance'), findsOneWidget);
+    expect(find.text('yearly goal'), findsOneWidget);
   });
 
-  testWidgets('Streaks page is reachable and shows the reading journal', (
+  testWidgets('Stats page is reachable and shows the reading journal', (
     WidgetTester tester,
   ) async {
     await useDeviceSize(tester);
@@ -537,16 +665,17 @@ void main() {
         libraryController: _newLibraryController(),
         memoryController: _newMemoryController(),
         sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
       ),
     );
-    await goToStreaksPage(tester);
+    await goToStatsPage(tester);
 
     expect(find.text('nothing logged yet — start a book.'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets(
-    'Streaks page says so when the year could not be loaded, rather than '
+    'Stats page says so when the year could not be loaded, rather than '
     'showing an empty journal',
     (WidgetTester tester) async {
       await useDeviceSize(tester);
@@ -557,9 +686,10 @@ void main() {
           ),
           memoryController: _newMemoryController(),
           sessionService: _FakeSession(),
+          goalController: goalControllerFor(),
         ),
       );
-      await goToStreaksPage(tester);
+      await goToStatsPage(tester);
 
       // An empty journal would be indistinguishable from "you have
       // never logged anything", so the failure must show instead.
@@ -568,4 +698,82 @@ void main() {
       expect(find.text('try again'), findsOneWidget);
     },
   );
+
+  testWidgets('delete asks first — cancelling keeps the book and does not '
+      'shake', (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    final library = _newLibraryController();
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: library,
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+    await submit(tester, 'start Dune');
+
+    await send(tester, 'delete dune');
+    await tester.pumpAndSettle();
+    expect(find.text('delete Dune?'), findsOneWidget);
+
+    await tester.tap(find.text('cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('delete Dune?'), findsNothing);
+    expect(find.text('Kept "Dune"'), findsOneWidget);
+    expect(library.match('Dune'), isNotNull);
+    // Still in the field, ready to edit or resubmit.
+    expect(find.text('delete dune'), findsOneWidget);
+  });
+
+  testWidgets('confirming a delete removes the book', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    final library = _newLibraryController();
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: library,
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+    await submit(tester, 'start Dune');
+
+    await send(tester, 'delete Dune');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(InkWell, 'delete'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Removed "Dune"'), findsOneWidget);
+    expect(library.match('Dune'), isNull);
+    await finishAccept(tester);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('deleting a book that is not on the shelf skips the question', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+
+    await send(tester, 'delete Dune');
+    await tester.pump();
+    expect(find.text('delete Dune?'), findsNothing);
+    expect(
+      find.text("You haven't started \"Dune\" yet — try \"start Dune\" first."),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(seconds: 4));
+  });
 }

@@ -6,8 +6,14 @@ import 'app_colors.dart';
 /// Central Light/Dark [ThemeData] for the Mono & Teal design system.
 /// Fraunces for headings/display, Inter for body/UI.
 abstract final class AppTheme {
-  static ThemeData light = _build(AppColors.light, Brightness.light);
-  static ThemeData dark = _build(AppColors.dark, Brightness.dark);
+  // Getters, not cached static fields — a static field is built once and
+  // held for the rest of the session, which Dart's hot reload cannot
+  // refresh (only a hot restart re-runs static initializers), so a
+  // color-only edit would silently keep showing the old theme until a
+  // full restart. Rebuilding on every access costs nothing worth
+  // noticing and keeps hot reload actually reflecting AppColors.
+  static ThemeData get light => _build(AppColors.light, Brightness.light);
+  static ThemeData get dark => _build(AppColors.dark, Brightness.dark);
 
   static ThemeData _build(AppColors colors, Brightness brightness) {
     final base = ThemeData(brightness: brightness, useMaterial3: true);

@@ -5,12 +5,12 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 
 /// The step indicator shown across the post-tutorial onboarding flow:
-/// tutorial → look → finish. [currentStep] (1-3) and every step before
+/// tutorial → look → goal → finish. [currentStep] (1-4) and every step before
 /// it are drawn filled, with a filled connecting line leading into them;
 /// the rest are hollow. Never shown on the tutorial pages themselves —
 /// only from the "pick a look" question onward.
 ///
-/// Three steps rather than the five this once had. Onboarding no longer
+/// Four steps rather than the five this once had. Onboarding no longer
 /// creates an account — `main` opens an anonymous session before the
 /// first frame — so the two account steps, and the branching line that
 /// used to loop around them for readers who signed in instead of
@@ -20,8 +20,8 @@ class OnboardingProgressDots extends StatelessWidget {
 
   final int currentStep;
 
-  static const stepCount = 3;
-  static const _labels = ['tutorial', 'look', 'finish'];
+  static const stepCount = 4;
+  static const _labels = ['tutorial', 'look', 'goal', 'finish'];
   static const _dotSize = 16.0;
 
   @override

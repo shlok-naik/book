@@ -7,7 +7,7 @@ import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
 import 'founders_note_page.dart';
 
-/// A teaser beat between the reader's one question and the founder's
+/// A teaser beat between the reading-goal question and the founder's
 /// note — the last thing before the app itself.
 class OneMoreThingPage extends StatelessWidget {
   const OneMoreThingPage({super.key});
@@ -18,7 +18,7 @@ class OneMoreThingPage extends StatelessWidget {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 3,
+      progressStep: 4,
       topContent: const Text('➡️', style: TextStyle(fontSize: 96)),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -1,6 +1,7 @@
 import 'package:book/core/ai/ai_command_parser.dart';
 import 'package:book/core/purchases/plan_controller.dart';
 import 'package:book/core/theme/app_theme.dart';
+import 'package:book/features/goals/presentation/goal_scope.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
@@ -24,6 +25,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import '../support/fake_goals.dart';
 
 const _dune = Book(
   id: 'book-1',
@@ -169,14 +172,18 @@ Widget _harness(
   LibraryController library, {
   MemoryController? memory,
 }) {
-  return MaterialApp(
-    theme: AppTheme.light,
-    home: LibraryScope(
-      controller: library,
-      child: MemoryScope(
-        controller:
-            memory ?? MemoryController(repository: _InMemoryMemoryRepository()),
-        child: child,
+  return GoalScope(
+    controller: goalControllerFor(),
+    child: MaterialApp(
+      theme: AppTheme.light,
+      home: LibraryScope(
+        controller: library,
+        child: MemoryScope(
+          controller:
+              memory ??
+              MemoryController(repository: _InMemoryMemoryRepository()),
+          child: child,
+        ),
       ),
     ),
   );
