@@ -79,10 +79,13 @@ begin
       return new;
     end if;
   end if;
-  if tg_table_name = 'book_comments'
-     and new.body is not distinct from old.body then
-    new.updated_at = old.updated_at;
-    return new;
+  -- Nested rather than `and`-ed: plpgsql doesn't guarantee short-circuit
+  -- evaluation, and `new.body` doesn't exist on any other table.
+  if tg_table_name = 'book_comments' then
+    if new.body is not distinct from old.body then
+      new.updated_at = old.updated_at;
+      return new;
+    end if;
   end if;
   new.updated_at = now();
   return new;

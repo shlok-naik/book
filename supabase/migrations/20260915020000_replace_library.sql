@@ -76,14 +76,14 @@ begin
   on conflict do nothing;
 
   insert into public.book_comments (user_book_id, body)
-  select ub.id, left(btrim(comment.value), 1000)
+  select ub.id, left(btrim(note.value), 1000)
   from jsonb_array_elements(p_books) as b
   join public.user_books ub
     on ub.book_id = (b ->> 'book_id')::uuid and ub.user_id = caller
   cross join lateral jsonb_array_elements_text(
     case when jsonb_typeof(b -> 'comments') = 'array' then b -> 'comments' else '[]' end
-  ) as comment(value)
-  where char_length(btrim(comment.value)) > 0;
+  ) as note(value)
+  where char_length(btrim(note.value)) > 0;
 
   -- A dated finish is a real moment in the reader's history: journal it,
   -- so the stats page's journal and streaks reflect the imported library.
