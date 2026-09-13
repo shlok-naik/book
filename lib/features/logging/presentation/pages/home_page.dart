@@ -11,7 +11,6 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/confirm_dialog.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_progress_view.dart';
-import '../../../goals/presentation/widgets/goal_sheet.dart';
 import '../../../library/domain/user_book.dart' show ReadingStatus;
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
@@ -682,10 +681,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   if (goals.isLoaded) ...[
                     GoalProgressView(
                       compact: true,
+                      editable: false,
                       progress: ReadingStats.from(
                         library.books,
                       ).goalProgress(goals.goal),
-                      onEdit: () => showGoalSheet(context),
                     ),
                     const SizedBox(height: AppSpacing.md),
                     Divider(height: 1, thickness: 1, color: colors.divider),

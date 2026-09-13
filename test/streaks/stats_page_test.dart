@@ -208,22 +208,119 @@ void main() {
     expect(tilesY, lessThan(journalY));
   });
 
-  testWidgets('without a goal, offers to set one — and saving it shows it', (
+  testWidgets(
+    'without a goal, says so — the goal is not editable from this page',
+    (tester) async {
+      await pumpJournal(tester, []);
+
+      expect(find.text('no reading goal set yet'), findsOneWidget);
+      // No "set a reading goal" prompt, no edit icon, and nothing to tap —
+      // a goal is only ever changed from settings.
+      expect(find.text('set a reading goal'), findsNothing);
+      expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    },
+  );
+
+  testWidgets('a set goal shows its progress, still without an edit icon', (
     tester,
   ) async {
-    final goals = await pumpJournal(tester, []);
+    await pumpJournal(tester, [], goal: 24);
 
-    await tester.tap(find.text('set a reading goal'));
-    await tester.pumpAndSettle();
-    expect(find.text('reading goal'), findsOneWidget);
-    expect(find.byType(TextField), findsNothing);
-
-    await tester.tap(find.text('24'));
-    await tester.pump();
-    await tester.tap(find.text('save'));
-    await tester.pumpAndSettle();
-
-    expect(goals.goal, 24);
     expect(find.text(' / 24 books'), findsOneWidget);
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+  });
+
+  group('charts', () {
+    final year = DateTime.now().year;
+
+    testWidgets('an empty shelf shows every chart\'s own empty-state line', (
+      tester,
+    ) async {
+      await pumpJournal(tester, []);
+
+      expect(find.text('books per month'), findsOneWidget);
+      expect(find.text('nothing finished in $year yet.'), findsOneWidget);
+      expect(find.text('pages per month'), findsOneWidget);
+      expect(find.text('no pages logged in $year yet.'), findsOneWidget);
+      expect(find.text('pace'), findsOneWidget);
+      expect(
+        find.text('finish a book to start tracking your pace.'),
+        findsOneWidget,
+      );
+      expect(find.text('your shelf'), findsOneWidget);
+      expect(find.text('nothing on your shelf yet.'), findsOneWidget);
+    });
+
+    testWidgets(
+      'a shelf with books draws the shelf donut and the pace legend',
+      (tester) async {
+        await pumpJournal(
+          tester,
+          [],
+          goal: 12,
+          books: [
+            LibraryBook(
+              book: const Book(
+                id: 'b1',
+                googleBooksId: 'g1',
+                title: 'Dune',
+                author: 'Frank Herbert',
+                pageCount: 400,
+              ),
+              progress: UserBook(
+                id: 'u1',
+                bookId: 'b1',
+                currentPage: 400,
+                status: ReadingStatus.finished,
+                finishedAt: DateTime(year, 2, 1),
+              ),
+            ),
+            const LibraryBook(
+              book: Book(
+                id: 'b2',
+                googleBooksId: 'g2',
+                title: 'Dune Messiah',
+                author: 'Frank Herbert',
+              ),
+              progress: UserBook(
+                id: 'u2',
+                bookId: 'b2',
+                currentPage: 50,
+                status: ReadingStatus.reading,
+              ),
+            ),
+            const LibraryBook(
+              book: Book(
+                id: 'b3',
+                googleBooksId: 'g3',
+                title: 'Children of Dune',
+                author: 'Frank Herbert',
+              ),
+              progress: UserBook(
+                id: 'u3',
+                bookId: 'b3',
+                currentPage: 0,
+                status: ReadingStatus.toBeRead,
+              ),
+            ),
+          ],
+        );
+
+        // No more empty-state fallbacks once there's something to chart.
+        expect(find.text('nothing finished in $year yet.'), findsNothing);
+        expect(find.text('nothing on your shelf yet.'), findsNothing);
+
+        // The donut legend names every non-empty shelf, with counts.
+        expect(find.text('reading'), findsOneWidget);
+        expect(find.text('to read'), findsOneWidget);
+        expect(find.text('finished'), findsOneWidget);
+        expect(find.text('did not finish'), findsNothing);
+        expect(find.text('3'), findsOneWidget); // the donut's own total
+
+        // The pace chart only shows its comparison legend once a goal exists.
+        expect(find.text('you'), findsOneWidget);
+        expect(find.text('steady pace'), findsOneWidget);
+      },
+    );
   });
 }

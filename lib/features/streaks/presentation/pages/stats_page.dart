@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -6,14 +7,13 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../goals/domain/reading_goal.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_progress_view.dart';
-import '../../../goals/presentation/widgets/goal_sheet.dart';
 import '../../../library/domain/reading_event.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/reading_stats.dart';
-import '../../domain/streak_math.dart';
 import '../controllers/streaks_controller.dart';
 
 /// Gap between one day's entries and the next day's label.
@@ -25,15 +25,50 @@ const _entrySpacing = AppSpacing.sm;
 /// How many genres get their own row before the rest fold into "other".
 const _topGenres = 5;
 
-/// The stats tab: the yearly reading goal first, then numbers about the
-/// shelf (books and pages read, streaks, genres), then the reading journal
-/// — every command read back as the line it was typed as, grouped under the
-/// day it happened, newest day first.
+/// Shared by every monthly chart on this page, so "J" and "Jan" always mean
+/// the same column no matter which chart is drawing it.
+const _monthInitials = [
+  'J',
+  'F',
+  'M',
+  'A',
+  'M',
+  'J',
+  'J',
+  'A',
+  'S',
+  'O',
+  'N',
+  'D',
+];
+const _monthNames = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+String _monthName(int index) => _monthNames[index];
+
+/// The stats tab: the yearly reading goal first (read-only here — a goal is
+/// only ever changed from settings), then numbers about the shelf (books
+/// and pages read), four charts (books finished per month, pages read per
+/// month, pace toward the goal, and how the shelf breaks down), then genres
+/// and the reading journal — every command read back as the line it was
+/// typed as, grouped under the day it happened, newest day first.
 ///
-/// Everything here is free. The shelf numbers come straight from
-/// [ReadingStats] over the books `LibraryController` already holds, so they
-/// update the moment a command lands; only the journal and streaks need
-/// the year of `reading_events` [StreaksController] loads.
+/// Everything but the journal is free and comes straight from
+/// [ReadingStats] over the books `LibraryController` already holds, so it
+/// updates the moment a command lands; only the journal needs the year of
+/// `reading_events` [StreaksController] loads.
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key});
 
@@ -104,13 +139,29 @@ class _StatsPageState extends State<StatsPage> {
                 const SizedBox(height: AppSpacing.lg),
                 if (goals.isLoaded)
                   GoalProgressView(
+                    editable: false,
                     progress: stats.goalProgress(goals.goal),
-                    onEdit: () => showGoalSheet(context),
                   )
                 else if (goalError != null)
                   _LoadFailure(message: goalError, onRetry: goals.load),
                 const SizedBox(height: AppSpacing.xl),
-                _StatGrid(stats: stats, streaks: controller),
+                _StatGrid(stats: stats),
+                const SizedBox(height: AppSpacing.xl),
+                const _Heading('books per month'),
+                const SizedBox(height: AppSpacing.md),
+                _ActivityChart(stats: stats),
+                const SizedBox(height: AppSpacing.xl),
+                const _Heading('pages per month'),
+                const SizedBox(height: AppSpacing.md),
+                _PagesChart(stats: stats),
+                const SizedBox(height: AppSpacing.xl),
+                const _Heading('pace'),
+                const SizedBox(height: AppSpacing.md),
+                _PaceChart(stats: stats, goal: stats.goalProgress(goals.goal)),
+                const SizedBox(height: AppSpacing.xl),
+                const _Heading('your shelf'),
+                const SizedBox(height: AppSpacing.md),
+                _ShelfDonut(stats: stats),
                 if (stats.genres.isNotEmpty) ...[
                   const SizedBox(height: AppSpacing.xl),
                   const _Heading('genres'),
@@ -164,13 +215,11 @@ class _Heading extends StatelessWidget {
   }
 }
 
-/// Two columns of numbers. The streak tile waits on the journal's year of
-/// events; everything else comes from the shelf and is there immediately.
+/// Two columns of numbers, straight from the shelf.
 class _StatGrid extends StatelessWidget {
-  const _StatGrid({required this.stats, required this.streaks});
+  const _StatGrid({required this.stats});
 
   final ReadingStats stats;
-  final StreaksController? streaks;
 
   /// "12,480" — thousands separated, since page counts get long.
   static String count(int value) {
@@ -183,7 +232,8 @@ class _StatGrid extends StatelessWidget {
     return buffer.toString();
   }
 
-  Widget _grid(int? current, int? longest) {
+  @override
+  Widget build(BuildContext context) {
     final rating = stats.averageRating;
     final tiles = [
       _Tile(
@@ -195,13 +245,6 @@ class _StatGrid extends StatelessWidget {
         label: 'pages read',
         value: count(stats.pagesThisYear),
         detail: 'in ${stats.year} · ${count(stats.pagesAllTime)} all time',
-      ),
-      _Tile(
-        label: 'current streak',
-        value: current == null ? '—' : count(current),
-        detail: longest == null
-            ? 'days'
-            : '${current == 1 ? 'day' : 'days'} · best $longest this year',
       ),
       _Tile(
         label: 'reading now',
@@ -227,22 +270,6 @@ class _StatGrid extends StatelessWidget {
             for (final tile in tiles) SizedBox(width: width, child: tile),
           ],
         );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final streaks = this.streaks;
-    if (streaks == null) return _grid(null, null);
-    return AnimatedBuilder(
-      animation: streaks,
-      builder: (context, _) {
-        if (streaks.isLoading || streaks.errorMessage != null) {
-          return _grid(null, null);
-        }
-        final days = streaks.loggedDays;
-        return _grid(StreakMath.current(days), StreakMath.longest(days));
       },
     );
   }
@@ -309,6 +336,677 @@ class _Tile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Books finished per month this year, as a bar chart — the one graph on
+/// the page that reads at a glance whether reading has picked up or
+/// tapered off, rather than the single "books this year" number the grid
+/// above already gives.
+class _ActivityChart extends StatelessWidget {
+  const _ActivityChart({required this.stats});
+
+  final ReadingStats stats;
+
+  static const _chartHeight = 120.0;
+  static const _barWidth = 16.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final months = stats.booksByMonth;
+    final most = months.fold(0, (best, count) => count > best ? count : best);
+    final currentMonth = DateTime.now().month - 1;
+
+    if (most == 0) {
+      return Text(
+        'nothing finished in ${stats.year} yet.',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 13,
+          color: colors.secondaryText,
+        ),
+      );
+    }
+
+    return Semantics(
+      label:
+          'Books finished per month in ${stats.year}: '
+          '${[for (var i = 0; i < 12; i++) '${_monthName(i)} ${months[i]}'].join(', ')}.',
+      excludeSemantics: true,
+      child: SizedBox(
+        height: _chartHeight + 28,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            for (var i = 0; i < 12; i++)
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      height: _chartHeight,
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Tooltip(
+                          message: '${_monthName(i)}: ${months[i]}',
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            width: _barWidth,
+                            height: months[i] == 0
+                                ? 2
+                                : _chartHeight * (months[i] / most),
+                            decoration: BoxDecoration(
+                              color: i == currentMonth
+                                  ? colors.accent
+                                  : colors.accent.withValues(
+                                      alpha: months[i] == 0 ? 0.15 : 0.55,
+                                    ),
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _monthInitials[i],
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        fontWeight: i == currentMonth
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        color: i == currentMonth
+                            ? colors.accent
+                            : colors.secondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Pages read per month this year, as a filled line chart — the same shape
+/// [_ActivityChart] draws in bars, but pages swing more than book counts do
+/// (one 900-page month can hide three thin ones), so a line reads that
+/// better than bars would.
+class _PagesChart extends StatelessWidget {
+  const _PagesChart({required this.stats});
+
+  final ReadingStats stats;
+
+  static const _chartHeight = 120.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final months = stats.pagesByMonth;
+    final most = months.fold(0, (best, count) => count > best ? count : best);
+
+    if (most == 0) {
+      return Text(
+        'no pages logged in ${stats.year} yet.',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 13,
+          color: colors.secondaryText,
+        ),
+      );
+    }
+
+    return Semantics(
+      label:
+          'Pages read per month in ${stats.year}: '
+          '${[for (var i = 0; i < 12; i++) '${_monthName(i)} ${months[i]}'].join(', ')}.',
+      excludeSemantics: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: _chartHeight,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _LineChartPainter(
+                series: [
+                  _LineSeries(
+                    values: [for (final count in months) count.toDouble()],
+                    color: colors.accent,
+                    filled: true,
+                  ),
+                ],
+                maxY: most.toDouble(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _MonthLabels(currentMonth: DateTime.now().month - 1),
+        ],
+      ),
+    );
+  }
+}
+
+/// The row of month initials under every chart on this page, with the
+/// current one picked out — shared so the columns line up identically no
+/// matter which chart sits above them.
+class _MonthLabels extends StatelessWidget {
+  const _MonthLabels({required this.currentMonth});
+
+  final int currentMonth;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Row(
+      children: [
+        for (var i = 0; i < 12; i++)
+          Expanded(
+            child: Text(
+              _monthInitials[i],
+              textAlign: TextAlign.center,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                fontWeight: i == currentMonth
+                    ? FontWeight.w600
+                    : FontWeight.w400,
+                color: i == currentMonth ? colors.accent : colors.secondaryText,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// One value per month, some of which may be entirely absent (a series that
+/// stops partway through the year, like [_PaceChart]'s actual-progress
+/// line once it reaches the current month).
+class _LineSeries {
+  const _LineSeries({
+    required this.values,
+    required this.color,
+    this.dashed = false,
+    this.filled = false,
+    this.strokeWidth = 2.5,
+  });
+
+  final List<double?> values;
+  final Color color;
+  final bool dashed;
+  final bool filled;
+  final double strokeWidth;
+}
+
+/// Draws one or more [_LineSeries] against a shared 0..[maxY] scale, evenly
+/// spaced across the width. A null value breaks the line rather than
+/// drawing a point for it, so a series that hasn't reached December yet
+/// just stops instead of dropping to zero.
+class _LineChartPainter extends CustomPainter {
+  _LineChartPainter({required this.series, required this.maxY});
+
+  final List<_LineSeries> series;
+  final double maxY;
+
+  static const _dashLength = 5.0;
+  static const _dashGap = 4.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (maxY <= 0 || size.width <= 0 || size.height <= 0) return;
+
+    for (final line in series) {
+      final points = <Offset?>[
+        for (var i = 0; i < line.values.length; i++)
+          if (line.values[i] case final value?)
+            Offset(
+              line.values.length == 1
+                  ? 0
+                  : size.width * i / (line.values.length - 1),
+              size.height * (1 - (value / maxY).clamp(0.0, 1.0)),
+            )
+          else
+            null,
+      ];
+
+      if (line.filled) _paintFill(canvas, size, points, line.color);
+
+      final paint = Paint()
+        ..color = line.color
+        ..strokeWidth = line.strokeWidth
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+
+      Offset? previous;
+      for (final point in points) {
+        if (previous != null && point != null) {
+          if (line.dashed) {
+            _paintDashedSegment(canvas, previous, point, paint);
+          } else {
+            canvas.drawLine(previous, point, paint);
+          }
+        }
+        previous = point;
+      }
+
+      if (!line.dashed) {
+        final dotPaint = Paint()..color = line.color;
+        for (final point in points) {
+          if (point != null) {
+            canvas.drawCircle(point, line.strokeWidth, dotPaint);
+          }
+        }
+      }
+    }
+  }
+
+  /// Fills under one unbroken contiguous run of points — the common case
+  /// (a whole year of data) draws one region; a line with gaps fills each
+  /// run it actually has data for, rather than bridging the gap.
+  void _paintFill(Canvas canvas, Size size, List<Offset?> points, Color color) {
+    final fillPaint = Paint()..color = color.withValues(alpha: 0.12);
+    var run = <Offset>[];
+    void flush() {
+      if (run.length > 1) {
+        final path = Path()..moveTo(run.first.dx, size.height);
+        for (final point in run) {
+          path.lineTo(point.dx, point.dy);
+        }
+        path.lineTo(run.last.dx, size.height);
+        path.close();
+        canvas.drawPath(path, fillPaint);
+      }
+      run = [];
+    }
+
+    for (final point in points) {
+      if (point == null) {
+        flush();
+      } else {
+        run.add(point);
+      }
+    }
+    flush();
+  }
+
+  void _paintDashedSegment(Canvas canvas, Offset a, Offset b, Paint paint) {
+    final total = (b - a).distance;
+    if (total == 0) return;
+    final direction = (b - a) / total;
+    var drawn = 0.0;
+    var drawing = true;
+    while (drawn < total) {
+      final length = drawing ? _dashLength : _dashGap;
+      final next = math.min(drawn + length, total);
+      if (drawing) {
+        canvas.drawLine(a + direction * drawn, a + direction * next, paint);
+      }
+      drawn = next;
+      drawing = !drawing;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LineChartPainter oldDelegate) =>
+      oldDelegate.series != series || oldDelegate.maxY != maxY;
+}
+
+/// A small colored swatch for a chart legend — a solid bar for a solid
+/// line, three short dashes for a dashed one, so the legend reads as a
+/// miniature of the line it's naming.
+class _LegendSwatch extends StatelessWidget {
+  const _LegendSwatch({required this.color, this.dashed = false});
+
+  final Color color;
+  final bool dashed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!dashed) {
+      return Container(
+        width: 14,
+        height: 3,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
+      );
+    }
+    return SizedBox(
+      width: 14,
+      height: 3,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          for (var i = 0; i < 3; i++)
+            Container(
+              width: 3,
+              height: 3,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Cumulative books finished this year against a steady pace toward the
+/// goal — the one chart on the page that answers "am I on track", rather
+/// than just "what happened". Without a goal it still shows how the
+/// reader's own total has grown, just with nothing to compare it to.
+class _PaceChart extends StatelessWidget {
+  const _PaceChart({required this.stats, required this.goal});
+
+  final ReadingStats stats;
+
+  /// From `stats.goalProgress(goals.goal)` — null with no goal set.
+  final ReadingGoal? goal;
+
+  static const _chartHeight = 120.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final goal = this.goal;
+    final currentMonth =
+        DateTime.now().month; // 1-12, so index 0..currentMonth-1 has happened.
+
+    var running = 0.0;
+    final cumulative = <double>[];
+    for (final count in stats.booksByMonth) {
+      running += count;
+      cumulative.add(running);
+    }
+    final actual = <double?>[
+      for (var i = 0; i < 12; i++) i < currentMonth ? cumulative[i] : null,
+    ];
+
+    if (running == 0 && goal == null) {
+      return Text(
+        'finish a book to start tracking your pace.',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 13,
+          color: colors.secondaryText,
+        ),
+      );
+    }
+
+    final maxY = goal == null
+        ? running
+        : math.max(goal.goal.toDouble(), running);
+    final ideal = goal == null
+        ? null
+        : [for (var i = 0; i < 12; i++) goal.goal * (i + 1) / 12];
+
+    return Semantics(
+      label: goal == null
+          ? "You've finished ${running.toInt()} "
+                '${running == 1 ? 'book' : 'books'} so far in ${stats.year}.'
+          : 'Reading pace toward your goal of ${goal.goal} books: '
+                '${running.toInt()} finished, ${goal.paceLabel(DateTime.now())}.',
+      excludeSemantics: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (goal != null) ...[
+            Row(
+              children: [
+                _LegendSwatch(color: colors.accent),
+                const SizedBox(width: 6),
+                Text('you', style: _legendStyle(colors, colors.primaryText)),
+                const SizedBox(width: AppSpacing.md),
+                _LegendSwatch(color: colors.secondaryText, dashed: true),
+                const SizedBox(width: 6),
+                Text(
+                  'steady pace',
+                  style: _legendStyle(colors, colors.secondaryText),
+                ),
+                const Spacer(),
+                Text(
+                  goal.paceLabel(DateTime.now()),
+                  style: _legendStyle(colors, colors.accent),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          SizedBox(
+            height: _chartHeight,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _LineChartPainter(
+                series: [
+                  if (ideal != null)
+                    _LineSeries(
+                      values: ideal,
+                      color: colors.secondaryText,
+                      dashed: true,
+                      strokeWidth: 1.5,
+                    ),
+                  _LineSeries(
+                    values: actual,
+                    color: colors.accent,
+                    filled: goal == null,
+                  ),
+                ],
+                maxY: maxY <= 0 ? 1 : maxY,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _MonthLabels(currentMonth: currentMonth - 1),
+        ],
+      ),
+    );
+  }
+
+  static TextStyle _legendStyle(AppColors colors, Color color) =>
+      GoogleFonts.jetBrainsMono(fontSize: 12, color: color);
+}
+
+/// The current shelf, as a donut: reading, to read, finished, and did not
+/// finish, with the total in the middle — the one chart that's a snapshot
+/// of right now rather than a trend over the year.
+class _ShelfDonut extends StatelessWidget {
+  const _ShelfDonut({required this.stats});
+
+  final ReadingStats stats;
+
+  static const _size = 132.0;
+  static const _strokeWidth = 18.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final segments = [
+      (label: 'reading', count: stats.reading, color: colors.accent),
+      (
+        label: 'finished',
+        count: stats.booksAllTime,
+        color: colors.accent.withValues(alpha: 0.45),
+      ),
+      (
+        label: 'to read',
+        count: stats.toRead,
+        color: colors.secondaryText.withValues(alpha: 0.45),
+      ),
+      (
+        label: 'did not finish',
+        count: stats.didNotFinish,
+        color: colors.divider,
+      ),
+    ];
+    final total = segments.fold(0, (sum, s) => sum + s.count);
+
+    if (total == 0) {
+      return Text(
+        'nothing on your shelf yet.',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 13,
+          color: colors.secondaryText,
+        ),
+      );
+    }
+
+    return Semantics(
+      label:
+          'Your shelf: '
+          '${[for (final s in segments)
+            if (s.count > 0) '${s.label} ${s.count}'].join(', ')}.',
+      excludeSemantics: true,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: _size,
+            height: _size,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CustomPaint(
+                  size: const Size(_size, _size),
+                  painter: _DonutPainter(
+                    segments: [
+                      for (final s in segments)
+                        (value: s.count.toDouble(), color: s.color),
+                    ],
+                    strokeWidth: _strokeWidth,
+                    background: colors.divider.withValues(alpha: 0.3),
+                  ),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$total',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: colors.primaryText,
+                      ),
+                    ),
+                    Text(
+                      total == 1 ? 'book' : 'books',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.lg),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final s in segments)
+                  if (s.count > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: s.color,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              s.label,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.jetBrainsMono(
+                                fontSize: 13,
+                                color: colors.primaryText,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${s.count}',
+                            style: GoogleFonts.jetBrainsMono(
+                              fontSize: 13,
+                              color: colors.secondaryText,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The ring [_ShelfDonut] draws: one arc per segment, in order, starting
+/// from the top. A zero-count segment is skipped rather than drawn as a
+/// zero-width arc.
+class _DonutPainter extends CustomPainter {
+  _DonutPainter({
+    required this.segments,
+    required this.strokeWidth,
+    required this.background,
+  });
+
+  final List<({double value, Color color})> segments;
+  final double strokeWidth;
+  final Color background;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final total = segments.fold(0.0, (sum, s) => sum + s.value);
+    final rect = Rect.fromLTWH(
+      strokeWidth / 2,
+      strokeWidth / 2,
+      size.width - strokeWidth,
+      size.height - strokeWidth,
+    );
+
+    canvas.drawArc(
+      rect,
+      0,
+      2 * math.pi,
+      false,
+      Paint()
+        ..color = background
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth,
+    );
+    if (total <= 0) return;
+
+    var start = -math.pi / 2;
+    for (final segment in segments) {
+      if (segment.value <= 0) continue;
+      final sweep = 2 * math.pi * (segment.value / total);
+      canvas.drawArc(
+        rect,
+        start,
+        sweep,
+        false,
+        Paint()
+          ..color = segment.color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth,
+      );
+      start += sweep;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DonutPainter oldDelegate) =>
+      oldDelegate.segments != segments ||
+      oldDelegate.strokeWidth != strokeWidth ||
+      oldDelegate.background != background;
 }
 
 /// The top genres as labelled bars scaled to the most common one, with the
