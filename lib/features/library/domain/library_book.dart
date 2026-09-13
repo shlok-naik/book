@@ -21,6 +21,9 @@ class LibraryBook {
   /// `add <book> tbr` — queued, never opened yet.
   bool get isToBeRead => progress.status == ReadingStatus.toBeRead;
 
+  /// `add <book> dnf` — dropped, no reason captured.
+  bool get isDnf => progress.status == ReadingStatus.dnf;
+
   /// `rate <book> <stars>`. Only ever set on a finished book — see
   /// [UserBook.rating] — so the UI can treat a non-null value here as
   /// safe to render without re-checking [isFinished] itself.

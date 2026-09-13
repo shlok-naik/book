@@ -325,6 +325,20 @@ void main() {
     expect(find.text('Added "Dune" as finished'), findsOneWidget);
   });
 
+  testWidgets('recognizes add <book> dnf', (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+      ),
+    );
+
+    await submit(tester, 'add Dune dnf');
+    expect(find.text('Marked "Dune" as DNF'), findsOneWidget);
+  });
+
   testWidgets('strikes the command through in place, then clears the field', (
     WidgetTester tester,
   ) async {

@@ -1,7 +1,8 @@
 // Zero-cost, rule-based parser for Structured mode commands:
 // `start <book> [date]`, `update <book> <page> [date]`,
-// `finish <book> [date]`, `rate <book> <stars>`, `delete <book>`,
-// `add <book> tbr`, `add <book> finished` — the optional trailing date
+// `update <book> <percent>% [date]`, `finish <book> [date]`,
+// `rate <book> <stars>`, `delete <book>`, `add <book> tbr`,
+// `add <book> finished`, `add <book> dnf` — the optional trailing date
 // (`YYYY-MM-DD`) on the first three backdates the reading event it
 // logs, so "I started Dune yesterday" (resolved to a concrete date by
 // cactus pro before it ever reaches this parser) logs — and streaks —
@@ -35,6 +36,7 @@ class ParsedLogCommand {
     this.note,
     this.date,
     this.shelf,
+    this.percent,
   });
 
   /// Confirmation (or error/suggestion) text for the pill.
@@ -50,7 +52,15 @@ class ParsedLogCommand {
 
   /// Page argument of `update`. Always a non-negative int when present;
   /// the pattern only matches digits, so no sign or decimal can get in.
+  /// Null when `update` was given a [percent] instead of a raw page.
   final int? page;
+
+  /// The `<percent>` in `update <book> <percent>%` — an alternative to
+  /// [page] for a reader who thinks in "74%" rather than a raw page
+  /// number. Resolved to an actual page by `LibraryController`, which is
+  /// the only place that knows the book's total page count. Null for
+  /// every other command, and for `update` given a plain page instead.
+  final double? percent;
 
   /// Star argument of `rate`.
   final double? rating;
@@ -88,6 +98,14 @@ abstract final class LogCommandParser {
     r'^update\s+(.+?)\s+(\d+)(?:\s+(\d{4}-\d{2}-\d{2}))?$',
     caseSensitive: false,
   );
+  // Same shape as `_updatePattern`, but the number is followed by a
+  // trailing `%` — checked first (see `parse`) since the plain-page
+  // pattern above would otherwise swallow the digits and leave the `%`
+  // unmatched, failing the whole line instead of falling through.
+  static final _updatePercentPattern = RegExp(
+    r'^update\s+(.+?)\s+(\d+(?:\.\d+)?)\s*%(?:\s+(\d{4}-\d{2}-\d{2}))?$',
+    caseSensitive: false,
+  );
   static final _finishPattern = RegExp(
     r'^finish\s+(.+?)(?:\s+(\d{4}-\d{2}-\d{2}))?$',
     caseSensitive: false,
@@ -104,7 +122,7 @@ abstract final class LogCommandParser {
   // the shortest title first so "add Sea of Tranquility tbr" doesn't
   // swallow "tbr" into the title.
   static final _addPattern = RegExp(
-    r'^add\s+(.+?)\s+(tbr|finished)$',
+    r'^add\s+(.+?)\s+(tbr|finished|dnf)$',
     caseSensitive: false,
   );
   // "::" is the separator the parse-command prompt is told to always
@@ -168,6 +186,23 @@ abstract final class LogCommandParser {
       );
     }
 
+    final updatePercent = _updatePercentPattern.firstMatch(text);
+    if (updatePercent != null) {
+      final title = updatePercent.group(1)!.trim();
+      final percent = double.tryParse(updatePercent.group(2)!);
+      final date = _parseDate(updatePercent.group(3));
+      return ParsedLogCommand(
+        message: percent == null
+            ? ''
+            : '"$title" — ${_formatPercent(percent)}%${_dateSuffix(date)}',
+        recognized: true,
+        type: LogCommandType.update,
+        title: title,
+        percent: percent,
+        date: date,
+      );
+    }
+
     final update = _updatePattern.firstMatch(text);
     if (update != null) {
       final title = update.group(1)!.trim();
@@ -227,9 +262,11 @@ abstract final class LogCommandParser {
       final title = add.group(1)!.trim();
       final shelf = add.group(2)!.toLowerCase();
       return ParsedLogCommand(
-        message: shelf == 'finished'
-            ? 'Added "$title" as finished'
-            : 'Added "$title" to read',
+        message: switch (shelf) {
+          'finished' => 'Added "$title" as finished',
+          'dnf' => 'Marked "$title" as DNF',
+          _ => 'Added "$title" to read',
+        },
         recognized: true,
         type: LogCommandType.add,
         title: title,
@@ -276,10 +313,10 @@ abstract final class LogCommandParser {
         return 'Not recognized. Did you mean "${_usage[closest]}"?';
       }
     }
-    return 'Not recognized. Try "start Dune", "update Dune 120", '
-        '"finish Dune", "rate Dune 5", "delete Dune", "add Dune tbr", or '
-        '"add Dune finished". Add a date — "start Dune 2026-08-31" — to '
-        'log it for another day.';
+    return 'Not recognized. Try "start Dune", "update Dune 120" (or '
+        '"update Dune 74%"), "finish Dune", "rate Dune 5", "delete Dune", '
+        '"add Dune tbr", "add Dune finished", or "add Dune dnf". Add a '
+        'date — "start Dune 2026-08-31" — to log it for another day.';
   }
 
   static const _months = [
@@ -316,6 +353,14 @@ abstract final class LogCommandParser {
   }
 
   static double _roundToHalfStar(double value) => (value * 2).round() / 2;
+
+  /// Drops a trailing ".0" ("74%" rather than "74.0%") but keeps a real
+  /// fraction ("74.5%") — same convention as [_formatStars].
+  static String _formatPercent(double percent) {
+    return percent == percent.roundToDouble()
+        ? percent.toInt().toString()
+        : percent.toStringAsFixed(1);
+  }
 
   /// Drops a trailing ".0" ("5★" rather than "5.0★") but keeps a real
   /// half ("4.5★") — matches how the library's star row reads a rating.

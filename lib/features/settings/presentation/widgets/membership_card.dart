@@ -134,7 +134,10 @@ class _MembershipCardState extends State<MembershipCard> {
         DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: colors.divider),
+            // A pure black outline, deliberately not a theme token — it's
+            // what gives the card a drawn, cut-out edge instead of just a
+            // soft drop shadow, in both light and dark mode alike.
+            border: Border.all(color: Colors.black, width: 1.5),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: isLight ? 0.14 : 0.5),

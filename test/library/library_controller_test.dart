@@ -401,6 +401,33 @@ void main() {
       ]);
     });
 
+    test(
+      'add <book> dnf puts a resolved book on the did-not-finish shelf',
+      () async {
+        final controller = controllerWith([]);
+
+        final result = await controller.addToShelf('Dune', ReadingStatus.dnf);
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Marked "Dune" as DNF');
+        expect(controller.didNotFinish.single.book.title, 'Dune');
+        expect(controller.toBeRead, isEmpty);
+        expect(controller.finished, isEmpty);
+        expect(controller.inProgress, isEmpty);
+      },
+    );
+
+    test('logs add <book> dnf as its own event type', () async {
+      final controller = controllerWith([]);
+
+      await controller.addToShelf('Dune', ReadingStatus.dnf);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.dnf, title: 'Dune'),
+      ]);
+    });
+
     test('adding the same book twice fails the second time', () async {
       final controller = controllerWith([]);
 
@@ -592,6 +619,49 @@ void main() {
         isEmpty,
         reason: 'a rolled-back write must not log an event',
       );
+    });
+  });
+
+  group('updateProgressByPercent', () {
+    test('resolves a percentage to a page against the total', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.updateProgressByPercent('Dune', 50);
+
+      expect(result.success, isTrue);
+      expect(controller.inProgress.single.currentPage, 200);
+    });
+
+    test('100% finishes the book, same as reaching the last page', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.updateProgressByPercent('Dune', 100);
+
+      expect(result.success, isTrue);
+      expect(controller.finished.single.book.title, 'Dune');
+    });
+
+    test('rejects a percentage outside 0-100 without writing', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.updateProgressByPercent('Dune', 120);
+
+      expect(result.success, isFalse);
+      expect(userBooks.saves, 0);
+      expect(controller.inProgress.single.currentPage, 10);
+    });
+
+    test('refuses a percentage when the total page count is unknown', () async {
+      final controller = controllerWith([_entry(_untitledLength, page: 3)]);
+      await controller.load();
+
+      final result = await controller.updateProgressByPercent('Pale Fire', 50);
+
+      expect(result.success, isFalse);
+      expect(userBooks.saves, 0);
     });
   });
 

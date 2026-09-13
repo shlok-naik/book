@@ -77,6 +77,7 @@ LibraryBook _entry(
   int page = 0,
   bool finished = false,
   bool toBeRead = false,
+  bool dnf = false,
   double? rating,
 }) {
   return LibraryBook(
@@ -89,6 +90,8 @@ LibraryBook _entry(
           ? ReadingStatus.finished
           : toBeRead
           ? ReadingStatus.toBeRead
+          : dnf
+          ? ReadingStatus.dnf
           : ReadingStatus.reading,
       rating: rating,
     ),
@@ -177,6 +180,22 @@ void main() {
       expect(find.text('finished'), findsNothing);
       // Not started, and not lumped into the "reading" section above.
       expect(find.text('0/300 · 0%'), findsOneWidget);
+      expect(find.text('Pale Fire'), findsWidgets);
+    },
+  );
+
+  testWidgets(
+    'separates did-not-finish books (add <book> dnf) into their own section',
+    (tester) async {
+      await pumpPage(
+        tester,
+        controllerFor([_entry(_dune, page: 120), _entry(_noCover, dnf: true)]),
+      );
+
+      expect(find.text('reading'), findsOneWidget);
+      expect(find.text('did not finish'), findsOneWidget);
+      expect(find.text('to read'), findsNothing);
+      expect(find.text('finished'), findsNothing);
       expect(find.text('Pale Fire'), findsWidgets);
     },
   );

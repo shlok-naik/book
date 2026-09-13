@@ -11,8 +11,9 @@ import '../widgets/book_cover.dart';
 import '../widgets/book_tile.dart';
 
 /// The reader's shelf: in-progress books in a cover grid, with a
-/// "to read" section for queued books (`add <book> tbr`) and a
-/// "finished" one below that.
+/// "to read" section for queued books (`add <book> tbr`), a "finished"
+/// one below that, and a "did not finish" one for dropped books
+/// (`add <book> dnf`).
 ///
 /// Purely a view — it reads [LibraryController] out of [LibraryScope]
 /// and rebuilds when it notifies, so a progress update from the log page
@@ -100,6 +101,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final reading = controller.inProgress;
     final toBeRead = controller.toBeRead;
     final finished = controller.finished;
+    final didNotFinish = controller.didNotFinish;
 
     return [
       if (reading.isNotEmpty) ...[
@@ -115,6 +117,10 @@ class _LibraryPageState extends State<LibraryPage> {
       if (finished.isNotEmpty) ...[
         const SliverToBoxAdapter(child: _SectionLabel('finished')),
         _BookGrid(entries: finished, dimmed: true),
+      ],
+      if (didNotFinish.isNotEmpty) ...[
+        const SliverToBoxAdapter(child: _SectionLabel('did not finish')),
+        _BookGrid(entries: didNotFinish, dimmed: true),
       ],
     ];
   }

@@ -247,6 +247,8 @@ class _DayEntries extends StatelessWidget {
         return null;
       case ReadingEventType.addToBeRead:
         return 'added $title to read';
+      case ReadingEventType.dnf:
+        return 'did not finish $title';
     }
   }
 

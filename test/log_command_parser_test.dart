@@ -59,6 +59,36 @@ void main() {
       expect(result.message, contains('add <book> tbr'));
     });
 
+    test('add <book> dnf parses the book, shelf, and confirmation', () {
+      final result = LogCommandParser.parse('add Dune dnf');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.add);
+      expect(result.title, 'Dune');
+      expect(result.shelf, 'dnf');
+      expect(result.message, 'Marked "Dune" as DNF');
+    });
+
+    test('update <book> <percent>% parses the book, percent, and '
+        'confirmation', () {
+      final result = LogCommandParser.parse('update The Shining 74%');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.update);
+      expect(result.title, 'The Shining');
+      expect(result.percent, 74);
+      expect(result.page, isNull);
+      expect(result.message, '"The Shining" — 74%');
+    });
+
+    test('update percent keeps a real fraction but drops a trailing '
+        '".0"', () {
+      final wholeNumber = LogCommandParser.parse('update Dune 50%');
+      expect(wholeNumber.message, '"Dune" — 50%');
+
+      final fraction = LogCommandParser.parse('update Dune 50.5%');
+      expect(fraction.percent, 50.5);
+      expect(fraction.message, '"Dune" — 50.5%');
+    });
+
     test('rate takes just a number, no trailing "stars"', () {
       final result = LogCommandParser.parse('rate Dune 5');
       expect(result.type, LogCommandType.rate);

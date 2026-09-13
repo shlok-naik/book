@@ -10,7 +10,6 @@ import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
@@ -193,11 +192,6 @@ class _SettingsPageState extends State<SettingsPage> {
                       isPro: isPro,
                       profileRepository: widget.profileRepository,
                     ),
-                    const SizedBox(height: AppSpacing.lg),
-                    _SubscriptionCard(
-                      loading: info == null && error == null,
-                      isPro: isPro,
-                    ),
                     if (error != null) ...[
                       const SizedBox(height: AppSpacing.sm),
                       Text(
@@ -267,86 +261,6 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Loading / free / pro — the three states worth showing at a glance,
-/// before the reader ever has to open Customer Center to find out.
-class _SubscriptionCard extends StatelessWidget {
-  const _SubscriptionCard({required this.loading, required this.isPro});
-
-  final bool loading;
-  final bool isPro;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-
-    final String title;
-    final String subtitle;
-    if (loading) {
-      title = 'checking subscription…';
-      subtitle = '';
-    } else if (isPro) {
-      title = 'cactus pro';
-      subtitle = 'your subscription is active.';
-    } else {
-      title = 'free plan';
-      subtitle = 'remember and recommend are pro commands.';
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: (isPro ? colors.accent : colors.secondaryText).withValues(
-                alpha: 0.15,
-              ),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isPro ? Icons.auto_awesome : Icons.person_outline,
-              color: isPro ? colors.accent : colors.secondaryText,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.inter(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: colors.primaryText,
-                  ),
-                ),
-                if (subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: colors.secondaryText,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

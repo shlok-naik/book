@@ -146,21 +146,18 @@ void main() {
     });
   });
 
-  group('the subscription card', () {
-    testWidgets('says "free plan" and offers the upgrade row', (tester) async {
+  group('the cactus pro section', () {
+    testWidgets('offers the upgrade row on the free plan', (tester) async {
       await pumpSettings(
         tester,
         purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
         session: _FakeSession(),
       );
 
-      expect(find.text('free plan'), findsOneWidget);
       expect(find.text('get cactus pro'), findsOneWidget);
     });
 
-    testWidgets('says "cactus pro" and drops the upgrade row once active', (
-      tester,
-    ) async {
+    testWidgets('drops the upgrade row once pro is active', (tester) async {
       await pumpSettings(
         tester,
         purchases: _FakePurchasesService(info: _customerInfo(pro: true)),
@@ -168,7 +165,6 @@ void main() {
       );
 
       expect(find.text('cactus pro'), findsWidgets);
-      expect(find.text('your subscription is active.'), findsOneWidget);
       // Nothing left to sell to a reader who already bought.
       expect(find.text('get cactus pro'), findsNothing);
     });
@@ -215,7 +211,8 @@ void main() {
         purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
         session: _FakeSession(),
       );
-      await tester.scrollUntilVisible(row(), 200);
+      await tester.ensureVisible(row());
+      await tester.pumpAndSettle();
 
       final opacity = tester.widget<Opacity>(
         find.ancestor(of: row(), matching: find.byType(Opacity)).first,
@@ -235,7 +232,8 @@ void main() {
         purchases: _FakePurchasesService(info: _customerInfo(pro: true)),
         session: _FakeSession(),
       );
-      await tester.scrollUntilVisible(row(), 200);
+      await tester.ensureVisible(row());
+      await tester.pumpAndSettle();
       expect(
         find.ancestor(of: row(), matching: find.byType(Opacity)),
         findsNothing,

@@ -5,16 +5,20 @@ enum ReadingStatus {
   /// `add <book> tbr` — queued, never opened yet. No `started_at`.
   toBeRead,
   reading,
-  finished;
+  finished,
+
+  /// `add <book> dnf` — dropped, no reason captured.
+  dnf;
 
   /// Column value stored in Supabase. Lowercase, matching the name for
-  /// [reading]/[finished] so the table stays readable in the dashboard;
-  /// [toBeRead] needs its own mapping since its Dart name isn't already
-  /// snake_case.
+  /// [reading]/[finished]/[dnf] so the table stays readable in the
+  /// dashboard; [toBeRead] needs its own mapping since its Dart name
+  /// isn't already snake_case.
   String get wireValue => switch (this) {
     ReadingStatus.toBeRead => 'to_be_read',
     ReadingStatus.reading => 'reading',
     ReadingStatus.finished => 'finished',
+    ReadingStatus.dnf => 'dnf',
   };
 
   /// Unknown/unmapped values fall back to [reading] — a bad status is

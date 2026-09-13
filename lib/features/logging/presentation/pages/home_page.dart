@@ -391,6 +391,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.start:
         return library.startBook(title, loggedAt: command.date);
       case LogCommandType.update:
+        final percent = command.percent;
+        if (percent != null) {
+          return library.updateProgressByPercent(
+            title,
+            percent,
+            loggedAt: command.date,
+          );
+        }
         final page = command.page;
         if (page == null) {
           return Future.value(
@@ -405,9 +413,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.delete:
         return library.deleteBook(title);
       case LogCommandType.add:
-        final status = command.shelf == 'finished'
-            ? ReadingStatus.finished
-            : ReadingStatus.toBeRead;
+        final status = switch (command.shelf) {
+          'finished' => ReadingStatus.finished,
+          'dnf' => ReadingStatus.dnf,
+          _ => ReadingStatus.toBeRead,
+        };
         return library.addToShelf(title, status);
       case LogCommandType.rate:
         final rating = command.rating;

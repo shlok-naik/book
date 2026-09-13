@@ -10,7 +10,10 @@ enum ReadingEventType {
 
   /// `add <book> tbr` — `add <book> finished` logs as [finish] instead,
   /// since that's exactly what happened; there's nothing else to name.
-  addToBeRead;
+  addToBeRead,
+
+  /// `add <book> dnf`.
+  dnf;
 
   /// Column value stored in Supabase. Lowercase, matches the name for
   /// every other value — kept as a string (not an int) so the table

@@ -42,8 +42,6 @@ const _commands = [
   'update <book> <page number>',
   'finish <book>',
   'rate <book> <number of stars>',
-  'add <book> tbr',
-  'add <book> finished',
 ];
 
 class _TutorialCopy extends StatelessWidget {
@@ -61,8 +59,7 @@ class _TutorialCopy extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         const Text(
           'in the free tier, you can use a variety of commands to '
-          'start, update, finish and rate books, plus add ones you '
-          'want to read later or already finished - i tried to make '
+          'start, update, finish and rate books - i tried to make '
           'the commands as simple as possible so anyone can use the '
           'app easily. the commands are:',
         ),

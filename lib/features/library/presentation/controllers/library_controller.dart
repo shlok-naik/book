@@ -128,9 +128,10 @@ class LibraryController extends ChangeNotifier {
 
   /// Books still being read, most recently updated first. Explicitly
   /// `reading`, not just "not finished" — a `to be read` book is
-  /// neither, and gets its own section via [toBeRead] instead.
+  /// neither, and gets its own section via [toBeRead] instead, and a
+  /// dropped book gets [didNotFinish].
   List<LibraryBook> get inProgress => _books
-      .where((entry) => !entry.isFinished && !entry.isToBeRead)
+      .where((entry) => !entry.isFinished && !entry.isToBeRead && !entry.isDnf)
       .toList(growable: false);
 
   /// `add <book> tbr` — queued books, rendered in their own section.
@@ -140,6 +141,10 @@ class LibraryController extends ChangeNotifier {
   /// Completed books — rendered in their own section on the same page.
   List<LibraryBook> get finished =>
       _books.where((entry) => entry.isFinished).toList(growable: false);
+
+  /// `add <book> dnf` — dropped books, rendered in their own section.
+  List<LibraryBook> get didNotFinish =>
+      _books.where((entry) => entry.isDnf).toList(growable: false);
 
   bool get isLoading => _isLoading;
 
@@ -208,11 +213,11 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// `add <book> tbr` / `add <book> finished` — puts a title straight
-  /// onto the shelf at [status], skipping the page-0 "reading" row
-  /// [startBook] always creates. Same dedupe as [startBook]: a book
-  /// already on the shelf in any status reports failure rather than
-  /// being duplicated or silently moved.
+  /// `add <book> tbr` / `add <book> finished` / `add <book> dnf` — puts a
+  /// title straight onto the shelf at [status], skipping the page-0
+  /// "reading" row [startBook] always creates. Same dedupe as
+  /// [startBook]: a book already on the shelf in any status reports
+  /// failure rather than being duplicated or silently moved.
   Future<LibraryActionResult> addToShelf(
     String title,
     ReadingStatus status,
@@ -227,17 +232,16 @@ class LibraryController extends ChangeNotifier {
           '"${book.title}" is already on your shelf.',
         );
       }
-      _logEvent(
-        status == ReadingStatus.finished
-            ? ReadingEventType.finish
-            : ReadingEventType.addToBeRead,
-        book.title,
-      );
-      return LibraryActionResult.success(
-        status == ReadingStatus.finished
-            ? 'Added "${book.title}" as finished'
-            : 'Added "${book.title}" to read',
-      );
+      _logEvent(switch (status) {
+        ReadingStatus.finished => ReadingEventType.finish,
+        ReadingStatus.dnf => ReadingEventType.dnf,
+        _ => ReadingEventType.addToBeRead,
+      }, book.title);
+      return LibraryActionResult.success(switch (status) {
+        ReadingStatus.finished => 'Added "${book.title}" as finished',
+        ReadingStatus.dnf => 'Marked "${book.title}" as DNF',
+        _ => 'Added "${book.title}" to read',
+      });
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
     }
@@ -287,6 +291,40 @@ class LibraryController extends ChangeNotifier {
       occurredAt: loggedAt,
       value: finished ? null : page.toDouble(),
     );
+  }
+
+  /// `update <book> <percent>%` — same command as [updateProgress], just
+  /// expressed as a percentage of the book's total length instead of a
+  /// raw page number. Resolves to a page here (not in the parser, which
+  /// has no access to a book's page count) and delegates to
+  /// [updateProgress] for the actual write, validation, and rollback.
+  Future<LibraryActionResult> updateProgressByPercent(
+    String title,
+    double percent, {
+    DateTime? loggedAt,
+  }) async {
+    final entry = _findByTitle(title);
+    if (entry == null) {
+      return LibraryActionResult.failure(
+        'You haven\'t started "$title" yet — try "start $title" first.',
+      );
+    }
+    if (percent < 0 || percent > 100) {
+      return const LibraryActionResult.failure(
+        'A percentage has to be between 0 and 100.',
+      );
+    }
+
+    final total = entry.pageCount;
+    if (total == null) {
+      return LibraryActionResult.failure(
+        'We don\'t know how many pages "${entry.book.title}" has — '
+        'try a page number instead.',
+      );
+    }
+
+    final page = (percent / 100 * total).round().clamp(0, total);
+    return updateProgress(title, page, loggedAt: loggedAt);
   }
 
   /// `finish <book>` — mark complete and jump the page to the end when
