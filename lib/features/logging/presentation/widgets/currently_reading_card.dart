@@ -37,7 +37,8 @@ class CurrentlyReadingCard extends StatelessWidget {
           child: BookCover(
             title: entry.book.title,
             author: entry.book.author,
-            coverUrl: entry.book.coverUrl,
+            // The owned edition's cover when the reader picked one.
+            coverUrl: entry.displayBook.coverUrl,
           ),
         ),
         const SizedBox(width: AppSpacing.md),

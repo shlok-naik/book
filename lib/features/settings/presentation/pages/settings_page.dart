@@ -12,11 +12,17 @@ import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
+import '../../../goals/presentation/goal_scope.dart';
+import '../../../goals/presentation/widgets/goal_sheet.dart';
+import '../../../library/presentation/library_scope.dart';
+import '../../../library_transfer/presentation/library_exporter.dart';
+import '../../../library_transfer/presentation/pages/import_page.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
 import '../../data/profile_repository.dart';
 import '../widgets/membership_card.dart';
 import '../widgets/settings_header.dart';
 import '../widgets/settings_section.dart';
+import 'commands_page.dart';
 import 'customisation_page.dart';
 
 /// Everything that isn't reading: the account the shelf actually belongs
@@ -45,6 +51,7 @@ class SettingsPage extends StatefulWidget {
     this.purchases,
     this.session,
     this.profileRepository,
+    this.exporter,
   });
 
   /// Injection point for tests: a fake wrapping fake customer info
@@ -59,6 +66,9 @@ class SettingsPage extends StatefulWidget {
   /// instead of the real SDK. Null in the app. Threaded straight through
   /// to [MembershipCard].
   final ProfileRepository? profileRepository;
+
+  /// Injection point for tests: a fake that doesn't open a share sheet.
+  final LibraryExporter? exporter;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -225,6 +235,12 @@ class _SettingsPageState extends State<SettingsPage> {
                       ],
                     ),
                     const SizedBox(height: AppSpacing.lg),
+                    const _ReadingSection(),
+                    const SizedBox(height: AppSpacing.lg),
+                    _LibraryDataSection(exporter: widget.exporter),
+                    const SizedBox(height: AppSpacing.lg),
+                    const _HelpSection(),
+                    const SizedBox(height: AppSpacing.lg),
                     const _AppearanceSection(),
                     const SizedBox(height: AppSpacing.lg),
                     _CustomisationSection(
@@ -262,6 +278,133 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The reader's yearly goal — the same value onboarding asked for and the
+/// stats page shows progress against. Free.
+class _ReadingSection extends StatelessWidget {
+  const _ReadingSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final goals = GoalScope.of(context);
+    final goal = goals.goal;
+    return SettingsSection(
+      title: 'reading',
+      rows: [
+        SettingsRow(
+          icon: Icons.flag_outlined,
+          label: 'yearly goal',
+          value: !goals.isLoaded
+              ? null
+              : goal == null
+              ? 'not set'
+              : '$goal ${goal == 1 ? 'book' : 'books'}',
+          onTap: () {
+            AppHaptics.selection();
+            showGoalSheet(context);
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// Getting a library out (CSV) and in (a Goodreads export, which replaces
+/// the library). Both free.
+class _LibraryDataSection extends StatefulWidget {
+  const _LibraryDataSection({this.exporter});
+
+  final LibraryExporter? exporter;
+
+  @override
+  State<_LibraryDataSection> createState() => _LibraryDataSectionState();
+}
+
+class _LibraryDataSectionState extends State<_LibraryDataSection> {
+  bool _exporting = false;
+  String? _message;
+
+  Future<void> _export() async {
+    AppHaptics.selection();
+    setState(() {
+      _exporting = true;
+      _message = null;
+    });
+    final error = await (widget.exporter ?? const LibraryExporter()).export(
+      LibraryScope.read(context),
+    );
+    if (!mounted) return;
+    setState(() {
+      _exporting = false;
+      _message = error;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final message = _message;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SettingsSection(
+          title: 'your library',
+          rows: [
+            SettingsRow(
+              icon: Icons.ios_share,
+              label: _exporting ? 'exporting…' : 'export as csv',
+              onTap: _exporting ? null : _export,
+            ),
+            SettingsRow(
+              icon: Icons.upload_file_outlined,
+              label: 'import from goodreads',
+              onTap: () {
+                AppHaptics.selection();
+                openGoodreadsImport(context);
+              },
+            ),
+          ],
+        ),
+        if (message != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            message,
+            style: GoogleFonts.inter(fontSize: 13, color: colors.secondaryText),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The one row that leads to [CommandsPage] — every text command, for a
+/// reader who has forgotten one. Free, unlike customisation: knowing what
+/// you can type is part of using the app at all.
+class _HelpSection extends StatelessWidget {
+  const _HelpSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsSection(
+      title: 'help',
+      rows: [
+        SettingsRow(
+          icon: Icons.terminal,
+          label: 'commands',
+          onTap: () {
+            AppHaptics.selection();
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'commands'),
+                builder: (_) => const CommandsPage(),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

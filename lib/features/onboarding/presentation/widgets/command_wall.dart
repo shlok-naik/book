@@ -13,10 +13,16 @@ import '../../../../core/widgets/tilted_marquee_wall.dart';
 ///
 /// The whole stack is rotated a few degrees so each row reads as sitting
 /// diagonally below the one above it, rather than a flat, static list.
+///
+/// [rows] swaps in a different set of commands on the same wall — the
+/// tags-and-comments step uses that, so both steps share one look.
 class CommandWall extends StatelessWidget {
-  const CommandWall({super.key});
+  const CommandWall({super.key, this.rows = defaultRows});
 
-  static const _rows = [
+  final List<List<String>> rows;
+
+  /// The shelf commands the "log books as you read them" step shows.
+  static const defaultRows = [
     [
       'start The Shining',
       'start Dune',
@@ -40,10 +46,10 @@ class CommandWall extends StatelessWidget {
       'finish 1984',
     ],
     [
-      'add Middlemarch tbr',
-      'add The Bell Jar finished',
-      'add Piranesi tbr',
-      'add Beloved finished',
+      'add shelf tbr Middlemarch',
+      'add shelf finished The Bell Jar',
+      'add shelf tbr Piranesi',
+      'add shelf dnf Beloved',
     ],
   ];
 
@@ -54,7 +60,7 @@ class CommandWall extends StatelessWidget {
     // so the two walls can't drift apart.
     return TiltedMarqueeWall(
       rows: [
-        for (final row in _rows)
+        for (final row in rows)
           [for (final command in row) _CommandChip(command)],
       ],
     );

@@ -14,16 +14,22 @@ import 'core/diagnostics/app_logger.dart';
 import 'core/diagnostics/crash_reporter.dart';
 import 'core/env/env.dart';
 import 'core/platform/app_icon_controller.dart';
+import 'core/platform/device_name.dart';
 import 'core/purchases/purchases_service.dart';
 import 'core/supabase/supabase_service.dart';
 import 'core/theme/app_scroll_behavior.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/widgets/startup_failure_page.dart';
+import 'features/goals/presentation/controllers/goal_controller.dart';
+import 'features/goals/presentation/goal_scope.dart';
 import 'features/library/data/book_cache_repository.dart';
+import 'features/library/data/book_details_repository.dart';
+import 'features/library/data/book_notes_repository.dart';
 import 'features/library/data/google_books_api_client.dart';
 import 'features/library/data/reading_event_repository.dart';
 import 'features/library/data/user_book_repository.dart';
+import 'features/library/domain/book_details_service.dart';
 import 'features/library/domain/book_lookup_service.dart';
 import 'features/library/presentation/controllers/library_controller.dart';
 import 'features/library/presentation/library_scope.dart';
@@ -31,6 +37,7 @@ import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
 import 'features/onboarding/data/onboarding_store.dart';
 import 'features/onboarding/presentation/pages/welcome_page.dart';
+import 'features/settings/data/profile_repository.dart';
 import 'features/shell/presentation/pages/root_shell.dart';
 
 Future<void> main() async {
@@ -170,6 +177,14 @@ Future<void> _bootstrap() async {
       source: 'main',
       message: 'Could not restore the RevenueCat identity at startup.',
     );
+    reportingFailure(
+      DeviceName.current().then(
+        (name) =>
+            const ProfileRepository().recordDevice(userId, deviceName: name),
+      ),
+      source: 'main',
+      message: 'Could not record this device on the profile.',
+    );
   }
 
   // Portrait only. Every screen is laid out for one portrait column, and
@@ -206,6 +221,7 @@ class BookApp extends StatefulWidget {
     this.libraryController,
     this.memoryController,
     this.sessionService,
+    this.goalController,
     this.showOnboarding = false,
   });
 
@@ -224,6 +240,10 @@ class BookApp extends StatefulWidget {
   /// is null and a real one, backed by the initialized Supabase client,
   /// is built instead.
   final SessionService? sessionService;
+
+  /// Injection point for tests: a controller backed by a fake repository.
+  /// Null in the app, where a real one is built and loaded at startup.
+  final GoalController? goalController;
 
   /// Whether to open on the intro rather than the app. Set by
   /// `_bootstrap` from [OnboardingStore] — true only on a fresh install.
@@ -248,6 +268,17 @@ class _BookAppState extends State<BookApp> {
   late final SessionService _session =
       widget.sessionService ?? SessionService();
 
+  late final GoalController _goal = widget.goalController ?? GoalController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetched once up front: the add tab shows progress against it on the
+    // very first frame a reader sees. Its own failure state is what the
+    // stats page offers a retry for.
+    if (widget.goalController == null) unawaited(_goal.load());
+  }
+
   /// Owned only when we built it — an injected client belongs to the
   /// caller, so we must not close it.
   GoogleBooksApiClient? _ownedGoogleBooks;
@@ -263,6 +294,13 @@ class _BookAppState extends State<BookApp> {
       ),
       userBooks: UserBookRepository(),
       events: ReadingEventRepository(),
+      notes: BookNotesRepository(),
+      // Shares the one Google Books client with the title lookup above, so
+      // there is a single HTTP client to dispose.
+      details: BookDetailsService(
+        cache: BookDetailsRepository(),
+        googleBooks: googleBooks,
+      ),
     );
   }
 
@@ -271,6 +309,7 @@ class _BookAppState extends State<BookApp> {
     _ownedGoogleBooks?.dispose();
     if (widget.libraryController == null) _library.dispose();
     if (widget.memoryController == null) _memory.dispose();
+    if (widget.goalController == null) _goal.dispose();
     super.dispose();
   }
 
@@ -298,23 +337,26 @@ class _BookAppState extends State<BookApp> {
               controller: _library,
               child: MemoryScope(
                 controller: _memory,
-                child: MaterialApp(
-                  title: 'cactus',
-                  debugShowCheckedModeBanner: false,
-                  theme: AppTheme.light,
-                  darkTheme: AppTheme.dark,
-                  themeMode: themeMode,
-                  scrollBehavior: AppScrollBehavior(),
-                  // Screen views come from each route's own name rather than
-                  // a line in every page's initState — see [AppAnalytics].
-                  navigatorObservers: AppAnalytics.navigatorObservers,
-                  // The intro is a tour, not a gate: `_bootstrap` has
-                  // already opened the session, and [WelcomePage] asks
-                  // for nothing. It shows once per install and replaces
-                  // the whole stack with [RootShell] on the way out.
-                  home: widget.showOnboarding
-                      ? const WelcomePage()
-                      : const RootShell(),
+                child: GoalScope(
+                  controller: _goal,
+                  child: MaterialApp(
+                    title: 'cactus',
+                    debugShowCheckedModeBanner: false,
+                    theme: AppTheme.light,
+                    darkTheme: AppTheme.dark,
+                    themeMode: themeMode,
+                    scrollBehavior: AppScrollBehavior(),
+                    // Screen views come from each route's own name rather than
+                    // a line in every page's initState — see [AppAnalytics].
+                    navigatorObservers: AppAnalytics.navigatorObservers,
+                    // The intro is a tour, not a gate: `_bootstrap` has
+                    // already opened the session, and [WelcomePage] asks
+                    // for nothing. It shows once per install and replaces
+                    // the whole stack with [RootShell] on the way out.
+                    home: widget.showOnboarding
+                        ? const WelcomePage()
+                        : const RootShell(),
+                  ),
                 ),
               ),
             ),

@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/book.dart';
+import '../domain/book_edition.dart';
 import '../domain/library_book.dart';
 import '../domain/library_exception.dart';
 import '../domain/user_book.dart';
@@ -34,7 +35,12 @@ class UserBookRepository {
 
   /// The embedded-join projection: every progress row plus the cached
   /// book it points at, in one round-trip instead of an N+1 fan-out.
-  static const _withBook = '*, book:books(*)';
+  static const _withBook =
+      '*, book:books(${Book.selectWithSeries}), '
+      // Named by foreign key: `book_editions` is reachable from here only
+      // through the composite (book_id, owned_edition_id) key, and naming
+      // it keeps PostgREST from guessing if another relationship appears.
+      'owned_edition:book_editions!user_books_owned_edition_fkey(*)';
 
   /// Loads the whole shelf, most recently touched first.
   ///
@@ -52,10 +58,17 @@ class UserBookRepository {
       for (final row in rows) {
         final bookRow = row['book'];
         if (bookRow is! Map<String, dynamic>) continue;
+        final editionRow = row['owned_edition'];
         library.add(
           LibraryBook(
             book: Book.fromRow(bookRow),
             progress: UserBook.fromRow(row),
+            // An unreadable edition row degrades to "no edition picked"
+            // (the work's own cover and pages) rather than failing the
+            // whole shelf.
+            ownedEdition: editionRow is Map<String, dynamic>
+                ? BookEdition.fromRow(editionRow)
+                : null,
           ),
         );
       }
@@ -96,11 +109,18 @@ class UserBookRepository {
     }, friendlyMessage: "We couldn't add that book to your library.");
   }
 
-  /// Puts a book straight onto the shelf at [status] — `add <book> tbr`
-  /// / `add <book> finished` — instead of the page-0 "reading" row
-  /// [start] always creates. Same dedupe as [start]: a book already on
-  /// the shelf in any status is found rather than duplicated.
-  Future<StartOutcome> addWithStatus(String bookId, ReadingStatus status) {
+  /// Puts a book straight onto the shelf at [status] —
+  /// `add shelf <shelf> <book>` for a book not on the shelf yet — instead of the
+  /// page-0 "reading" row [start] always creates. [currentPage] is the
+  /// page `ShelfRules.enter` decided the shelf implies (the last page for
+  /// "finished", 0 otherwise). Same dedupe as [start]: a book already on
+  /// the shelf in any status is found rather than duplicated, and the
+  /// caller moves it with [changeShelf] instead.
+  Future<StartOutcome> addWithStatus(
+    String bookId,
+    ReadingStatus status, {
+    int currentPage = 0,
+  }) {
     return runSupabase(() async {
       final existing = await _client
           .from(_table)
@@ -116,10 +136,11 @@ class UserBookRepository {
           .from(_table)
           .insert({
             'book_id': bookId,
-            'current_page': 0,
+            'current_page': currentPage < 0 ? 0 : currentPage,
             'status': status.wireValue,
-            // A queued "to be read" book hasn't been opened yet.
-            if (status != ReadingStatus.toBeRead) 'started_at': now,
+            // `started_at` is not null with a now() default, so a queued
+            // book gets one too; nothing reads it for a to-read book.
+            'started_at': now,
             if (status == ReadingStatus.finished) 'finished_at': now,
           })
           .select()
@@ -173,21 +194,72 @@ class UserBookRepository {
     }, friendlyMessage: "We couldn't save your progress.");
   }
 
-  /// Transitions an existing shelf row straight to `dnf` — `add &lt;book&gt;
-  /// dnf` on a book already on the shelf (reading, to-be-read, or even
-  /// finished). Clears `finished_at` the same way [saveProgress] does
-  /// when a finished book is re-opened, so the column stays honest for
-  /// a book that was finished and later un-finished into DNF.
-  Future<UserBook> markDnf(String userBookId) {
+  /// Moves an existing shelf row to [updated]'s status, writing the
+  /// progress that move implies — the page and finish date
+  /// `ShelfRules.enter` computed. Used by every section change: dragging
+  /// a tile (or its keyboard/screen-reader equivalents) on the library
+  /// page, and `add shelf <shelf> <book>` on a book already on the shelf.
+  ///
+  /// `shelf_position` is not sent: the `touch_updated_at` trigger clears
+  /// it on a status change, and a drop that also places the book follows
+  /// up with [saveShelfOrder].
+  Future<UserBook> changeShelf(UserBook updated) {
     return runSupabase(() async {
       final row = await _client
           .from(_table)
-          .update({'status': ReadingStatus.dnf.wireValue, 'finished_at': null})
+          .update({
+            'status': updated.status.wireValue,
+            'current_page': updated.currentPage,
+            'finished_at': updated.status == ReadingStatus.finished
+                ? (updated.finishedAt ?? DateTime.now())
+                      .toUtc()
+                      .toIso8601String()
+                : null,
+          })
+          .eq('id', updated.id)
+          .select()
+          .single();
+      return UserBook.fromRow(row);
+    }, friendlyMessage: "We couldn't move that book.");
+  }
+
+  /// Persists one shelf section's manual order: [orderedIds] become
+  /// positions 0, 1, 2… in one round-trip (`set_shelf_order`). A
+  /// position-only write deliberately leaves `updated_at` alone — see the
+  /// trigger's comment in the migration — so reordering never changes
+  /// which book the add tab calls "currently reading".
+  Future<void> saveShelfOrder(List<String> orderedIds) {
+    if (orderedIds.isEmpty) return Future.value();
+    return runSupabase<void>(() async {
+      await _client.rpc<void>(
+        'set_shelf_order',
+        params: {'p_ordered_ids': orderedIds},
+      );
+    }, friendlyMessage: "We couldn't save your shelf order.");
+  }
+
+  /// Records which edition the reader owns, or clears it with null, and
+  /// writes [currentPage] in the same update — switching to a copy with a
+  /// different length rescales the page (see
+  /// `ShelfRules.pageForEdition`), and the two must never be saved apart.
+  /// The composite foreign key rejects an edition of a different book.
+  Future<UserBook> setOwnedEdition(
+    String userBookId,
+    String? editionId, {
+    required int currentPage,
+  }) {
+    if (currentPage < 0) {
+      throw const InvalidInputException("A page number can't be negative.");
+    }
+    return runSupabase(() async {
+      final row = await _client
+          .from(_table)
+          .update({'owned_edition_id': editionId, 'current_page': currentPage})
           .eq('id', userBookId)
           .select()
           .single();
       return UserBook.fromRow(row);
-    }, friendlyMessage: "We couldn't update that book.");
+    }, friendlyMessage: "We couldn't save which edition you own.");
   }
 
   /// Persists a rating — `rate <book> <stars>`.

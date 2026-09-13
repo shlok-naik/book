@@ -1,5 +1,7 @@
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/core/theme/theme_controller.dart';
+import 'package:book/features/goals/presentation/controllers/goal_controller.dart';
+import 'package:book/features/goals/presentation/goal_scope.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
 import 'package:book/features/library/data/reading_event_repository.dart';
@@ -20,6 +22,8 @@ import 'package:book/features/onboarding/presentation/pages/finish_page.dart';
 import 'package:book/features/onboarding/presentation/pages/founders_note_page.dart';
 import 'package:book/features/onboarding/presentation/pages/natural_language_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.dart';
+import 'package:book/features/onboarding/presentation/pages/reading_goal_page.dart';
+import 'package:book/features/onboarding/presentation/pages/tags_comments_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/theme_preference_page.dart';
 import 'package:book/features/onboarding/presentation/pages/welcome_page.dart';
 import 'package:book/features/shell/presentation/pages/root_shell.dart';
@@ -27,6 +31,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import '../support/fake_goals.dart';
 
 /// The intro, end to end. What this pins down is mostly what onboarding
 /// *doesn't* do any more: it never asks for a name, an email or a
@@ -92,24 +98,31 @@ void useDeviceSize(WidgetTester tester) {
 
 /// Wraps [child] in the scopes the app's composition root installs, so a
 /// test that walks all the way through to `RootShell` can mount it.
-Widget harness(WidgetTester tester, Widget child) {
+Widget harness(WidgetTester tester, Widget child, {GoalController? goals}) {
   final library = _libraryController();
   addTearDown(library.dispose);
   final memory = MemoryController(repository: _EmptyMemories());
   addTearDown(memory.dispose);
 
-  return LibraryScope(
-    controller: library,
-    child: MemoryScope(
-      controller: memory,
-      child: MaterialApp(theme: AppTheme.light, home: child),
+  final goalController =
+      goals ?? GoalController(repository: FakeGoalRepository());
+  addTearDown(goalController.dispose);
+
+  return GoalScope(
+    controller: goalController,
+    child: LibraryScope(
+      controller: library,
+      child: MemoryScope(
+        controller: memory,
+        child: MaterialApp(theme: AppTheme.light, home: child),
+      ),
     ),
   );
 }
 
-Future<void> pumpIntro(WidgetTester tester) async {
+Future<void> pumpIntro(WidgetTester tester, {GoalController? goals}) async {
   useDeviceSize(tester);
-  await tester.pumpWidget(harness(tester, const WelcomePage()));
+  await tester.pumpWidget(harness(tester, const WelcomePage(), goals: goals));
 }
 
 /// Fixed pumps rather than `pumpAndSettle`, because the tutorial pages
@@ -165,10 +178,24 @@ void main() {
     expect(find.byType(AddBookTutorialPage), findsOneWidget);
     await tapContinue(tester);
 
+    // Straight after the free-tier commands: tags and comments, and the
+    // DNF reason they're for.
+    expect(find.byType(TagsCommentsTutorialPage), findsOneWidget);
+    expect(find.textContaining('add tag <tag> <book>'), findsOneWidget);
+    expect(find.textContaining('add comment <comment> <book>'), findsOneWidget);
+    expect(
+      find.textContaining('why you stopped', findRichText: true),
+      findsOneWidget,
+    );
+    await tapContinue(tester);
+
     expect(find.byType(NaturalLanguageTutorialPage), findsOneWidget);
     await tapContinue(tester);
 
     expect(find.byType(ThemePreferencePage), findsOneWidget);
+    await tapContinue(tester);
+
+    expect(find.byType(ReadingGoalPage), findsOneWidget);
     await tapContinue(tester);
 
     expect(find.byType(OneMoreThingPage), findsOneWidget);
@@ -190,6 +217,7 @@ void main() {
   ) async {
     await pumpIntro(tester);
     await start(tester);
+    await tapContinue(tester);
     await tapContinue(tester);
     await tapContinue(tester);
 
@@ -227,5 +255,44 @@ void main() {
     // The stack was replaced, not pushed — none of the intro is behind
     // the reader to pop back to.
     expect(find.byType(FinishPage), findsNothing);
+  });
+
+  Future<void> walkToGoal(WidgetTester tester, GoalController goals) async {
+    await pumpIntro(tester, goals: goals);
+    await start(tester);
+    for (var i = 0; i < 4; i++) {
+      await tapContinue(tester);
+    }
+    expect(find.byType(ReadingGoalPage), findsOneWidget);
+  }
+
+  testWidgets('the goal question saves through the GoalController the stats '
+      'page reads', (tester) async {
+    final repository = FakeGoalRepository();
+    final goals = GoalController(repository: repository);
+    await walkToGoal(tester, goals);
+
+    final plus = find.byIcon(Icons.add);
+    await tester.ensureVisible(plus);
+    await tester.tap(plus);
+    await settle(tester);
+    expect(find.text('13'), findsOneWidget);
+    await tapContinue(tester);
+
+    expect(repository.saved, [13]);
+    expect(goals.goal, 13);
+    expect(find.byType(OneMoreThingPage), findsOneWidget);
+  });
+
+  testWidgets('the goal question can be skipped without saving anything', (
+    tester,
+  ) async {
+    final repository = FakeGoalRepository();
+    await walkToGoal(tester, GoalController(repository: repository));
+
+    await tapPill(tester, 'skip for now');
+
+    expect(repository.saved, isEmpty);
+    expect(find.byType(OneMoreThingPage), findsOneWidget);
   });
 }

@@ -86,6 +86,34 @@ class BookLookupService {
     return cache.cache(volume);
   }
 
+  /// Resolves an ISBN to a cached [Book] — the import's first choice, since
+  /// an ISBN names one book where a title can name several. Cache first,
+  /// then Google Books' `isbn:` search, then the same de-duplicate and
+  /// write-back as [findOrFetch]. Throws [BookNotFoundException] when Google
+  /// has nothing for it.
+  Future<Book> findOrFetchByIsbn(String isbn) async {
+    final clean = isbn.replaceAll(RegExp('[^0-9Xx]'), '').toUpperCase();
+    if (clean.length != 10 && clean.length != 13) {
+      throw const InvalidInputException("That isn't an ISBN.");
+    }
+
+    try {
+      final cached = await cache.findByIsbn(clean);
+      if (cached != null) return cached;
+    } on LibraryException {
+      // Degrades to a miss, like every other cache read.
+    }
+
+    final results = await googleBooks.search('isbn:$clean', maxResults: 5);
+    if (results.isEmpty) {
+      throw BookNotFoundException('No book found for ISBN $clean.');
+    }
+    final volume = results.first;
+    final alreadyCached = await _findCachedById(volume.id);
+    if (alreadyCached != null) return alreadyCached;
+    return cache.cache(volume);
+  }
+
   /// Cache read that degrades to a miss. A cache that is down must slow
   /// the flow, not break it — see the asymmetry note on [findOrFetch].
   Future<Book?> _findCached(String query, {String? author}) async {

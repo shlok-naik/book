@@ -1,7 +1,9 @@
 // parse-command — turns a reader's free-form sentence into the app's own
-// seven-command grammar: the original five shelf commands (`start`,
+// twelve-command grammar: the five original shelf commands (`start`,
 // `update`, `finish`, `rate`, `delete` — the first three take an
-// optional trailing date, resolved from a phrase like "yesterday"), plus
+// optional trailing date, resolved from a phrase like "yesterday"), the
+// three `add` commands (`add shelf`, `add tag`, `add comment`), the two
+// series commands (`series`, `start series`), plus
 // `remember` (save a note on how a book made them feel) and `recommend`
 // (suggest a book, grounded in the reader's own shelf and remembered
 // notes).
@@ -43,13 +45,18 @@ const MAX_CONTEXT_ITEM_LENGTH = 200;
 const GROQ_TIMEOUT_MS = 15_000;
 
 const BASE_SYSTEM_PROMPT =
-  `You split a reader's natural-language sentence about their reading into a list of structured commands. Only these seven commands exist, and every line you output must match one of them exactly (case-insensitive keyword, one command per line, no numbering, no extra words):
+  `You split a reader's natural-language sentence about their reading into a list of structured commands. Only these twelve commands exist, and every line you output must match one of them exactly (case-insensitive keyword, one command per line, no numbering, no extra words):
 
 start <book title> [date]
 update <book title> <page number> [date]
 finish <book title> [date]
 rate <book title> <stars, 0-5, .5 allowed>
 delete <book title>
+add shelf <tbr|reading|finished|dnf> <book title>
+add tag <tag> <book title>
+add comment "<comment>" <book title>
+series "<series name>" [#<number>] <book title>
+start series "<series name>"
 remember <book title> :: <note>
 recommend <book title> :: <reason>
 
@@ -58,6 +65,11 @@ Rules:
 - Use the book title as written (fix obvious capitalization only).
 - If a sentence mentions no page number or star rating, don't guess one — drop that action instead of inventing a number.
 - The optional trailing [date] on start/update/finish is a YYYY-MM-DD, present only when the sentence itself names or implies when the action happened ("yesterday", "last Friday", "on the 3rd", "two days ago", "this morning"). Resolve it relative to the reader's own "today" given below and append it as one more space-separated token after the command's other arguments (after the page number for update). Omit it entirely when the sentence doesn't reference a day — never invent one for a plain "started Dune".
+- Use "add shelf tbr" when the reader wants to read a book later or adds it to their to-read list; "add shelf dnf" when they gave up on, abandoned, or stopped reading a book; "add shelf finished" for a book they say they read in the past without mentioning when they finished it; "add shelf reading" only when they move a book they already have back to reading.
+- Use "add tag" when the reader asks to tag, label, or file a book under something. The tag is a single lowercase word or hyphenated-phrase (e.g. sci-fi, book-club); never put spaces in it.
+- Use "add comment" when the reader asks to comment on or add a note to a book, and whenever they give a reason for not finishing one (alongside its "add shelf dnf" line). Always wrap the comment in straight double quotes, keep it short and in the reader's own words, and replace any double quotes inside it with single quotes.
+- Use "series" when the reader says a book belongs to a series, or is a numbered book in one ("Dune Messiah is the second Dune book"). Always wrap the series name in straight double quotes. Add #<number> only when the sentence gives the book's position; never guess it.
+- Use "start series" when the reader wants to start, begin, or continue a series rather than a named book ("start the Expanse series", "time to continue Discworld"). Wrap the series name in straight double quotes.
 - Emit a "remember" line whenever the sentence expresses a personal reaction, opinion, or feeling about a book, a character, or a chapter — not just a plain shelf action. Keep the note short and in the reader's own words; don't editorialize.
 - Emit a "recommend" line whenever the sentence asks for a book suggestion. Recommend one real, already-published book that is not already on the reader's shelf (see the shelf and remembered notes below, if any) and that fits both the sentence's own stated criteria and, where relevant, what the remembered notes reveal about the reader's taste. <reason> is one short sentence explaining the pick.
 - Output ONLY a JSON array of strings, each string one command line. No prose, no markdown fences.

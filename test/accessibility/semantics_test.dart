@@ -56,7 +56,7 @@ void main() {
       // Icon-only slots: without these the whole primary navigation is
       // four unlabelled buttons.
       expect(find.bySemanticsLabel('Memory'), findsOneWidget);
-      expect(find.bySemanticsLabel('Streak'), findsOneWidget);
+      expect(find.bySemanticsLabel('Stats'), findsOneWidget);
       expect(find.bySemanticsLabel('Library'), findsOneWidget);
       expect(find.bySemanticsLabel('Add'), findsOneWidget);
 

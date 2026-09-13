@@ -68,7 +68,7 @@ class FoundersNotePage extends StatelessWidget {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      progressStep: 3,
+      progressStep: 4,
       // Inter itself resolves a monochrome glyph for the bare U+2764
       // codepoint, so `fontFamilyFallback` never even gets consulted —
       // this has to name the color emoji font directly as the primary

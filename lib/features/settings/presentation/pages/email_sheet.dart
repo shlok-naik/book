@@ -15,13 +15,24 @@ import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 /// moving a linked one to a different address. Which of the two it is
 /// changes only the wording — see [_EmailSheet.mode].
 ///
-/// Returns true once the address is verified, null if the reader backed
-/// out.
-Future<bool?> showEmailSheet(
+/// How the sheet ended.
+class EmailSheetResult {
+  const EmailSheetResult.linked() : existingAccount = null;
+  const EmailSheetResult.existing(PendingAccount this.existingAccount);
+
+  /// Set when the email already had its own library: the reader signed in
+  /// to it, and now has to choose which library to keep.
+  final PendingAccount? existingAccount;
+}
+
+/// Returns [EmailSheetResult.linked] once the address is verified on this
+/// account, [EmailSheetResult.existing] once the reader signed in to the
+/// account that already owns it, or null if they backed out.
+Future<EmailSheetResult?> showEmailSheet(
   BuildContext context, {
   required SessionService session,
 }) {
-  return showModalBottomSheet<bool>(
+  return showModalBottomSheet<EmailSheetResult>(
     context: context,
     backgroundColor: context.colors.surface,
     useSafeArea: true,
@@ -75,6 +86,10 @@ class _EmailSheetState extends State<_EmailSheet> {
   bool _busy = false;
   String? _error;
 
+  /// True when the email turned out to belong to another account and the
+  /// code sent is a sign-in code for it, not a link code for this one.
+  bool _existing = false;
+
   String get _title => switch (widget.mode) {
     _EmailMode.link => 'back up with email',
     _EmailMode.change => 'change email',
@@ -112,6 +127,32 @@ class _EmailSheetState extends State<_EmailSheet> {
         _codeSent = true;
         _busy = false;
       });
+    } on EmailInUseException {
+      // Only an anonymous shelf can join an existing account; a linked one
+      // changing its address to someone else's is simply refused.
+      if (widget.mode != _EmailMode.link) {
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _error = 'That email already belongs to another cactus account.';
+        });
+        return;
+      }
+      try {
+        await widget.session.sendSignInCode(_email.text.trim());
+        if (!mounted) return;
+        setState(() {
+          _existing = true;
+          _codeSent = true;
+          _busy = false;
+        });
+      } on SessionException catch (error) {
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _error = error.message;
+        });
+      }
     } on SessionException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -127,6 +168,15 @@ class _EmailSheetState extends State<_EmailSheet> {
       _error = null;
     });
     try {
+      if (_existing) {
+        final account = await widget.session.verifySignInCode(
+          email: _email.text.trim(),
+          code: _code.text.trim(),
+        );
+        if (!mounted) return;
+        Navigator.of(context).pop(EmailSheetResult.existing(account));
+        return;
+      }
       await widget.session.verifyEmailCode(
         email: _email.text.trim(),
         code: _code.text.trim(),
@@ -136,7 +186,7 @@ class _EmailSheetState extends State<_EmailSheet> {
       // preserves the uid those were already told about at startup, so
       // there is nothing to update. That is the whole point of doing it
       // with `updateUser` rather than a fresh sign-in.
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop(const EmailSheetResult.linked());
     } on SessionException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -173,7 +223,12 @@ class _EmailSheetState extends State<_EmailSheet> {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            _codeSent ? 'check your email for the code.' : _blurb,
+            !_codeSent
+                ? _blurb
+                : _existing
+                ? 'that email already has a cactus library. we sent it a code '
+                      '— sign in, then choose which library to keep.'
+                : 'check your email for the code.',
             style: GoogleFonts.inter(
               fontSize: 14,
               height: 1.5,

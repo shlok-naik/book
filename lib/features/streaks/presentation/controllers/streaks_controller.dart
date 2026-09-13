@@ -37,6 +37,21 @@ class StreaksController extends ChangeNotifier {
   List<ReadingEvent> eventsFor(DateTime date) =>
       List.unmodifiable(_byDay[_dayKey(date)] ?? const []);
 
+  /// Every local day with something worth journaling on it — a day whose
+  /// only command was a `delete` doesn't count.
+  Set<DateTime> get loggedDays => {
+    for (final MapEntry(key: day, value: events) in _byDay.entries)
+      if (events.any((event) => event.type != ReadingEventType.delete)) day,
+  };
+
+  /// Forgets what was loaded and loads [year] again — after the whole
+  /// library was replaced (an import, a linked account's library).
+  Future<void> reload(int year) {
+    _loadedYear = null;
+    _byDay = const {};
+    return load(year);
+  }
+
   /// (Re)loads [year]. A second call for the same year that's already
   /// loaded is a no-op — the streaks page calls this once, on mount, and
   /// relies on [applyEvent] afterwards to pick up new commands rather

@@ -7,6 +7,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../library/domain/reading_event.dart';
 import '../../../library/presentation/library_scope.dart';
+import '../../../streaks/domain/streak_math.dart';
 
 /// The full streak readout on the add tab: a "N day streak" heading
 /// over a row of the last seven days, each marked for whether anything
@@ -36,13 +37,35 @@ class _ReadingStreakState extends State<ReadingStreak> {
   /// a spot this quiet is worse than no card at all.
   Set<DateTime>? _loggedDays;
   bool _requested = false;
+  StreamSubscription<ReadingEvent>? _events;
+  StreamSubscription<void>? _resets;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_requested) return;
     _requested = true;
+    final library = LibraryScope.read(context);
+    // A command logged from this very page lights today's dot without a
+    // refetch; a replaced library (an import, a linked account) reloads.
+    _events = library.loggedEvents.listen(_onEvent);
+    _resets = library.resets.listen((_) => unawaited(_load()));
     unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _events?.cancel();
+    _resets?.cancel();
+    super.dispose();
+  }
+
+  void _onEvent(ReadingEvent event) {
+    final days = _loggedDays;
+    if (days == null || event.type == ReadingEventType.delete) return;
+    final day = _dayKey(event.occurredAt.toLocal());
+    if (days.contains(day)) return;
+    setState(() => _loggedDays = {...days, day});
   }
 
   Future<void> _load() async {
@@ -62,28 +85,10 @@ class _ReadingStreakState extends State<ReadingStreak> {
     }
   }
 
-  static DateTime _dayKey(DateTime date) =>
-      DateTime(date.year, date.month, date.day);
+  static DateTime _dayKey(DateTime date) => StreakMath.dayKey(date);
 
-  /// Consecutive local days, ending today or yesterday, in [loggedDays]
-  /// — the same rule the streak journal itself uses for what counts as
-  /// "logged" (a `delete` doesn't).
-  static int _currentStreak(Set<DateTime> loggedDays) {
-    if (loggedDays.isEmpty) return 0;
-
-    final today = _dayKey(DateTime.now());
-    var cursor = loggedDays.contains(today)
-        ? today
-        : today.subtract(const Duration(days: 1));
-    if (!loggedDays.contains(cursor)) return 0;
-
-    var streak = 0;
-    while (loggedDays.contains(cursor)) {
-      streak++;
-      cursor = cursor.subtract(const Duration(days: 1));
-    }
-    return streak;
-  }
+  static int _currentStreak(Set<DateTime> loggedDays) =>
+      StreakMath.current(loggedDays);
 
   @override
   Widget build(BuildContext context) {

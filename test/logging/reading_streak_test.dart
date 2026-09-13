@@ -1,4 +1,5 @@
 import 'package:book/core/theme/app_theme.dart';
+import 'package:book/features/goals/presentation/goal_scope.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
 import 'package:book/features/library/data/reading_event_repository.dart';
@@ -19,6 +20,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import '../support/fake_goals.dart';
 
 /// The add tab's "currently reading" peek and its streak readout — see
 /// `ReadingStreak` and the bottom of `HomePage.build`. Both are
@@ -106,11 +109,14 @@ Future<void> pumpHome(
   addTearDown(memory.dispose);
 
   await tester.pumpWidget(
-    LibraryScope(
-      controller: library,
-      child: MemoryScope(
-        controller: memory,
-        child: MaterialApp(theme: AppTheme.light, home: const HomePage()),
+    GoalScope(
+      controller: goalControllerFor(),
+      child: LibraryScope(
+        controller: library,
+        child: MemoryScope(
+          controller: memory,
+          child: MaterialApp(theme: AppTheme.light, home: const HomePage()),
+        ),
       ),
     ),
   );

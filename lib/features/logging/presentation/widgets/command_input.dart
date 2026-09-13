@@ -5,12 +5,20 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import 'strikethrough_text_editing_controller.dart';
 
-/// Runs a submitted command.
-///
-/// Returning true accepts it — the line is struck through, a checkmark
-/// pops in, and the field clears. Returning false rejects it — the field
-/// shakes and keeps the text, ready to be corrected.
-typedef CommandSubmitHandler = Future<bool> Function(String command);
+/// How a submitted command turned out, as far as the field is concerned.
+enum CommandOutcome {
+  /// Struck through, a checkmark pops in, and the field clears.
+  accepted,
+
+  /// The field shakes and keeps the text, ready to be corrected.
+  rejected,
+
+  /// The reader backed out (e.g. cancelled a delete confirmation): the
+  /// text stays, with no shake — nothing went wrong.
+  dismissed,
+}
+
+typedef CommandSubmitHandler = Future<CommandOutcome> Function(String command);
 
 /// The log page's command line.
 ///
@@ -146,12 +154,12 @@ class _CommandInputState extends State<CommandInput>
     if (command.isEmpty || _busy) return;
 
     setState(() => _busy = true);
-    final accepted = await widget.onSubmit(command);
+    final outcome = await widget.onSubmit(command);
     if (!mounted) return;
 
-    if (!accepted) {
+    if (outcome != CommandOutcome.accepted) {
       setState(() => _busy = false);
-      _shake.forward(from: 0);
+      if (outcome == CommandOutcome.rejected) _shake.forward(from: 0);
       widget.focusNode.requestFocus();
       return;
     }

@@ -8,13 +8,19 @@ import 'package:book/core/purchases/entitlements.dart';
 import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/core/theme/theme_controller.dart';
+import 'package:book/features/goals/presentation/controllers/goal_controller.dart';
+import 'package:book/features/goals/presentation/goal_scope.dart';
+import 'package:book/features/logging/domain/command_catalog.dart';
 import 'package:book/features/paywall/presentation/pages/paywall_page.dart';
 import 'package:book/features/settings/data/profile_repository.dart';
+import 'package:book/features/settings/presentation/pages/commands_page.dart';
 import 'package:book/features/settings/presentation/pages/customisation_page.dart';
 import 'package:book/features/settings/presentation/pages/settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+
+import '../support/fake_goals.dart';
 
 /// The settings screen — everything the deleted profile page used to
 /// carry, plus the membership card that replaced onboarding's email
@@ -110,6 +116,7 @@ Future<void> pumpSettings(
   required PurchasesService purchases,
   required SessionService session,
   ProfileRepository? profileRepository,
+  GoalController? goals,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.625;
@@ -117,18 +124,33 @@ Future<void> pumpSettings(
   addTearDown(tester.view.resetDevicePixelRatio);
 
   await tester.pumpWidget(
-    MaterialApp(
-      theme: AppTheme.light,
-      home: SettingsPage(
-        purchases: purchases,
-        session: session,
-        profileRepository: profileRepository ?? _FakeProfileRepository(),
+    GoalScope(
+      controller: goals ?? goalControllerFor(),
+      child: MaterialApp(
+        theme: AppTheme.light,
+        home: SettingsPage(
+          purchases: purchases,
+          session: session,
+          profileRepository: profileRepository ?? _FakeProfileRepository(),
+        ),
       ),
     ),
   );
   // One frame to mount, one for the entitlement fetch to resolve.
   await tester.pump();
   await tester.pump();
+}
+
+/// Scrolls the settings list until [finder] is built and on screen — its
+/// rows are built lazily, so one below the fold doesn't exist to
+/// `ensureVisible` until the list has scrolled near it.
+Future<void> scrollTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    200,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -193,10 +215,51 @@ void main() {
 
       expect(ThemeController.mode.value, ThemeMode.system);
 
+      await scrollTo(tester, find.text('dark'));
       await tester.tap(find.text('dark'));
       await tester.pumpAndSettle();
 
       expect(ThemeController.mode.value, ThemeMode.dark);
+    });
+  });
+
+  group('commands', () {
+    testWidgets('the help row opens the commands reference', (tester) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
+      final row = find.text('commands');
+      await scrollTo(tester, row);
+
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CommandsPage), findsOneWidget);
+      // The new syntax is listed, and the old one is gone.
+      expect(
+        find.text('add shelf <tbr|reading|finished|dnf> <book>'),
+        findsOneWidget,
+      );
+      expect(find.text('add tag <tag> <book>'), findsOneWidget);
+      expect(find.text('add comment <comment> <book>'), findsOneWidget);
+      expect(find.textContaining('add <book> tbr'), findsNothing);
+    });
+
+    testWidgets('lists every command in the catalog', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(theme: AppTheme.light, home: const CommandsPage()),
+      );
+
+      for (final command in CommandCatalog.all) {
+        await scrollTo(tester, find.text(command.syntax));
+        expect(find.text(command.syntax), findsOneWidget);
+      }
     });
   });
 
@@ -211,8 +274,7 @@ void main() {
         purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
         session: _FakeSession(),
       );
-      await tester.ensureVisible(row());
-      await tester.pumpAndSettle();
+      await scrollTo(tester, row());
 
       final opacity = tester.widget<Opacity>(
         find.ancestor(of: row(), matching: find.byType(Opacity)).first,
@@ -232,8 +294,7 @@ void main() {
         purchases: _FakePurchasesService(info: _customerInfo(pro: true)),
         session: _FakeSession(),
       );
-      await tester.ensureVisible(row());
-      await tester.pumpAndSettle();
+      await scrollTo(tester, row());
       expect(
         find.ancestor(of: row(), matching: find.byType(Opacity)),
         findsNothing,
@@ -430,5 +491,29 @@ void main() {
       await tester.scrollUntilVisible(find.text('pretend plan'), 200);
       expect(find.text('pretend plan'), findsOneWidget);
     });
+  });
+
+  testWidgets('the yearly goal row shows the goal and edits it', (
+    tester,
+  ) async {
+    final goals = goalControllerFor(goal: 20);
+    await pumpSettings(
+      tester,
+      purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+      session: _FakeSession(),
+      goals: goals,
+    );
+    await tester.pump();
+
+    expect(find.text('yearly goal'), findsOneWidget);
+    expect(find.text('20 books'), findsOneWidget);
+
+    await tester.tap(find.text('yearly goal'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('remove goal'));
+    await tester.pumpAndSettle();
+
+    expect(goals.goal, isNull);
+    expect(find.text('not set'), findsOneWidget);
   });
 }

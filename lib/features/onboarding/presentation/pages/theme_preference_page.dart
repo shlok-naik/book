@@ -7,9 +7,9 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
-import 'one_more_thing_page.dart';
+import 'reading_goal_page.dart';
 
-/// The one question onboarding asks, right after the tutorial's two
+/// The first of two questions onboarding asks, right after the tutorial's
 /// steps, so the rest of the flow already renders in the reader's
 /// preferred look.
 ///
@@ -97,9 +97,9 @@ class ThemePreferencePage extends StatelessWidget {
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     settings: const RouteSettings(
-                      name: 'onboarding_one_more_thing',
+                      name: 'onboarding_reading_goal',
                     ),
-                    builder: (_) => const OneMoreThingPage(),
+                    builder: (_) => const ReadingGoalPage(),
                   ),
                 ),
               ),
