@@ -173,6 +173,23 @@ class UserBookRepository {
     }, friendlyMessage: "We couldn't save your progress.");
   }
 
+  /// Transitions an existing shelf row straight to `dnf` — `add &lt;book&gt;
+  /// dnf` on a book already on the shelf (reading, to-be-read, or even
+  /// finished). Clears `finished_at` the same way [saveProgress] does
+  /// when a finished book is re-opened, so the column stays honest for
+  /// a book that was finished and later un-finished into DNF.
+  Future<UserBook> markDnf(String userBookId) {
+    return runSupabase(() async {
+      final row = await _client
+          .from(_table)
+          .update({'status': ReadingStatus.dnf.wireValue, 'finished_at': null})
+          .eq('id', userBookId)
+          .select()
+          .single();
+      return UserBook.fromRow(row);
+    }, friendlyMessage: "We couldn't update that book.");
+  }
+
   /// Persists a rating — `rate <book> <stars>`.
   ///
   /// Whether the book is actually finished is

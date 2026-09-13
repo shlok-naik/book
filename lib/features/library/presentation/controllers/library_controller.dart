@@ -213,11 +213,14 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// `add <book> tbr` / `add <book> finished` / `add <book> dnf` — puts a
-  /// title straight onto the shelf at [status], skipping the page-0
-  /// "reading" row [startBook] always creates. Same dedupe as
-  /// [startBook]: a book already on the shelf in any status reports
-  /// failure rather than being duplicated or silently moved.
+  /// `add <book> tbr` / `add <book> finished` — puts a title straight
+  /// onto the shelf at [status], skipping the page-0 "reading" row
+  /// [startBook] always creates. Same dedupe as [startBook]: a book
+  /// already on the shelf in any status reports failure rather than
+  /// being duplicated or silently moved.
+  ///
+  /// Not used for [ReadingStatus.dnf] — see [dnfBook], which transitions
+  /// an existing shelf entry instead of refusing it.
   Future<LibraryActionResult> addToShelf(
     String title,
     ReadingStatus status,
@@ -232,17 +235,86 @@ class LibraryController extends ChangeNotifier {
           '"${book.title}" is already on your shelf.',
         );
       }
-      _logEvent(switch (status) {
-        ReadingStatus.finished => ReadingEventType.finish,
-        ReadingStatus.dnf => ReadingEventType.dnf,
-        _ => ReadingEventType.addToBeRead,
-      }, book.title);
-      return LibraryActionResult.success(switch (status) {
-        ReadingStatus.finished => 'Added "${book.title}" as finished',
-        ReadingStatus.dnf => 'Marked "${book.title}" as DNF',
-        _ => 'Added "${book.title}" to read',
-      });
+      _logEvent(
+        status == ReadingStatus.finished
+            ? ReadingEventType.finish
+            : ReadingEventType.addToBeRead,
+        book.title,
+      );
+      return LibraryActionResult.success(
+        status == ReadingStatus.finished
+            ? 'Added "${book.title}" as finished'
+            : 'Added "${book.title}" to read',
+      );
     } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// `add <book> dnf` — drops [title], with no reason captured.
+  ///
+  /// Unlike [addToShelf]'s `tbr`/`finished` — which refuse a book
+  /// already on the shelf — a book already being read (or queued, or
+  /// even finished) is exactly what a reader means to DNF, so this
+  /// transitions the existing shelf entry in place instead of failing
+  /// as "already on your shelf". Only a book *already* marked DNF has
+  /// nothing left to change.
+  ///
+  /// A book not yet on the shelf is added fresh at DNF, same as
+  /// [addToShelf]'s other two shelves.
+  Future<LibraryActionResult> dnfBook(String title) async {
+    try {
+      final book = await lookup.findOrFetch(title);
+      final existing = _findByBookId(book.id);
+      if (existing != null) {
+        return _transitionToDnf(existing);
+      }
+
+      final added = await userBooks.addWithStatus(book.id, ReadingStatus.dnf);
+      final entry = LibraryBook(book: book, progress: added.progress);
+      _upsertLocal(entry);
+      notifyListeners();
+      if (added.alreadyExists) {
+        // Rare race: the row appeared between the local lookup above and
+        // this write landing. It came back as whatever status it already
+        // had, not DNF — finish the transition the same way as if it had
+        // been found locally in the first place.
+        return _transitionToDnf(entry);
+      }
+      _logEvent(ReadingEventType.dnf, book.title);
+      return LibraryActionResult.success('Marked "${book.title}" as DNF');
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// The write half of [dnfBook] once an existing shelf [entry] is
+  /// known — optimistic like every other mutation here, rolling back on
+  /// a failed write.
+  Future<LibraryActionResult> _transitionToDnf(LibraryBook entry) async {
+    if (entry.isDnf) {
+      return LibraryActionResult.failure(
+        '"${entry.book.title}" is already marked as DNF.',
+      );
+    }
+
+    final previous = entry;
+    _upsertLocal(
+      entry.copyWith(
+        progress: entry.progress.copyWith(status: ReadingStatus.dnf),
+      ),
+    );
+    notifyListeners();
+
+    try {
+      final saved = await userBooks.markDnf(entry.progress.id);
+      _upsertLocal(entry.copyWith(progress: saved));
+      notifyListeners();
+      _logEvent(ReadingEventType.dnf, entry.book.title);
+      return LibraryActionResult.success('Marked "${entry.book.title}" as DNF');
+    } on LibraryException catch (error) {
+      _upsertLocal(previous);
+      notifyListeners();
       return LibraryActionResult.failure(error.message);
     }
   }
@@ -538,6 +610,17 @@ class LibraryController extends ChangeNotifier {
       for (final entry in _books) {
         if (match(entry)) return entry;
       }
+    }
+    return null;
+  }
+
+  /// Resolves a book already on the shelf by its catalogue id rather
+  /// than a typed title — used by [dnfBook], which already has a
+  /// resolved [Book] from [lookup] and needs the exact row, not a
+  /// fuzzy title match.
+  LibraryBook? _findByBookId(String bookId) {
+    for (final entry in _books) {
+      if (entry.book.id == bookId) return entry;
     }
     return null;
   }

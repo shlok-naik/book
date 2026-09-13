@@ -119,6 +119,27 @@ class FakeUserBookRepository extends UserBookRepository {
     deletedIds.add(userBookId);
   }
 
+  int dnfCalls = 0;
+
+  @override
+  Future<UserBook> markDnf(String userBookId) async {
+    dnfCalls++;
+    if (failure != null) throw failure!;
+    // Looks the row up in the original fixture rather than hardcoding a
+    // page, so a test can assert the page a book had already reached
+    // survives the transition to DNF untouched. Falls back to page 0 for
+    // a row this fake never had in its fixture (e.g. one `addWithStatus`
+    // itself just created), same as every other status this fake hands
+    // back for a freshly added book.
+    final existing = rows.where((entry) => entry.progress.id == userBookId);
+    return UserBook(
+      id: userBookId,
+      bookId: existing.isEmpty ? 'book' : existing.first.progress.bookId,
+      currentPage: existing.isEmpty ? 0 : existing.first.progress.currentPage,
+      status: ReadingStatus.dnf,
+    );
+  }
+
   int rates = 0;
 
   @override
@@ -401,33 +422,6 @@ void main() {
       ]);
     });
 
-    test(
-      'add <book> dnf puts a resolved book on the did-not-finish shelf',
-      () async {
-        final controller = controllerWith([]);
-
-        final result = await controller.addToShelf('Dune', ReadingStatus.dnf);
-
-        expect(result.success, isTrue);
-        expect(result.message, 'Marked "Dune" as DNF');
-        expect(controller.didNotFinish.single.book.title, 'Dune');
-        expect(controller.toBeRead, isEmpty);
-        expect(controller.finished, isEmpty);
-        expect(controller.inProgress, isEmpty);
-      },
-    );
-
-    test('logs add <book> dnf as its own event type', () async {
-      final controller = controllerWith([]);
-
-      await controller.addToShelf('Dune', ReadingStatus.dnf);
-      await Future<void>.delayed(Duration.zero);
-
-      expect(events.loggedTypesAndTitles, [
-        (type: ReadingEventType.dnf, title: 'Dune'),
-      ]);
-    });
-
     test('adding the same book twice fails the second time', () async {
       final controller = controllerWith([]);
 
@@ -455,6 +449,106 @@ void main() {
 
       expect(result.success, isFalse);
       expect(result.message, '"Dune" is already on your shelf.');
+    });
+  });
+
+  group('dnfBook', () {
+    test('adds a book not yet on the shelf straight to DNF', () async {
+      final controller = controllerWith([]);
+
+      final result = await controller.dnfBook('Dune');
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Marked "Dune" as DNF');
+      expect(controller.didNotFinish.single.book.title, 'Dune');
+      expect(controller.inProgress, isEmpty);
+    });
+
+    test('logs a fresh add as its own event type', () async {
+      final controller = controllerWith([]);
+
+      await controller.dnfBook('Dune');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.dnf, title: 'Dune'),
+      ]);
+    });
+
+    test(
+      'transitions a book already being read, instead of refusing it',
+      () async {
+        final controller = controllerWith([_entry(_dune, page: 120)]);
+        await controller.load();
+
+        final result = await controller.dnfBook('Dune');
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Marked "Dune" as DNF');
+        expect(controller.didNotFinish.single.book.title, 'Dune');
+        expect(controller.inProgress, isEmpty);
+        // The page it had already reached is left alone.
+        expect(controller.didNotFinish.single.currentPage, 120);
+      },
+    );
+
+    test('transitions a to-be-read book', () async {
+      final controller = controllerWith([]);
+      await controller.addToShelf('Dune', ReadingStatus.toBeRead);
+
+      final result = await controller.dnfBook('dune');
+
+      expect(result.success, isTrue);
+      expect(controller.didNotFinish.single.book.title, 'Dune');
+      expect(controller.toBeRead, isEmpty);
+    });
+
+    test('transitions a finished book', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
+      await controller.load();
+
+      final result = await controller.dnfBook('Dune');
+
+      expect(result.success, isTrue);
+      expect(controller.didNotFinish.single.book.title, 'Dune');
+      expect(controller.finished, isEmpty);
+    });
+
+    test('logs a transition the same way as a fresh add', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+
+      await controller.dnfBook('Dune');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.dnf, title: 'Dune'),
+      ]);
+    });
+
+    test('refuses a book already marked DNF', () async {
+      final controller = controllerWith([]);
+      await controller.dnfBook('Dune');
+
+      final result = await controller.dnfBook('Dune');
+
+      expect(result.success, isFalse);
+      expect(result.message, '"Dune" is already marked as DNF.');
+    });
+
+    test('rolls the optimistic transition back when the write fails', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+      userBooks.failure = const NetworkException("You're offline");
+
+      final result = await controller.dnfBook('Dune');
+
+      expect(result.success, isFalse);
+      expect(result.message, "You're offline");
+      expect(controller.inProgress.single.currentPage, 120);
+      expect(controller.didNotFinish, isEmpty);
     });
   });
 

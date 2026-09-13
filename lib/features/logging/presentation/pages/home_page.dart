@@ -413,11 +413,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.delete:
         return library.deleteBook(title);
       case LogCommandType.add:
-        final status = switch (command.shelf) {
-          'finished' => ReadingStatus.finished,
-          'dnf' => ReadingStatus.dnf,
-          _ => ReadingStatus.toBeRead,
-        };
+        if (command.shelf == 'dnf') return library.dnfBook(title);
+        final status = command.shelf == 'finished'
+            ? ReadingStatus.finished
+            : ReadingStatus.toBeRead;
         return library.addToShelf(title, status);
       case LogCommandType.rate:
         final rating = command.rating;
