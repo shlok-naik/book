@@ -32,6 +32,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Create an empty .env
+        # pubspec.yaml bundles `.env` as an asset for local development; it
+        # is git-ignored, so without a placeholder the analyzer reports a
+        # missing asset and fails the run. It stays empty: see test/core/env_test.dart.
+        run: touch .env
+
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed .
 
