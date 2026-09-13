@@ -24,7 +24,7 @@ class BottomSwitcher extends StatelessWidget {
 
   static const _groupIcons = [
     Icons.bookmark_border,
-    Icons.insights_outlined,
+    Icons.local_fire_department_outlined,
     Icons.menu_book_outlined,
   ];
 

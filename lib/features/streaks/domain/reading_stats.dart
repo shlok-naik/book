@@ -33,6 +33,8 @@ class ReadingStats {
     required this.didNotFinish,
     required this.averageRating,
     required this.genres,
+    required this.booksByMonth,
+    required this.pagesByMonth,
   });
 
   factory ReadingStats.from(Iterable<LibraryBook> books, {DateTime? now}) {
@@ -47,6 +49,8 @@ class ReadingStats {
     var ratingSum = 0.0;
     var rated = 0;
     final genreCounts = <String, int>{};
+    final booksByMonth = List<int>.filled(12, 0);
+    final pagesByMonth = List<int>.filled(12, 0);
 
     for (final entry in books) {
       switch (entry.status) {
@@ -54,9 +58,12 @@ class ReadingStats {
           booksAllTime++;
           final length = entry.pageCount ?? entry.currentPage;
           pagesAllTime += length;
-          if (entry.progress.finishedAt?.toLocal().year == year) {
+          final finishedAt = entry.progress.finishedAt?.toLocal();
+          if (finishedAt?.year == year) {
             booksThisYear++;
             pagesThisYear += length;
+            booksByMonth[finishedAt!.month - 1]++;
+            pagesByMonth[finishedAt.month - 1] += length;
           }
           if (entry.rating case final rating?) {
             ratingSum += rating;
@@ -101,6 +108,8 @@ class ReadingStats {
       didNotFinish: dnf,
       averageRating: rated == 0 ? null : ratingSum / rated,
       genres: List.unmodifiable(genres),
+      booksByMonth: List.unmodifiable(booksByMonth),
+      pagesByMonth: List.unmodifiable(pagesByMonth),
     );
   }
 
@@ -118,6 +127,13 @@ class ReadingStats {
 
   /// Most common first; ties alphabetical.
   final List<GenreCount> genres;
+
+  /// Books finished in [year], one count per calendar month, index 0 = Jan
+  /// — the stats page's monthly activity chart.
+  final List<int> booksByMonth;
+
+  /// Same shape as [booksByMonth], but each finished book's full length.
+  final List<int> pagesByMonth;
 
   /// Progress against [goal], or null without one.
   ReadingGoal? goalProgress(int? goal) => goal == null
