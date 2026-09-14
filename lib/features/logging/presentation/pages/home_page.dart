@@ -516,6 +516,32 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           name,
           position: command.seriesPosition,
         );
+      case LogCommandType.removeTag:
+        final tag = command.tag;
+        if (tag == null || tag.isEmpty) {
+          return Future.value(
+            const LibraryActionResult.failure("That tag didn't have a name."),
+          );
+        }
+        return library.removeTag(title, tag);
+      case LogCommandType.removeShelf:
+        final shelf = command.shelf;
+        if (shelf == null || shelf.isEmpty) {
+          return Future.value(
+            const LibraryActionResult.failure(
+              'Name the shelf to remove it from.',
+            ),
+          );
+        }
+        return library.removeFromShelf(title, shelf);
+      case LogCommandType.removeSeries:
+        final name = command.series;
+        if (name == null || name.isEmpty) {
+          return Future.value(
+            const LibraryActionResult.failure('Name the series first.'),
+          );
+        }
+        return library.removeFromSeries(title, seriesName: name);
       case LogCommandType.startIsbn:
       case LogCommandType.makeShelf:
       case LogCommandType.makeTag:

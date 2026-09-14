@@ -179,6 +179,30 @@ class _LibraryPageState extends State<LibraryPage> {
     });
   }
 
+  /// Series groups a reader has double-tapped open — in-memory only, like
+  /// [_collapsed]. A series that's entirely on one shelf normally shows as
+  /// one grouped tile there; double-tapping it "spawls" it back out into
+  /// its own book tiles (so each can be dragged to another shelf), and
+  /// double-tapping any of those books collapses the group again.
+  final _expandedSeries = <String>{};
+
+  void _toggleSeriesExpanded(String groupId) {
+    AppHaptics.selection();
+    setState(() {
+      if (!_expandedSeries.add(groupId)) _expandedSeries.remove(groupId);
+    });
+  }
+
+  /// Whether the row of series groups above finished/did not finish is
+  /// showing right now — the same in-memory-only collapse as [_collapsed],
+  /// just not keyed on a [ShelfRef] since the series row isn't a shelf.
+  bool _seriesCollapsed = false;
+
+  void _toggleSeriesCollapsed() {
+    AppHaptics.selection();
+    setState(() => _seriesCollapsed = !_seriesCollapsed);
+  }
+
   Future<void> _openCollections() async {
     AppHaptics.selection();
     try {
@@ -481,8 +505,12 @@ class _LibraryPageState extends State<LibraryPage> {
     // A series with more than one book, all shelved in the same place, is
     // shown there as one grouped tile rather than a tile per book — never
     // while searching, since a search result is one specific book, not the
-    // whole series it belongs to.
+    // whole series it belongs to. Double-tapping that tile "spawls" it
+    // back out into its own book tiles ([_expandedSeries]); each of those
+    // then knows which group double-tapping it collapses back into
+    // ([expandedSeriesByEntry]).
     final collapsedByShelf = <ShelfRef, List<SeriesGroup>>{};
+    final expandedSeriesByEntry = <String, SeriesGroup>{};
     if (!filtering) {
       for (final group in controller.seriesGroups) {
         if (group.entries.length < 2) continue;
@@ -490,7 +518,13 @@ class _LibraryPageState extends State<LibraryPage> {
           for (final entry in group.entries) ShelfRef.of(entry.progress),
         };
         if (refs.length != 1) continue;
-        (collapsedByShelf[refs.single] ??= []).add(group);
+        if (_expandedSeries.contains(group.id)) {
+          for (final entry in group.entries) {
+            expandedSeriesByEntry[entry.id] = group;
+          }
+        } else {
+          (collapsedByShelf[refs.single] ??= []).add(group);
+        }
       }
     }
 
@@ -507,8 +541,14 @@ class _LibraryPageState extends State<LibraryPage> {
         // Under the reader's own shelves, above finished/did not finish —
         // series belong with what's still in play, not above everything.
         if (shelf.ref == _closedShelves.first.ref && groups.isNotEmpty) ...[
-          const SliverToBoxAdapter(child: _SeriesHeading()),
-          SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
+          SliverToBoxAdapter(
+            child: _SeriesHeading(
+              collapsed: _seriesCollapsed,
+              onToggleCollapse: _toggleSeriesCollapsed,
+            ),
+          ),
+          if (!_seriesCollapsed)
+            SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
         ],
         if (!filtering || sections[shelf.ref]!.isNotEmpty) ...[
           SliverToBoxAdapter(
@@ -538,6 +578,8 @@ class _LibraryPageState extends State<LibraryPage> {
             _BookGrid(
               entries: sections[shelf.ref]!,
               collapsedSeries: collapsedByShelf[shelf.ref] ?? const [],
+              expandedSeriesByEntry: expandedSeriesByEntry,
+              onToggleSeriesExpanded: _toggleSeriesExpanded,
               shelf: shelf.ref,
               shelves: shelves,
               // Finished and dropped books are shown faded, so the shelves
@@ -576,6 +618,8 @@ class _BookGrid extends StatelessWidget {
     required this.onMove,
     required this.onOpen,
     this.collapsedSeries = const [],
+    this.expandedSeriesByEntry = const {},
+    required this.onToggleSeriesExpanded,
     this.dimmed = false,
   });
 
@@ -585,6 +629,12 @@ class _BookGrid extends StatelessWidget {
   /// grouped tile in place of their individual ones. See
   /// [_LibraryPageState._buildSlivers].
   final List<SeriesGroup> collapsedSeries;
+
+  /// The series group a book belongs to, for a group a reader has
+  /// double-tapped open — so its own tile knows what double-tapping it
+  /// collapses back into. See [_LibraryPageState._expandedSeries].
+  final Map<String, SeriesGroup> expandedSeriesByEntry;
+  final ValueChanged<String> onToggleSeriesExpanded;
   final ShelfRef shelf;
 
   /// Every section on the page, in page order — where keyboard and
@@ -649,9 +699,11 @@ class _BookGrid extends StatelessWidget {
                 return _SeriesGroupTile(
                   key: ValueKey('shelf-series-${item.id}'),
                   group: item,
+                  onDoubleTap: () => onToggleSeriesExpanded(item.id),
                 );
               }
               final (bookIndex, entry) = item as (int, LibraryBook);
+              final expandedInto = expandedSeriesByEntry[entry.id];
               return _DraggableBookTile(
                 // Keyed on the progress row so Flutter reuses the right
                 // element when a book moves between sections.
@@ -669,6 +721,9 @@ class _BookGrid extends StatelessWidget {
                 onDragEnded: onDragEnded,
                 onMove: onMove,
                 onOpen: onOpen,
+                onCollapseSeries: expandedInto == null
+                    ? null
+                    : () => onToggleSeriesExpanded(expandedInto.id),
               );
             }, childCount: items.length),
           );
@@ -688,9 +743,17 @@ class _BookGrid extends StatelessWidget {
 /// their average rating. Never draggable: it represents more than one
 /// shelf position at once, so there's no single place to drop it.
 class _SeriesGroupTile extends StatelessWidget {
-  const _SeriesGroupTile({super.key, required this.group});
+  const _SeriesGroupTile({
+    super.key,
+    required this.group,
+    required this.onDoubleTap,
+  });
 
   final SeriesGroup group;
+
+  /// Spawls the group back out into its own book tiles — see
+  /// [_LibraryPageState._toggleSeriesExpanded].
+  final VoidCallback onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -713,6 +776,9 @@ class _SeriesGroupTile extends StatelessWidget {
     return Semantics(
       button: true,
       label: '${group.name} series, ${group.summary}.',
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'Show its books'): onDoubleTap,
+      },
       excludeSemantics: true,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -720,6 +786,9 @@ class _SeriesGroupTile extends StatelessWidget {
           AppHaptics.selection();
           unawaited(openSeries(context, group));
         },
+        // Spawls the group back out into its own book tiles, so each can
+        // be dragged to another shelf on its own.
+        onDoubleTap: onDoubleTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -885,6 +954,7 @@ class _DraggableBookTile extends StatefulWidget {
     required this.onDragEnded,
     required this.onMove,
     required this.onOpen,
+    this.onCollapseSeries,
   });
 
   final LibraryBook entry;
@@ -900,6 +970,11 @@ class _DraggableBookTile extends StatefulWidget {
   final VoidCallback onDragEnded;
   final void Function(String id, ShelfRef shelf, int index) onMove;
   final ValueChanged<LibraryBook> onOpen;
+
+  /// Set only while this book is shown "spawled out" of a series group —
+  /// double-tapping it collapses the group back to one tile. Null for an
+  /// ordinary book, which double-tapping does nothing special to.
+  final VoidCallback? onCollapseSeries;
 
   @override
   State<_DraggableBookTile> createState() => _DraggableBookTileState();
@@ -986,6 +1061,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => widget.onOpen(entry),
+        onDoubleTap: widget.onCollapseSeries,
         child: _tile(),
       ),
     );
@@ -1105,6 +1181,8 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
       if (!widget.isLast)
         const CustomSemanticsAction(label: 'Move later'): () =>
             _moveWithinShelf(1),
+      const CustomSemanticsAction(label: 'Collapse series'):
+          ?widget.onCollapseSeries,
     };
   }
 }
@@ -1436,27 +1514,64 @@ class _SearchField extends StatelessWidget {
 }
 
 class _SeriesHeading extends StatelessWidget {
-  const _SeriesHeading();
+  const _SeriesHeading({
+    required this.collapsed,
+    required this.onToggleCollapse,
+  });
+
+  /// Whether the row of series groups below this is showing right now.
+  final bool collapsed;
+  final VoidCallback onToggleCollapse;
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      header: true,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.xl,
-          AppSpacing.xs,
-          AppSpacing.xl,
-          AppSpacing.sm,
-        ),
-        child: Text(
-          'series',
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: context.colors.secondaryText,
+    final colors = context.colors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        AppSpacing.xs,
+        AppSpacing.xl,
+        AppSpacing.sm,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Semantics(
+              header: true,
+              child: Text(
+                'series',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: colors.secondaryText,
+                ),
+              ),
+            ),
           ),
-        ),
+          // Same collapse treatment as a shelf heading's own chevron.
+          Semantics(
+            button: true,
+            label: collapsed ? 'Show series' : 'Hide series',
+            excludeSemantics: true,
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: InkResponse(
+                onTap: onToggleCollapse,
+                radius: 16,
+                child: AnimatedRotation(
+                  duration: const Duration(milliseconds: 150),
+                  turns: collapsed ? -0.25 : 0,
+                  child: Icon(
+                    Icons.expand_more,
+                    size: 20,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

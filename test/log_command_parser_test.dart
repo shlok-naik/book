@@ -400,4 +400,51 @@ void main() {
       expect(startSeries.title, 'series dune');
     });
   });
+
+  group('remove', () {
+    test('remove tag <tag> <book>', () {
+      final result = LogCommandParser.parse('remove tag sci-fi Dune Messiah');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.removeTag);
+      expect(result.tag, 'sci-fi');
+      expect(result.title, 'Dune Messiah');
+      expect(result.message, 'Removed sci-fi from "Dune Messiah"');
+    });
+
+    test('a quoted tag can contain spaces', () {
+      final result = LogCommandParser.parse('remove tag "space opera" Dune');
+      expect(result.tag, 'space opera');
+      expect(result.title, 'Dune');
+    });
+
+    test('remove shelf <shelf> <book>', () {
+      final result = LogCommandParser.parse('remove shelf "summer reads" Dune');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.removeShelf);
+      expect(result.shelf, 'summer reads');
+      expect(result.title, 'Dune');
+      expect(result.message, 'Removed "Dune" from summer reads');
+    });
+
+    test('remove series <series> <book>', () {
+      final result = LogCommandParser.parse('remove series dune Dune Messiah');
+      expect(result.recognized, isTrue);
+      expect(result.type, LogCommandType.removeSeries);
+      expect(result.series, 'dune');
+      expect(result.title, 'Dune Messiah');
+      expect(result.message, 'Removed "Dune Messiah" from dune');
+    });
+
+    test('a remove with no book is not recognized', () {
+      expect(LogCommandParser.parse('remove tag sci-fi').recognized, isFalse);
+      expect(LogCommandParser.parse('remove shelf tbr').recognized, isFalse);
+      expect(LogCommandParser.parse('remove series dune').recognized, isFalse);
+    });
+
+    test('suggests remove tag for a typo of tag', () {
+      final result = LogCommandParser.parse('remove tags sci-fi Dune');
+      expect(result.recognized, isFalse);
+      expect(result.message, contains('remove tag <tag> <book>'));
+    });
+  });
 }

@@ -10,6 +10,8 @@ import 'command_catalog.dart';
 //   make series <series name>      add tag <tag> <book>
 //   add series <series> [#n] <book>
 //   add comment <comment> <book>
+//   remove tag <tag> <book>        remove shelf <shelf> <book>
+//   remove series <series> <book>
 //
 // The optional trailing date (`YYYY-MM-DD`) on start/update/finish
 // backdates the reading event it logs, so "I started Dune yesterday"
@@ -32,10 +34,15 @@ import 'command_catalog.dart';
 //
 // Shelves, tags and series are standalone collections. The `make` family
 // creates one and never touches a book; `move`, `add tag` and `add series`
-// apply an *existing* one and never create it. This parser only recognizes
-// the syntax — whether the named collection exists is the library's call
-// (see `LibraryController.moveToShelf`/`addTag`/`addToSeries`), which
-// answers an unknown name with the `make` command that would create it.
+// apply an *existing* one and never create it, and `remove tag`/
+// `remove shelf`/`remove series` undo exactly that application — none of
+// the three ever deletes the collection itself, only a book's membership
+// in it. This parser only recognizes the syntax — whether the named
+// collection exists (and, for `remove`, whether the book is actually in
+// it) is the library's call (see
+// `LibraryController.moveToShelf`/`addTag`/`addToSeries`/`removeTag`/
+// `removeFromShelf`/`removeFromSeries`), which answers an unknown name
+// with the `make` command that would create it.
 //
 // ## Where the title ends
 //
@@ -78,6 +85,17 @@ enum LogCommandType {
 
   /// `add comment <comment> <book>`.
   addComment,
+
+  /// `remove tag <tag> <book>`.
+  removeTag,
+
+  /// `remove shelf <shelf> <book>` — takes a book off a custom shelf,
+  /// back to just its status section. Never a built-in shelf: there is
+  /// nowhere for a book to go "off" reading/to read/finished/dnf.
+  removeShelf,
+
+  /// `remove series <series> <book>`.
+  removeSeries,
   remember,
   recommend,
   unknown,
@@ -246,6 +264,23 @@ abstract final class LogCommandParser {
     '(?:\\s+#(\\d+(?:\\.\\d)?))?\\s+(.+)\$',
     caseSensitive: false,
   );
+  // `remove tag <tag> <book>` / `remove shelf <shelf> <book>` /
+  // `remove series <series> <book>` — the exact mirror of `add tag`/
+  // `add series`, one word or a quoted name, then the book. Unlike `move`,
+  // an unquoted multi-word shelf name isn't split against what exists —
+  // quote it, the same as `add series "summer reads" ...` would need to.
+  static final _removeTagPattern = RegExp(
+    '^remove\\s+tag\\s+$_quotedOrWordPattern\\s+(.+)\$',
+    caseSensitive: false,
+  );
+  static final _removeShelfPattern = RegExp(
+    '^remove\\s+shelf\\s+$_quotedOrWordPattern\\s+(.+)\$',
+    caseSensitive: false,
+  );
+  static final _removeSeriesPattern = RegExp(
+    '^remove\\s+series\\s+$_quotedOrWordPattern\\s+(.+)\$',
+    caseSensitive: false,
+  );
   // `add comment "<comment>" <book>` — the quoted form, where the split
   // between comment and title is unambiguous and made right here.
   static final _addCommentQuotedPattern = RegExp(
@@ -286,12 +321,14 @@ abstract final class LogCommandParser {
     'move',
     'make',
     'add',
+    'remove',
   ];
 
-  /// The second word of the `add` and `make` families — used to pick which
-  /// usage to suggest for a mistyped line.
+  /// The second word of the `add`, `make` and `remove` families — used to
+  /// pick which usage to suggest for a mistyped line.
   static const _addKinds = ['tag', 'series', 'comment'];
   static const _makeKinds = ['shelf', 'tag', 'series'];
+  static const _removeKinds = ['tag', 'shelf', 'series'];
 
   static ParsedLogCommand parse(String input) {
     final text = input.trim();
@@ -473,6 +510,51 @@ abstract final class LogCommandParser {
       );
     }
 
+    final removeTag = _removeTagPattern.firstMatch(text);
+    if (removeTag != null) {
+      final tag = _quotedOrWord(removeTag, 1);
+      final title = removeTag.group(4)!.trim();
+      if (tag.isNotEmpty) {
+        return ParsedLogCommand(
+          message: 'Removed $tag from "$title"',
+          recognized: true,
+          type: LogCommandType.removeTag,
+          title: title,
+          tag: tag,
+        );
+      }
+    }
+
+    final removeShelf = _removeShelfPattern.firstMatch(text);
+    if (removeShelf != null) {
+      final shelf = _quotedOrWord(removeShelf, 1);
+      final title = removeShelf.group(4)!.trim();
+      if (shelf.isNotEmpty) {
+        return ParsedLogCommand(
+          message: 'Removed "$title" from $shelf',
+          recognized: true,
+          type: LogCommandType.removeShelf,
+          title: title,
+          shelf: shelf,
+        );
+      }
+    }
+
+    final removeSeries = _removeSeriesPattern.firstMatch(text);
+    if (removeSeries != null) {
+      final name = _quotedOrWord(removeSeries, 1);
+      final title = removeSeries.group(4)!.trim();
+      if (name.isNotEmpty) {
+        return ParsedLogCommand(
+          message: 'Removed "$title" from $name',
+          recognized: true,
+          type: LogCommandType.removeSeries,
+          title: title,
+          series: name,
+        );
+      }
+    }
+
     final remember = _rememberPattern.firstMatch(text);
     if (remember != null) {
       final title = remember.group(1)!.trim();
@@ -578,8 +660,12 @@ abstract final class LogCommandParser {
     final closest = _closest(words.first.toLowerCase(), _keywords);
     if (closest != null) {
       var keyword = closest;
-      if (closest == 'add' || closest == 'make') {
-        final kinds = closest == 'add' ? _addKinds : _makeKinds;
+      if (closest == 'add' || closest == 'make' || closest == 'remove') {
+        final kinds = switch (closest) {
+          'add' => _addKinds,
+          'make' => _makeKinds,
+          _ => _removeKinds,
+        };
         final kind = words.length > 1
             ? _closest(words[1].toLowerCase(), kinds)
             : null;

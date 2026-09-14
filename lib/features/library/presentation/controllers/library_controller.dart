@@ -13,6 +13,7 @@ import '../../domain/book.dart';
 import '../../domain/book_details_service.dart';
 import '../../domain/book_edition.dart';
 import '../../domain/book_lookup_service.dart';
+import '../../domain/book_note.dart';
 import '../../domain/book_series.dart';
 import '../../domain/collections.dart';
 import '../../domain/library_book.dart';
@@ -1287,14 +1288,36 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// Takes a shelf book out of whatever series it's filed under — the
-  /// book detail page's own way to clear it, since there is no typed
-  /// command for that. A no-op success when it wasn't in one.
-  Future<LibraryActionResult> removeFromSeries(String title) async {
+  /// Takes a shelf book out of whatever series it's filed under. The book
+  /// detail page's chip calls this with no [seriesName] to just clear it
+  /// (a no-op success when it wasn't in one); `remove series` passes one,
+  /// and is refused — without touching anything — if the book isn't
+  /// actually filed under that particular series.
+  Future<LibraryActionResult> removeFromSeries(
+    String title, {
+    String? seriesName,
+  }) async {
     final entry = _findByTitle(title);
     if (entry == null) return _notOnShelf(title);
     final before = entry.progress;
-    if (before.seriesId == null) return const LibraryActionResult.success();
+
+    String? clean;
+    if (seriesName != null) {
+      try {
+        clean = CollectionNames.validateSeries(seriesName);
+      } on LibraryException catch (error) {
+        return LibraryActionResult.failure(error.message);
+      }
+      final known = findSeries(clean);
+      if (known == null || before.seriesId != known.id) {
+        return LibraryActionResult.failure(
+          '"${entry.book.title}" isn\'t filed under $clean.',
+        );
+      }
+    } else if (before.seriesId == null) {
+      return const LibraryActionResult.success();
+    }
+
     _upsertLocal(
       entry.copyWith(
         progress: before.copyWith(
@@ -1306,12 +1329,75 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
     try {
       await series.clearSeries(entry.id);
-      return const LibraryActionResult.success();
+      return clean == null
+          ? const LibraryActionResult.success()
+          : LibraryActionResult.success(
+              'Removed "${entry.book.title}" from $clean',
+            );
     } on LibraryException catch (error) {
       _upsertLocal(entry.copyWith(progress: before));
       notifyListeners();
       return LibraryActionResult.failure(error.message);
     }
+  }
+
+  /// `remove tag <tag> <book>` — the exact reverse of [addTag]: refused,
+  /// without touching anything, if the book doesn't actually have that
+  /// tag. Not optimistic, like [addTag] — tags aren't rendered on the
+  /// shelf itself, and this needs a round trip to find which `book_tags`
+  /// row to delete anyway.
+  Future<LibraryActionResult> removeTag(String title, String tagName) async {
+    final entry = _findByTitle(title);
+    if (entry == null) return _notOnShelf(title);
+    final String clean;
+    try {
+      clean = CollectionNames.validateTag(tagName);
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+    try {
+      final tags = await notes.fetchTags(entry.id);
+      BookTag? match;
+      for (final tag in tags) {
+        if (BookTag.normalize(tag.tag) == BookTag.normalize(clean)) {
+          match = tag;
+          break;
+        }
+      }
+      if (match == null) {
+        return LibraryActionResult.failure(
+          '"${entry.book.title}" isn\'t tagged $clean.',
+        );
+      }
+      await notes.removeTag(match.id);
+      return LibraryActionResult.success(
+        'Removed $clean from "${entry.book.title}"',
+      );
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// `remove shelf <shelf> <book>` — takes a book off a custom shelf,
+  /// back to its own status section, the same side effect a drag onto the
+  /// built-in shelf of the same status has (progress kept, nothing else
+  /// changes). Refused for a built-in shelf name (there's nowhere for a
+  /// book to go "off" reading/to read/finished/dnf) or a book not
+  /// actually on the named shelf.
+  Future<LibraryActionResult> removeFromShelf(
+    String title,
+    String shelfName,
+  ) async {
+    final entry = _findByTitle(title);
+    if (entry == null) return _notOnShelf(title);
+    final target = findShelf(shelfName);
+    if (target is! CustomShelfRef) return _noSuchShelf(shelfName);
+    if (entry.shelfId != target.shelfId) {
+      return LibraryActionResult.failure(
+        '"${entry.book.title}" isn\'t on ${CollectionNames.clean(shelfName)}.',
+      );
+    }
+    return _changeShelf(entry, StatusShelfRef(entry.status));
   }
 
   /// `delete <book>` — removes the book from the shelf. Optimistic like

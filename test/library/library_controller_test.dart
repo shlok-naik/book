@@ -251,6 +251,7 @@ class FakeReadingEventRepository extends ReadingEventRepository {
 class FakeBookNotesRepository extends BookNotesRepository {
   final List<(String userBookId, String tag)> tags = [];
   final List<(String userBookId, String body)> comments = [];
+  final removed = <String>[];
   LibraryException? failure;
 
   @override
@@ -263,6 +264,27 @@ class FakeBookNotesRepository extends BookNotesRepository {
       tag: tag.name,
       createdAt: DateTime(2026),
     );
+  }
+
+  @override
+  Future<List<BookTag>> fetchTags(String userBookId) async {
+    if (failure != null) throw failure!;
+    return [
+      for (final (id, tag) in tags)
+        if (id == userBookId)
+          BookTag(
+            id: 'book-tag-${tags.indexOf((id, tag))}',
+            userBookId: id,
+            tag: tag,
+            createdAt: DateTime(2026),
+          ),
+    ];
+  }
+
+  @override
+  Future<void> removeTag(String tagId) async {
+    if (failure != null) throw failure!;
+    removed.add(tagId);
   }
 
   @override
@@ -308,6 +330,13 @@ class FakeSeriesRepository extends BookSeriesRepository {
     double? position,
   }) async {
     filed.add((userBookId, seriesId, position));
+  }
+
+  final cleared = <String>[];
+
+  @override
+  Future<void> clearSeries(String userBookId) async {
+    cleared.add(userBookId);
   }
 }
 
@@ -1126,6 +1155,105 @@ void main() {
       );
       expect(collections.shelves, isEmpty);
       expect(userBooks.shelfChanges, isEmpty);
+    });
+  });
+
+  group('removing collections from a book', () {
+    test(
+      'remove tag takes an applied tag off, the exact reverse of add',
+      () async {
+        final controller = controllerWith([_entry(_dune)]);
+        await controller.load();
+        await controller.makeTag('sci-fi');
+        await controller.addTag('Dune', 'sci-fi');
+
+        final result = await controller.removeTag('Dune', 'sci-fi');
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Removed sci-fi from "Dune"');
+        expect(notes.removed, ['book-tag-0']);
+      },
+    );
+
+    test('remove tag refuses a tag the book does not have', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+      await controller.makeTag('sci-fi');
+
+      final result = await controller.removeTag('Dune', 'sci-fi');
+
+      expect(result.success, isFalse);
+      expect(result.message, contains('isn\'t tagged sci-fi'));
+      expect(notes.removed, isEmpty);
+    });
+
+    test('remove series takes a book out, the exact reverse of add', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+      await controller.makeSeries('Dune');
+      await controller.addToSeries('Dune', 'Dune');
+
+      final result = await controller.removeFromSeries(
+        'Dune',
+        seriesName: 'Dune',
+      );
+
+      expect(result.success, isTrue);
+      expect(controller.match('Dune')!.seriesId, isNull);
+      expect(series.cleared, ['progress-book-1']);
+    });
+
+    test(
+      'remove series refuses a series the book is not filed under',
+      () async {
+        final controller = controllerWith([_entry(_dune)]);
+        await controller.load();
+        await controller.makeSeries('Dune');
+
+        final result = await controller.removeFromSeries(
+          'Dune',
+          seriesName: 'Dune',
+        );
+
+        expect(result.success, isFalse);
+        expect(result.message, contains('isn\'t filed under Dune'));
+      },
+    );
+
+    test(
+      'remove shelf takes a book off a custom shelf back to its status',
+      () async {
+        final controller = controllerWith([_entry(_dune, page: 120)]);
+        await controller.load();
+        await controller.makeShelf('summer reads');
+        await controller.moveToShelf('Dune', 'summer reads');
+
+        final result = await controller.removeFromShelf('Dune', 'summer reads');
+
+        expect(result.success, isTrue);
+        expect(controller.match('Dune')!.shelfId, isNull);
+        expect(controller.match('Dune')!.status, ReadingStatus.reading);
+      },
+    );
+
+    test('remove shelf refuses a built-in shelf name', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+
+      final result = await controller.removeFromShelf('Dune', 'reading');
+
+      expect(result.success, isFalse);
+    });
+
+    test('remove shelf refuses a shelf the book is not on', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+      await controller.makeShelf('summer reads');
+
+      final result = await controller.removeFromShelf('Dune', 'summer reads');
+
+      expect(result.success, isFalse);
+      expect(result.message, contains('isn\'t on summer reads'));
     });
   });
 
