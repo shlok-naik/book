@@ -12,6 +12,7 @@ abstract final class LibrarySearch {
     LibraryBook entry,
     String query, {
     Iterable<String> tags = const [],
+    String? seriesName,
   }) {
     final words = normalize(query).split(' ').where((w) => w.isNotEmpty);
     if (words.isEmpty) return true;
@@ -21,7 +22,7 @@ abstract final class LibrarySearch {
         book.title,
         ?book.subtitle,
         book.author,
-        ?book.seriesName,
+        ?seriesName,
         ...tags,
       ].join(' | '),
     );

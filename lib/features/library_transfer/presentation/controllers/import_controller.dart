@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
-import '../../../library/data/book_series_repository.dart';
 import '../../../library/domain/book.dart';
 import '../../../library/domain/book_lookup_service.dart';
 import '../../../library/domain/collections.dart';
@@ -27,14 +26,15 @@ typedef UnmatchedRow = ({ImportRow row, String reason});
 ///    will delete. Still nothing changed.
 /// 3. **importing** — the file's tags are made first, then one
 ///    `replace_library` call swaps the library in a single transaction
-///    (linking only tags that exist), then series found in the file are
-///    made and filed (best-effort — a series another reader already set is
-///    left alone).
+///    (linking only tags that exist), then the shelf is reloaded and
+///    series found in the file are made and filed against the freshly
+///    imported rows (best-effort — a series name that fails to make is
+///    logged and that row's series skipped, never the whole import).
 ///
 /// Tags and series follow the app's make-first rule even here: the import
 /// makes them through the same creation paths as `make tag` and
 /// `make series` (`CollectionsRepository.createTag`,
-/// `BookSeriesRepository.makeSeries`) and only then applies them — nothing
+/// `LibraryController.makeSeries`) and only then applies them — nothing
 /// downstream invents one while adding a book.
 /// 4. **done** / **failed** — either way the shelf is reloaded, so what the
 ///    app shows is what the server actually holds.
@@ -42,7 +42,6 @@ class ImportController extends ChangeNotifier {
   ImportController({
     required this.lookup,
     required this.transfer,
-    required this.series,
     required this.library,
     this.concurrency = 4,
     this.retryDelay = const Duration(milliseconds: 1500),
@@ -50,7 +49,6 @@ class ImportController extends ChangeNotifier {
 
   final BookLookupService lookup;
   final LibraryTransferRepository transfer;
-  final BookSeriesRepository series;
   final LibraryController library;
   final int concurrency;
   final Duration retryDelay;
@@ -178,23 +176,36 @@ class ImportController extends ChangeNotifier {
       return;
     }
 
+    // The freshly imported rows are what `addToSeries` matches on by
+    // title, and their series must already be on the reader's own list.
+    await _reloadQuietly();
+
     for (final (row, book) in _matched) {
       final name = row.series;
       if (name == null || name.trim().isEmpty) continue;
-      try {
-        // Joining a series the reader (or anyone) already made is fine
-        // here; `alreadyYours` is only a failure for a typed `make series`.
-        await series.makeSeries(name);
-        await series.setSeries(book.id, name, position: row.seriesPosition);
-      } on LibraryException catch (error) {
+      if (library.findSeries(name) == null) {
+        final made = await library.makeSeries(name);
+        if (!made.success) {
+          AppLogger.info(
+            'ImportController',
+            'Skipped making an imported series: ${made.message}',
+          );
+          continue;
+        }
+      }
+      final filed = await library.addToSeries(
+        book.title,
+        name,
+        position: row.seriesPosition,
+      );
+      if (!filed.success) {
         AppLogger.info(
           'ImportController',
-          'Skipped filing an imported series: ${error.message}',
+          'Skipped filing an imported series: ${filed.message}',
         );
       }
     }
 
-    await _reloadQuietly();
     _stage = ImportStage.done;
     _notify();
   }

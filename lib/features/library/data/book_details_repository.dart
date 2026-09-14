@@ -30,7 +30,7 @@ class BookDetailsRepository {
     return runSupabase(() async {
       final row = await _client
           .from('books')
-          .select(Book.selectWithSeries)
+          .select('*')
           .eq('id', bookId)
           .maybeSingle();
       return row == null ? null : Book.fromRow(row);

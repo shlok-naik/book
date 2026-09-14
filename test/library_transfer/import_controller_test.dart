@@ -96,33 +96,51 @@ class _Series extends BookSeriesRepository {
   /// The import makes each series before filing into it — the same
   /// make-first path as `make series`.
   @override
-  Future<MadeSeries> makeSeries(String name) async {
+  Future<BookSeries> makeSeries(String name) async {
     made.add(name);
-    return MadeSeries(
-      BookSeries(id: 'series-$name', name: name),
-      createdNew: true,
-      alreadyYours: false,
-    );
+    return BookSeries(id: 'series-$name', name: name);
   }
 
   @override
-  Future<Book> setSeries(
-    String bookId,
-    String seriesName, {
+  Future<void> setSeries(
+    String userBookId,
+    String seriesId, {
     double? position,
   }) async {
-    filed.add((bookId, seriesName, position));
-    return _dune;
+    filed.add((userBookId, seriesId, position));
   }
 }
 
+/// Stands in for the shelf a real reload would return: once
+/// `replaceLibrary` has recorded what was imported, `fetchLibrary` serves
+/// it back as real rows, so `addToSeries` (which matches by title, like
+/// the typed command) has something to find.
 class _Shelf extends UserBookRepository {
+  _Shelf(this.transfer);
+
+  final _Transfer transfer;
   int loads = 0;
+
+  static const _books = {'dune': _dune, 'piranesi': _piranesi};
 
   @override
   Future<List<LibraryBook>> fetchLibrary() async {
     loads++;
-    return const [];
+    final replaced = transfer.replaced;
+    if (replaced == null) return const [];
+    return [
+      for (final imported in replaced)
+        if (_books[imported.bookId] case final book?)
+          LibraryBook(
+            book: book,
+            progress: UserBook(
+              id: 'progress-${imported.bookId}',
+              bookId: imported.bookId,
+              currentPage: imported.currentPage,
+              status: imported.status,
+            ),
+          ),
+    ];
   }
 }
 
@@ -142,12 +160,11 @@ void main() {
     lookup = _Lookup(networkFailures: networkFailures);
     transfer = _Transfer(failure: fail);
     series = _Series();
-    shelf = _Shelf();
+    shelf = _Shelf(transfer);
     collections = FakeCollectionsRepository();
     return ImportController(
       lookup: lookup,
       transfer: transfer,
-      series: series,
       library: LibraryController(
         lookup: lookup,
         userBooks: shelf,
@@ -202,7 +219,7 @@ void main() {
     );
     expect(transfer.replaced![1].currentPage, 0);
     expect(series.made, ['Dune'], reason: 'made first, never implicitly');
-    expect(series.filed, [('dune', 'Dune', 1.0)]);
+    expect(series.filed, [('progress-dune', 'series-Dune', 1.0)]);
     expect(shelf.loads, greaterThan(0));
   });
 

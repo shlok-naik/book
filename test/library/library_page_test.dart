@@ -104,10 +104,10 @@ class _StubSeries extends BookSeriesRepository {
   Future<List<BookSeries>> fetchMySeries() async => List.of(mine);
 
   @override
-  Future<MadeSeries> makeSeries(String name) async {
+  Future<BookSeries> makeSeries(String name) async {
     final made = BookSeries(id: 'series-${mine.length}', name: name.trim());
     mine.add(made);
-    return MadeSeries(made, createdNew: true, alreadyYours: false);
+    return made;
   }
 }
 
@@ -129,6 +129,8 @@ LibraryBook _entry(
   bool dnf = false,
   double? rating,
   String? shelfId,
+  String? seriesId,
+  double? seriesPosition,
 }) {
   return LibraryBook(
     book: book,
@@ -145,6 +147,8 @@ LibraryBook _entry(
           ? ReadingStatus.dnf
           : ReadingStatus.reading,
       rating: rating,
+      seriesId: seriesId,
+      seriesPosition: seriesPosition,
     ),
   );
 }
@@ -154,6 +158,7 @@ void main() {
     List<LibraryBook> rows, {
     LibraryException? failure,
     FakeCollectionsRepository? collections,
+    _StubSeries? series,
   }) {
     return LibraryController(
       lookup: BookLookupService(
@@ -164,7 +169,7 @@ void main() {
       ),
       userBooks: StubUserBookRepository(rows, failure: failure),
       collections: collections ?? FakeCollectionsRepository(),
-      series: _StubSeries(),
+      series: series ?? _StubSeries(),
     );
   }
 
@@ -766,9 +771,6 @@ void main() {
       title: 'Dune Messiah',
       author: 'Frank Herbert',
       pageCount: 250,
-      seriesId: 'series-dune',
-      seriesName: 'Dune',
-      seriesPosition: 2,
     );
     const dune = Book(
       id: 'book-1',
@@ -776,10 +778,9 @@ void main() {
       title: 'Dune',
       author: 'Frank Herbert',
       pageCount: 400,
-      seriesId: 'series-dune',
-      seriesName: 'Dune',
-      seriesPosition: 1,
     );
+    final duneSeries = _StubSeries()
+      ..mine.add(const BookSeries(id: 'series-dune', name: 'Dune'));
 
     testWidgets('books in a series show as one group above the shelves', (
       tester,
@@ -787,10 +788,20 @@ void main() {
       await pumpPage(
         tester,
         controllerFor([
-          _entry(messiah, toBeRead: true),
-          _entry(dune, finished: true),
+          _entry(
+            messiah,
+            toBeRead: true,
+            seriesId: 'series-dune',
+            seriesPosition: 2,
+          ),
+          _entry(
+            dune,
+            finished: true,
+            seriesId: 'series-dune',
+            seriesPosition: 1,
+          ),
           _entry(_noCover),
-        ]),
+        ], series: duneSeries),
       );
 
       expect(find.text('series'), findsOneWidget);
@@ -805,15 +816,61 @@ void main() {
       expect(find.text('series'), findsNothing);
     });
 
+    testWidgets(
+      'a series entirely on one shelf collapses to one grouped tile there',
+      (tester) async {
+        await pumpPage(
+          tester,
+          controllerFor([
+            _entry(
+              messiah,
+              toBeRead: true,
+              seriesId: 'series-dune',
+              seriesPosition: 2,
+            ),
+            _entry(
+              dune,
+              toBeRead: true,
+              seriesId: 'series-dune',
+              seriesPosition: 1,
+            ),
+          ], series: duneSeries),
+        );
+
+        // Once for the horizontal row above the shelves, once for the
+        // grouped tile inside "to read" — never a separate tile per book.
+        expect(
+          find.byKey(const ValueKey('series-series-dune')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('shelf-series-series-dune')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('progress-book-5')), findsNothing);
+        expect(find.byKey(const ValueKey('progress-book-1')), findsNothing);
+      },
+    );
+
     testWidgets('tapping a group opens the series page in series order', (
       tester,
     ) async {
       await pumpPage(
         tester,
         controllerFor([
-          _entry(messiah, toBeRead: true),
-          _entry(dune, finished: true),
-        ]),
+          _entry(
+            messiah,
+            toBeRead: true,
+            seriesId: 'series-dune',
+            seriesPosition: 2,
+          ),
+          _entry(
+            dune,
+            finished: true,
+            seriesId: 'series-dune',
+            seriesPosition: 1,
+          ),
+        ], series: duneSeries),
       );
 
       await tester.tap(find.byKey(const ValueKey('series-series-dune')));

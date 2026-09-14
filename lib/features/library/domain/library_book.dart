@@ -66,6 +66,12 @@ class LibraryBook {
   /// `UserBook.shelfId`.
   String? get shelfId => progress.shelfId;
 
+  /// The series this book is filed under, private to this reader — see
+  /// `UserBook.seriesId`. Resolve its display name through
+  /// `LibraryController.seriesLabelFor`/`seriesById`.
+  String? get seriesId => progress.seriesId;
+  double? get seriesPosition => progress.seriesPosition;
+
   /// Completion in the 0..1 range, or null when the total page count is
   /// unknown (Google Books often omits it) — callers must handle null by
   /// showing "page N" instead of a percentage bar. Finished books read

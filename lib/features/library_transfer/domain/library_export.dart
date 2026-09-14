@@ -1,4 +1,4 @@
-import '../../library/domain/book.dart';
+import '../../library/domain/book_series.dart';
 import '../../library/domain/library_book.dart';
 import '../../library/domain/user_book.dart';
 import 'csv_codec.dart';
@@ -37,6 +37,7 @@ abstract final class LibraryExport {
     List<LibraryBook> books, {
     Map<String, List<String>> tagsByBook = const {},
     Map<String, List<String>> commentsByBook = const {},
+    Map<String, String> seriesNamesById = const {},
   }) {
     final rows = <List<String>>[header];
     for (final entry in books) {
@@ -57,10 +58,10 @@ abstract final class LibraryExport {
         (commentsByBook[entry.id] ?? const []).join(
           GoodreadsImport.commentSeparator,
         ),
-        entry.book.seriesName ?? '',
-        entry.book.seriesPosition == null
+        entry.seriesId == null ? '' : seriesNamesById[entry.seriesId] ?? '',
+        entry.seriesPosition == null
             ? ''
-            : Book.formatSeriesPosition(entry.book.seriesPosition!),
+            : BookSeries.formatPosition(entry.seriesPosition!),
         edition == null
             ? ''
             : [

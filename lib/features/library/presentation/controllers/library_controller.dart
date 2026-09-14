@@ -111,8 +111,8 @@ class LibraryController extends ChangeNotifier {
   /// client.
   final BookDetailsService details;
 
-  /// The shared series catalogue and the reader's own series list —
-  /// `make series` and `add series` write it, the series page reads it.
+  /// The reader's own series list, private to them — `make series` and
+  /// `add series` write it, the series page reads it.
   final BookSeriesRepository series;
 
   /// The reader's own custom shelves and tags — [makeShelf]/[makeTag] write
@@ -422,9 +422,8 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// `make series <name>` and the "+" panel's series tab — the one way a
-  /// series lands on the reader's list. Series are shared, so a series
-  /// another reader already made is joined (with its stored spelling) and
-  /// reported as such; only one already on this reader's list fails.
+  /// series comes into existence. Private to this reader, like a shelf or a
+  /// tag — refuses a name they already have before any I/O.
   Future<LibraryActionResult> makeSeries(String name) async {
     try {
       final clean = CollectionNames.validateSeries(name);
@@ -434,19 +433,8 @@ class LibraryController extends ChangeNotifier {
         );
       }
       final made = await series.makeSeries(clean);
-      if (made.alreadyYours) {
-        // The local list was stale — adopt the row without claiming news.
-        if (findSeries(made.series.name) == null) _addSeriesLocal(made.series);
-        return LibraryActionResult.failure(
-          'You already have a series "${made.series.name}".',
-        );
-      }
-      _addSeriesLocal(made.series);
-      return LibraryActionResult.success(
-        made.createdNew
-            ? 'Made series "${made.series.name}"'
-            : 'Added the series "${made.series.name}"',
-      );
+      _addSeriesLocal(made);
+      return LibraryActionResult.success('Made series "${made.name}"');
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
     }
@@ -1218,15 +1206,37 @@ class LibraryController extends ChangeNotifier {
 
   /// Every series the reader has at least one book in — the library's
   /// series row.
-  List<SeriesGroup> get seriesGroups => SeriesGroup.fromShelf(_books);
+  List<SeriesGroup> get seriesGroups =>
+      SeriesGroup.fromShelf(_books, _mySeries);
+
+  /// The series [id] refers to on the reader's own list, or null.
+  BookSeries? seriesById(String id) {
+    for (final s in _mySeries) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
+
+  /// [entry]'s series, formatted as "the expanse #2" — null when it isn't
+  /// filed in one, or its series has since been removed from the reader's
+  /// list.
+  String? seriesLabelFor(LibraryBook entry) {
+    final id = entry.seriesId;
+    if (id == null) return null;
+    final name = seriesById(id)?.name;
+    if (name == null) return null;
+    final position = entry.seriesPosition;
+    return position == null
+        ? name
+        : '$name #${BookSeries.formatPosition(position)}';
+  }
 
   /// `add series <series> [#n] <book>` — files a book on the shelf under a
   /// series already on the reader's list ([makeSeries]); an unknown series
-  /// is refused with the `make series` command that would create it. Series
-  /// are shared across readers; the first reader to file a book decides its
-  /// series (see the `set_book_series` migration). Not optimistic: the
-  /// stored spelling of the series may differ from what was typed ("the
-  /// expanse" is "The Expanse").
+  /// is refused with the `make series` command that would create it.
+  /// Private to this reader, so a re-file keeps its old number when none is
+  /// given and the book was already in that series, otherwise clears it —
+  /// there is no other reader's spelling or number to defer to.
   Future<LibraryActionResult> addToSeries(
     String title,
     String seriesName, {
@@ -1247,20 +1257,32 @@ class LibraryController extends ChangeNotifier {
         '$clean.',
       );
     }
+    final before = entry.progress;
+    final samePosition = before.seriesId == known.id
+        ? before.seriesPosition
+        : null;
+    final newPosition = position ?? samePosition;
+    _upsertLocal(
+      entry.copyWith(
+        progress: before.copyWith(
+          seriesId: known.id,
+          seriesPosition: newPosition,
+          clearSeriesPosition: newPosition == null,
+        ),
+      ),
+    );
+    notifyListeners();
     try {
-      final updated = await series.setSeries(
-        entry.book.id,
-        known.name,
-        position: position,
-      );
-      final current = findById(entry.id) ?? entry;
-      _upsertLocal(current.copyWith(book: updated));
-      notifyListeners();
-      final label = updated.seriesLabel ?? known.name;
+      await series.setSeries(entry.id, known.id, position: newPosition);
+      final label = newPosition == null
+          ? known.name
+          : '${known.name} #${BookSeries.formatPosition(newPosition)}';
       return LibraryActionResult.success(
         'Filed "${entry.book.title}" under $label',
       );
     } on LibraryException catch (error) {
+      _upsertLocal(entry.copyWith(progress: before));
+      notifyListeners();
       return LibraryActionResult.failure(error.message);
     }
   }

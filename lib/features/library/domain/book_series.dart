@@ -1,8 +1,10 @@
-import 'book.dart';
 import 'collections.dart';
 import 'library_book.dart';
 
-/// A row of the shared `book_series` table.
+/// A row of the reader's own `series` table — private to them, like a
+/// [Shelf] or a [ReaderTag]. What a book is filed under lives on that
+/// reader's own `user_books.series_id`/`series_position`, never on the
+/// shared `books` row.
 class BookSeries {
   const BookSeries({required this.id, required this.name});
 
@@ -23,15 +25,21 @@ class BookSeries {
     return BookSeries(id: id, name: name.trim());
   }
 
+  /// "2" for 2.0, "1.5" for 1.5.
+  static String formatPosition(double position) =>
+      position == position.roundToDouble()
+      ? position.toInt().toString()
+      : position.toStringAsFixed(1);
+
   /// Series order: numbered books by number, then unnumbered ones by title.
-  static List<Book> sortBooks(Iterable<Book> books) {
-    return [...books]..sort((a, b) {
+  static List<LibraryBook> sortEntries(Iterable<LibraryBook> entries) {
+    return [...entries]..sort((a, b) {
       final pa = a.seriesPosition;
       final pb = b.seriesPosition;
       if (pa != null && pb != null && pa != pb) return pa.compareTo(pb);
       if (pa != null && pb == null) return -1;
       if (pa == null && pb != null) return 1;
-      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+      return a.book.title.toLowerCase().compareTo(b.book.title.toLowerCase());
     });
   }
 }
@@ -60,28 +68,29 @@ class SeriesGroup {
     return done == 0 ? books : '$books · $done finished';
   }
 
-  /// Groups every shelf book filed under a named series, series with the
-  /// most recently touched book first (the shelf's own order).
-  static List<SeriesGroup> fromShelf(Iterable<LibraryBook> shelf) {
+  /// Groups every shelf book filed under one of [mySeries] (the reader's
+  /// own list — a series id on a book that has since been removed from
+  /// the list groups under nothing), series with the most recently touched
+  /// book first (the shelf's own order).
+  static List<SeriesGroup> fromShelf(
+    Iterable<LibraryBook> shelf,
+    List<BookSeries> mySeries,
+  ) {
     final byId = <String, List<LibraryBook>>{};
-    final names = <String, String>{};
     for (final entry in shelf) {
-      final id = entry.book.seriesId;
-      final name = entry.book.seriesName;
-      if (id == null || name == null) continue;
+      final id = entry.seriesId;
+      if (id == null) continue;
       (byId[id] ??= []).add(entry);
-      names[id] = name;
     }
+    final namesById = {for (final s in mySeries) s.id: s.name};
     return [
       for (final MapEntry(key: id, value: entries) in byId.entries)
-        SeriesGroup(
-          id: id,
-          name: names[id]!,
-          entries: [
-            for (final book in BookSeries.sortBooks(entries.map((e) => e.book)))
-              entries.firstWhere((entry) => entry.book.id == book.id),
-          ],
-        ),
+        if (namesById[id] case final name?)
+          SeriesGroup(
+            id: id,
+            name: name,
+            entries: BookSeries.sortEntries(entries),
+          ),
     ];
   }
 }

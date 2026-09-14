@@ -131,7 +131,7 @@ abstract final class CollectionNames {
   /// Matches `tags.name` (and `book_tags.tag`).
   static const tagMaxLength = 40;
 
-  /// Matches `book_series.name`.
+  /// Matches `series.name`.
   static const seriesMaxLength = 80;
 
   /// Every name (and alias) that already means a built-in shelf. `move`

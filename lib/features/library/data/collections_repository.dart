@@ -5,8 +5,9 @@ import '../domain/library_exception.dart';
 import 'supabase_guard.dart';
 
 /// Reads and creates the reader's own standalone collections — the private
-/// `shelves` and `tags` tables. (Series are shared, and live in
-/// `BookSeriesRepository`.)
+/// `shelves` and `tags` tables. (Series are private too, but live in their
+/// own `BookSeriesRepository` since they also carry a shelf row's own
+/// `series_id`/`series_position`.)
 ///
 /// These are the *creation* half of the make-first design: every path that
 /// makes a shelf or a tag — `make shelf`/`make tag`, the library page's "+"

@@ -50,10 +50,14 @@ class LibraryExporter {
       for (final comment in comments) {
         (commentsByBook[comment.userBookId] ??= []).add(comment.body);
       }
+      final seriesNamesById = {
+        for (final series in library.mySeries) series.id: series.name,
+      };
       final csv = LibraryExport.build(
         library.books,
         tagsByBook: tagsByBook,
         commentsByBook: commentsByBook,
+        seriesNamesById: seriesNamesById,
       );
       await _share(LibraryExport.fileName(now ?? DateTime.now()), csv);
       return null;

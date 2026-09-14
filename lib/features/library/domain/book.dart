@@ -26,9 +26,6 @@ class Book {
     this.previewLink,
     this.detailsFetchedAt,
     this.editionsFetchedAt,
-    this.seriesId,
-    this.seriesName,
-    this.seriesPosition,
   });
 
   /// Supabase primary key (uuid). This — not [googleBooksId] — is what
@@ -95,68 +92,6 @@ class Book {
   /// means "Google has no ebook/physical editions for this", not "unknown".
   final DateTime? editionsFetchedAt;
 
-  /// The `book_series` row this book is filed under — shared by every
-  /// reader, set with `series <series> [#n] <book>`. Null until someone
-  /// files it.
-  final String? seriesId;
-
-  /// The series' display name, when the row was read with the series
-  /// embedded (`series:book_series(id, name)`). Can be null while
-  /// [seriesId] is set — a row returned by an RPC carries no embed.
-  final String? seriesName;
-
-  /// Its number within the series — 1, 2, or 1.5 for a novella. Null when
-  /// filed without a number.
-  final double? seriesPosition;
-
-  /// "dune #2", "the expanse", or null when not in a named series.
-  String? get seriesLabel {
-    final name = seriesName;
-    if (name == null) return null;
-    final position = seriesPosition;
-    if (position == null) return name;
-    return '$name #${formatSeriesPosition(position)}';
-  }
-
-  /// "2" for 2.0, "1.5" for 1.5.
-  static String formatSeriesPosition(double position) =>
-      position == position.roundToDouble()
-      ? position.toInt().toString()
-      : position.toStringAsFixed(1);
-
-  /// This book with its series set — the local mirror of
-  /// `set_book_series`, used so the shelf shows the new series without a
-  /// reload.
-  Book withSeries({
-    required String seriesId,
-    required String seriesName,
-    double? seriesPosition,
-  }) => Book(
-    id: id,
-    googleBooksId: googleBooksId,
-    title: title,
-    author: author,
-    coverUrl: coverUrl,
-    pageCount: pageCount,
-    description: description,
-    subtitle: subtitle,
-    publisher: publisher,
-    publishedDate: publishedDate,
-    categories: categories,
-    language: language,
-    isbn10: isbn10,
-    isbn13: isbn13,
-    averageRating: averageRating,
-    ratingsCount: ratingsCount,
-    maturityRating: maturityRating,
-    previewLink: previewLink,
-    detailsFetchedAt: detailsFetchedAt,
-    editionsFetchedAt: editionsFetchedAt,
-    seriesId: seriesId,
-    seriesName: seriesName,
-    seriesPosition: seriesPosition,
-  );
-
   bool get hasCachedDetails => detailsFetchedAt != null;
   bool get hasCachedEditions => editionsFetchedAt != null;
 
@@ -214,12 +149,6 @@ class Book {
       previewLink: _nonEmpty(row['preview_link']),
       detailsFetchedAt: _parseDate(row['details_fetched_at']),
       editionsFetchedAt: _parseDate(row['editions_fetched_at']),
-      seriesId: _nonEmpty(row['series_id']),
-      seriesName: switch (row['series']) {
-        final Map<String, dynamic> series => _nonEmpty(series['name']),
-        _ => null,
-      },
-      seriesPosition: _parseDouble(row['series_position']),
     );
   }
 
@@ -256,9 +185,6 @@ class Book {
     previewLink: previewLink,
     detailsFetchedAt: detailsFetchedAt,
     editionsFetchedAt: editionsFetchedAt,
-    seriesId: seriesId,
-    seriesName: seriesName,
-    seriesPosition: seriesPosition,
   );
 
   /// Postgres `numeric` arrives over PostgREST as a String; accept both.
@@ -272,10 +198,6 @@ class Book {
       value is String && value.isNotEmpty ? DateTime.tryParse(value) : null;
 
   static const unknownAuthor = 'Unknown author';
-
-  /// The `books` projection every read that builds a [Book] should use, so
-  /// the series name comes along with the row.
-  static const selectWithSeries = '*, series:book_series(id, name)';
 
   /// Treats empty strings as absent — Supabase columns that were written
   /// from an empty Google Books field come back as '' rather than null,

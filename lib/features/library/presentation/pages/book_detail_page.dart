@@ -361,6 +361,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
   }
 
   Widget _content(LibraryBook entry, BookDetailController detail) {
+    final library = LibraryScope.of(context);
     _syncProgressFields(entry);
     // The detailed row once it has loaded, else the shelf's own copy —
     // then as the reader's own edition, when they've picked one, so its
@@ -396,11 +397,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         const SizedBox(height: AppSpacing.lg),
         _commentsSection(entry, detail),
         const SizedBox(height: AppSpacing.lg),
-        _aboutSection(
-          book,
-          detail,
-          seriesLabel: entry.book.seriesLabel ?? book.seriesLabel,
-        ),
+        _aboutSection(book, detail, seriesLabel: library.seriesLabelFor(entry)),
       ],
     );
   }

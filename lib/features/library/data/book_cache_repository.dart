@@ -31,7 +31,7 @@ class BookCacheRepository {
     return runSupabase(() async {
       final row = await _client
           .from(_table)
-          .select(Book.selectWithSeries)
+          .select('*')
           .eq('google_books_id', googleBooksId.trim())
           .maybeSingle();
       return row == null ? null : Book.fromRow(row);
@@ -46,7 +46,7 @@ class BookCacheRepository {
     return runSupabase(() async {
       final rows = await _client
           .from(_table)
-          .select(Book.selectWithSeries)
+          .select('*')
           .or('isbn_13.eq.$clean,isbn_10.eq.$clean')
           .limit(1);
       return rows.isEmpty ? null : Book.fromRow(rows.first);
@@ -83,10 +83,7 @@ class BookCacheRepository {
     required String titlePattern,
     String? author,
   }) async {
-    var query = _client
-        .from(_table)
-        .select(Book.selectWithSeries)
-        .ilike('title', titlePattern);
+    var query = _client.from(_table).select('*').ilike('title', titlePattern);
     if (author != null && author.trim().isNotEmpty) {
       query = query.ilike('author', '%${escapeLikePattern(author.trim())}%');
     }

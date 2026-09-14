@@ -248,9 +248,18 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
-  bool _visible(LibraryBook entry) =>
-      !_searching ||
-      LibrarySearch.matches(entry, _query, tags: _tagsByBook[entry.id] ?? []);
+  bool _visible(LibraryBook entry) {
+    if (!_searching) return true;
+    final seriesId = entry.seriesId;
+    return LibrarySearch.matches(
+      entry,
+      _query,
+      tags: _tagsByBook[entry.id] ?? [],
+      seriesName: seriesId == null
+          ? null
+          : LibraryScope.read(context).seriesById(seriesId)?.name,
+    );
+  }
 
   // --------------------------------------------------------------- dragging
 
@@ -467,6 +476,21 @@ class _LibraryPageState extends State<LibraryPage> {
             if (!filtering || _visible(entry)) entry,
         ],
     };
+    // A series with more than one book, all shelved in the same place, is
+    // shown there as one grouped tile rather than a tile per book — never
+    // while searching, since a search result is one specific book, not the
+    // whole series it belongs to.
+    final collapsedByShelf = <ShelfRef, List<SeriesGroup>>{};
+    if (!filtering) {
+      for (final group in controller.seriesGroups) {
+        if (group.entries.length < 2) continue;
+        final refs = {
+          for (final entry in group.entries) ShelfRef.of(entry.progress),
+        };
+        if (refs.length != 1) continue;
+        (collapsedByShelf[refs.single] ??= []).add(group);
+      }
+    }
 
     if (filtering &&
         groups.isEmpty &&
@@ -509,6 +533,7 @@ class _LibraryPageState extends State<LibraryPage> {
           else
             _BookGrid(
               entries: sections[shelf.ref]!,
+              collapsedSeries: collapsedByShelf[shelf.ref] ?? const [],
               shelf: shelf.ref,
               shelves: shelves,
               // Finished and dropped books are shown faded, so the shelves
@@ -545,10 +570,16 @@ class _BookGrid extends StatelessWidget {
     required this.onDragEnded,
     required this.onMove,
     required this.onOpen,
+    this.collapsedSeries = const [],
     this.dimmed = false,
   });
 
   final List<LibraryBook> entries;
+
+  /// Series entirely shelved here, more than one book each — shown as one
+  /// grouped tile in place of their individual ones. See
+  /// [_LibraryPageState._buildSlivers].
+  final List<SeriesGroup> collapsedSeries;
   final ShelfRef shelf;
 
   /// Every section on the page, in page order — where keyboard and
@@ -573,6 +604,19 @@ class _BookGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final groupedIds = {
+      for (final group in collapsedSeries)
+        for (final entry in group.entries) entry.id,
+    };
+    // Grouped books keep their real index into [entries] — the position
+    // `onMove` and keyboard reordering act on — even though they're not
+    // rendered as their own tile.
+    final items = <Object>[
+      ...collapsedSeries,
+      for (var i = 0; i < entries.length; i++)
+        if (!groupedIds.contains(entries[i].id)) (i, entries[i]),
+    ];
+
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.xl,
@@ -595,14 +639,22 @@ class _BookGrid extends StatelessWidget {
               childAspectRatio: tileWidth / tileHeight,
             ),
             delegate: SliverChildBuilderDelegate((context, index) {
-              final entry = entries[index];
+              final item = items[index];
+              if (item is SeriesGroup) {
+                return _SeriesGroupTile(
+                  key: ValueKey('shelf-series-${item.id}'),
+                  group: item,
+                  size: Size(tileWidth, tileHeight),
+                );
+              }
+              final (bookIndex, entry) = item as (int, LibraryBook);
               return _DraggableBookTile(
                 // Keyed on the progress row so Flutter reuses the right
                 // element when a book moves between sections.
                 key: ValueKey(entry.id),
                 entry: entry,
-                index: index,
-                isLast: index == entries.length - 1,
+                index: bookIndex,
+                isLast: bookIndex == entries.length - 1,
                 shelf: shelf,
                 shelves: shelves,
                 size: Size(tileWidth, tileHeight),
@@ -614,9 +666,88 @@ class _BookGrid extends StatelessWidget {
                 onMove: onMove,
                 onOpen: onOpen,
               );
-            }, childCount: entries.length),
+            }, childCount: items.length),
           );
         },
+      ),
+    );
+  }
+}
+
+/// One shelf-grid tile standing in for every book of a series that's
+/// entirely shelved together — the same fan-of-covers treatment
+/// [_SeriesRow] uses above the shelves, sized to the grid's own tile
+/// instead of that row's fixed width. Never draggable: it represents more
+/// than one shelf position at once, so there's no single place to drop it.
+class _SeriesGroupTile extends StatelessWidget {
+  const _SeriesGroupTile({super.key, required this.group, required this.size});
+
+  final SeriesGroup group;
+  final Size size;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final covers = group.entries.take(3).toList();
+    final coverHeight = size.width / BookCover.aspectRatio;
+
+    return Semantics(
+      button: true,
+      label: '${group.name} series, ${group.summary}.',
+      excludeSemantics: true,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: () {
+          AppHaptics.selection();
+          unawaited(openSeries(context, group));
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: coverHeight,
+              width: size.width,
+              child: Stack(
+                children: [
+                  for (final (i, entry) in covers.indexed.toList().reversed)
+                    Positioned(
+                      left: i * (size.width * 0.18),
+                      top: i * 4.0,
+                      bottom: 0,
+                      child: SizedBox(
+                        width: size.width * 0.6 - i * 4,
+                        child: BookCover(
+                          title: entry.book.title,
+                          author: entry.book.author,
+                          coverUrl: entry.displayBook.coverUrl,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              group.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colors.primaryText,
+              ),
+            ),
+            Text(
+              group.summary,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: colors.secondaryText,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

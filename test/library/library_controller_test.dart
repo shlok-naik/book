@@ -280,42 +280,34 @@ class FakeBookNotesRepository extends BookNotesRepository {
 }
 
 /// In-memory series list — `make series` and `add series` without Supabase.
-/// [shared] holds series other readers already made.
+/// Private to the reader, like [FakeCollectionsRepository]'s shelves/tags.
 class FakeSeriesRepository extends BookSeriesRepository {
   final List<BookSeries> mine = [];
-  final List<BookSeries> shared = [];
-  final List<(String bookId, String name, double? position)> filed = [];
+  final List<(String userBookId, String seriesId, double? position)> filed = [];
 
   @override
   Future<List<BookSeries>> fetchMySeries() async => List.of(mine);
 
   @override
-  Future<MadeSeries> makeSeries(String name) async {
+  Future<BookSeries> makeSeries(String name) async {
     final clean = CollectionNames.validateSeries(name);
     for (final series in mine) {
       if (series.matches(clean)) {
-        return MadeSeries(series, createdNew: false, alreadyYours: true);
-      }
-    }
-    for (final series in shared) {
-      if (series.matches(clean)) {
-        mine.add(series);
-        return MadeSeries(series, createdNew: false, alreadyYours: false);
+        throw InvalidInputException('You already have a series "$clean".');
       }
     }
     final made = BookSeries(id: 'series-${mine.length + 1}', name: clean);
     mine.add(made);
-    return MadeSeries(made, createdNew: true, alreadyYours: false);
+    return made;
   }
 
   @override
-  Future<Book> setSeries(
-    String bookId,
-    String seriesName, {
+  Future<void> setSeries(
+    String userBookId,
+    String seriesId, {
     double? position,
   }) async {
-    filed.add((bookId, seriesName, position));
-    return _dune;
+    filed.add((userBookId, seriesId, position));
   }
 }
 
@@ -1065,21 +1057,18 @@ void main() {
       },
     );
 
-    test('make series makes a new series, joins a shared one, and refuses '
-        'one already on the list', () async {
+    test('make series makes a new series and refuses one already on the '
+        'list', () async {
       final controller = controllerWith([]);
-      series.shared.add(const BookSeries(id: 's-exp', name: 'The Expanse'));
 
       final made = await controller.makeSeries('dune');
-      final joined = await controller.makeSeries('the expanse');
       final again = await controller.makeSeries('DUNE');
 
+      expect(made.success, isTrue);
       expect(made.message, 'Made series "dune"');
-      expect(joined.success, isTrue);
-      expect(joined.message, 'Added the series "The Expanse"');
       expect(again.success, isFalse);
       expect(again.message, 'You already have a series "dune".');
-      expect(controller.mySeries.map((s) => s.name), ['dune', 'The Expanse']);
+      expect(controller.mySeries.map((s) => s.name), ['dune']);
     });
   });
 
@@ -1115,11 +1104,12 @@ void main() {
       final controller = controllerWith([_entry(_dune)]);
       await controller.load();
       await controller.makeSeries('Dune');
+      final made = controller.findSeries('Dune')!;
 
       final result = await controller.addToSeries('dune', 'dune', position: 1);
 
       expect(result.success, isTrue);
-      expect(series.filed.single, ('book-1', 'Dune', 1.0));
+      expect(series.filed.single, ('progress-book-1', made.id, 1.0));
     });
 
     test('move refuses a shelf that was never made', () async {

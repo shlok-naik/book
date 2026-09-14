@@ -36,7 +36,7 @@ class UserBookRepository {
   /// The embedded-join projection: every progress row plus the cached
   /// book it points at, in one round-trip instead of an N+1 fan-out.
   static const _withBook =
-      '*, book:books(${Book.selectWithSeries}), '
+      '*, book:books(*), '
       // Named by foreign key: `book_editions` is reachable from here only
       // through the composite (book_id, owned_edition_id) key, and naming
       // it keeps PostgREST from guessing if another relationship appears.
