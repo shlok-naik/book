@@ -644,7 +644,6 @@ class _BookGrid extends StatelessWidget {
                 return _SeriesGroupTile(
                   key: ValueKey('shelf-series-${item.id}'),
                   group: item,
-                  size: Size(tileWidth, tileHeight),
                 );
               }
               final (bookIndex, entry) = item as (int, LibraryBook);
@@ -675,21 +674,37 @@ class _BookGrid extends StatelessWidget {
 }
 
 /// One shelf-grid tile standing in for every book of a series that's
-/// entirely shelved together — the same fan-of-covers treatment
-/// [_SeriesRow] uses above the shelves, sized to the grid's own tile
-/// instead of that row's fixed width. Never draggable: it represents more
-/// than one shelf position at once, so there's no single place to drop it.
+/// entirely shelved together — laid out exactly like [BookTile] (same
+/// cover size, same rows), so it reads as one more book on the shelf
+/// rather than a different kind of thing: a representative cover (the
+/// series' first book), the series name where a title goes, "N books"
+/// where the author goes, then the group's aggregate progress — how many
+/// are finished, the rest's average completion, and (once any is rated)
+/// their average rating. Never draggable: it represents more than one
+/// shelf position at once, so there's no single place to drop it.
 class _SeriesGroupTile extends StatelessWidget {
-  const _SeriesGroupTile({super.key, required this.group, required this.size});
+  const _SeriesGroupTile({super.key, required this.group});
 
   final SeriesGroup group;
-  final Size size;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final covers = group.entries.take(3).toList();
-    final coverHeight = size.width / BookCover.aspectRatio;
+    final entries = group.entries;
+    final cover = entries.first;
+
+    final completions = [for (final entry in entries) ?entry.completion];
+    final avgCompletion = completions.isEmpty
+        ? null
+        : completions.reduce((a, b) => a + b) / completions.length;
+
+    final ratings = [
+      for (final entry in entries)
+        if (entry.isFinished && entry.rating != null) entry.rating!,
+    ];
+    final avgRating = ratings.isEmpty
+        ? null
+        : ratings.reduce((a, b) => a + b) / ratings.length;
 
     return Semantics(
       button: true,
@@ -704,51 +719,134 @@ class _SeriesGroupTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              height: coverHeight,
-              width: size.width,
-              child: Stack(
-                children: [
-                  for (final (i, entry) in covers.indexed.toList().reversed)
-                    Positioned(
-                      left: i * (size.width * 0.18),
-                      top: i * 4.0,
-                      bottom: 0,
-                      child: SizedBox(
-                        width: size.width * 0.6 - i * 4,
-                        child: BookCover(
-                          title: entry.book.title,
-                          author: entry.book.author,
-                          coverUrl: entry.displayBook.coverUrl,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+            BookCover(
+              title: cover.book.title,
+              author: cover.book.author,
+              coverUrl: cover.displayBook.coverUrl,
             ),
-            const SizedBox(height: AppSpacing.xs),
+            const SizedBox(height: AppSpacing.sm),
             Text(
               group.name,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 13,
+              style: GoogleFonts.fraunces(
+                fontSize: 14,
+                height: 1.2,
                 fontWeight: FontWeight.w600,
                 color: colors.primaryText,
               ),
             ),
+            const SizedBox(height: 2),
             Text(
-              group.summary,
+              '${entries.length} books',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.jetBrainsMono(
+              style: GoogleFonts.inter(
                 fontSize: 11,
                 color: colors.secondaryText,
               ),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            if (avgCompletion != null) ...[
+              _GroupProgressBar(
+                value: avgCompletion,
+                color: colors.accent,
+                track: colors.divider,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+            ],
+            Text(
+              _progressLabel(group, avgCompletion),
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: group.finished == entries.length
+                    ? colors.accent
+                    : colors.secondaryText,
+              ),
+            ),
+            if (avgRating != null) ...[
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.star, size: 12, color: colors.accent),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    '${_formatAverage(avgRating)} avg',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 11,
+                      color: colors.accent,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  static String _progressLabel(SeriesGroup group, double? avgCompletion) {
+    final total = group.entries.length;
+    if (group.finished == total) return 'all finished';
+    final percent = avgCompletion == null
+        ? null
+        : (avgCompletion * 100).round();
+    return percent == null
+        ? '${group.finished}/$total finished'
+        : '${group.finished}/$total finished · $percent% avg';
+  }
+
+  static String _formatAverage(double value) => value == value.roundToDouble()
+      ? value.toInt().toString()
+      : value.toStringAsFixed(1);
+}
+
+/// [BookTile]'s own progress bar, kept as its own small copy the same way
+/// `CurrentlyReadingCard`'s is — a hairline pair of containers rather
+/// than a shared widget, so this file doesn't reach into book_tile.dart
+/// for three lines of decoration.
+class _GroupProgressBar extends StatelessWidget {
+  const _GroupProgressBar({
+    required this.value,
+    required this.color,
+    required this.track,
+  });
+
+  final double value;
+  final Color color;
+  final Color track;
+
+  static const _height = 3.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth * value.clamp(0.0, 1.0);
+        return Stack(
+          children: [
+            Container(
+              height: _height,
+              decoration: BoxDecoration(
+                color: track,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+            ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              height: _height,
+              width: width,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
