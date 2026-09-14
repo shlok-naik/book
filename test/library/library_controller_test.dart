@@ -338,6 +338,14 @@ class FakeSeriesRepository extends BookSeriesRepository {
   Future<void> clearSeries(String userBookId) async {
     cleared.add(userBookId);
   }
+
+  final deleted = <String>[];
+
+  @override
+  Future<void> deleteSeries(String id) async {
+    mine.removeWhere((s) => s.id == id);
+    deleted.add(id);
+  }
 }
 
 /// Records every book `LibraryController._warmEditions` asks it to cache,
@@ -1254,6 +1262,67 @@ void main() {
 
       expect(result.success, isFalse);
       expect(result.message, contains('isn\'t on summer reads'));
+    });
+  });
+
+  group('unmaking a collection entirely', () {
+    test(
+      'deleteShelf removes it and falls every book on it back to status',
+      () async {
+        final controller = controllerWith([_entry(_dune, page: 120)]);
+        await controller.load();
+        await controller.makeShelf('summer reads');
+        final shelfId = controller.findShelf('summer reads')! as CustomShelfRef;
+        await controller.moveToShelf('Dune', 'summer reads');
+
+        final result = await controller.deleteShelf(shelfId.shelfId);
+
+        expect(result.success, isTrue);
+        expect(controller.shelves, isEmpty);
+        expect(controller.match('Dune')!.shelfId, isNull);
+        expect(controller.match('Dune')!.status, ReadingStatus.reading);
+        expect(collections.deletedShelves, [shelfId.shelfId]);
+      },
+    );
+
+    test('deleteTag removes it from the reader\'s list', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+      await controller.makeTag('sci-fi');
+      final tagId = controller.findTag('sci-fi')!.id;
+
+      final result = await controller.deleteTag(tagId);
+
+      expect(result.success, isTrue);
+      expect(controller.tags, isEmpty);
+      expect(collections.deletedTags, [tagId]);
+    });
+
+    test(
+      'deleteSeries removes it and clears every book filed under it',
+      () async {
+        final controller = controllerWith([_entry(_dune)]);
+        await controller.load();
+        await controller.makeSeries('Dune');
+        final made = controller.findSeries('Dune')!;
+        await controller.addToSeries('Dune', 'Dune');
+
+        final result = await controller.deleteSeries(made.id);
+
+        expect(result.success, isTrue);
+        expect(controller.mySeries, isEmpty);
+        expect(controller.match('Dune')!.seriesId, isNull);
+        expect(series.deleted, [made.id]);
+      },
+    );
+
+    test('deleting a collection that does not exist fails', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+
+      expect((await controller.deleteShelf('nope')).success, isFalse);
+      expect((await controller.deleteTag('nope')).success, isFalse);
+      expect((await controller.deleteSeries('nope')).success, isFalse);
     });
   });
 

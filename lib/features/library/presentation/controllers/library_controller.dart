@@ -446,6 +446,83 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Unmakes a shelf the reader made — the "+" panel's own X on a shelf
+  /// chip. Every book on it falls back to its status section (the same
+  /// side effect [removeFromShelf] has, one book at a time); nothing else
+  /// about those books changes. Not optimistic: this is a rarer,
+  /// deliberately-confirmed action, not a shelf command.
+  Future<LibraryActionResult> deleteShelf(String shelfId) async {
+    final shelf = _shelves.where((s) => s.id == shelfId).firstOrNull;
+    if (shelf == null) {
+      return const LibraryActionResult.failure("That shelf doesn't exist.");
+    }
+    try {
+      await collections.deleteShelf(shelfId);
+      _shelves = [..._shelves]..removeWhere((s) => s.id == shelfId);
+      for (final entry in _books) {
+        if (entry.shelfId == shelfId) {
+          _upsertLocal(
+            entry.copyWith(
+              progress: entry.progress.copyWith(clearShelfId: true),
+            ),
+          );
+        }
+      }
+      notifyListeners();
+      return LibraryActionResult.success('Removed shelf "${shelf.name}"');
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// Unmakes a tag the reader made — the "+" panel's own X on a tag chip.
+  /// Every book it was on loses it too, server-side; nothing here is
+  /// rendered on the shelf itself to update locally.
+  Future<LibraryActionResult> deleteTag(String tagId) async {
+    final tag = _tags.where((t) => t.id == tagId).firstOrNull;
+    if (tag == null) {
+      return const LibraryActionResult.failure("That tag doesn't exist.");
+    }
+    try {
+      await collections.deleteTag(tagId);
+      _tags = [..._tags]..removeWhere((t) => t.id == tagId);
+      notifyListeners();
+      return LibraryActionResult.success('Removed tag "${tag.name}"');
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// Unmakes a series the reader made — the "+" panel's own X on a series
+  /// chip. Every book filed under it falls back to no series (the same
+  /// side effect [removeFromSeries] has, one book at a time).
+  Future<LibraryActionResult> deleteSeries(String seriesId) async {
+    final found = _mySeries.where((s) => s.id == seriesId).firstOrNull;
+    if (found == null) {
+      return const LibraryActionResult.failure("That series doesn't exist.");
+    }
+    try {
+      await series.deleteSeries(seriesId);
+      _mySeries = [..._mySeries]..removeWhere((s) => s.id == seriesId);
+      for (final entry in _books) {
+        if (entry.seriesId == seriesId) {
+          _upsertLocal(
+            entry.copyWith(
+              progress: entry.progress.copyWith(
+                clearSeriesId: true,
+                clearSeriesPosition: true,
+              ),
+            ),
+          );
+        }
+      }
+      notifyListeners();
+      return LibraryActionResult.success('Removed series "${found.name}"');
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
   static int Function(T, T) _byName<T>(String Function(T) name) =>
       (a, b) => name(a).toLowerCase().compareTo(name(b).toLowerCase());
 

@@ -223,16 +223,49 @@ class _MakeTabState extends State<_MakeTab> with AutomaticKeepAliveClientMixin {
     });
   }
 
+  /// Ids mid-delete, so a second tap while one is still saving is ignored
+  /// rather than sent twice.
+  final _deleting = <String>{};
+
+  Future<void> _delete(LibraryController library, String id) async {
+    if (_deleting.contains(id)) return;
+    setState(() => _deleting.add(id));
+    AppHaptics.selection();
+    try {
+      final result = await switch (widget.kind) {
+        CollectionKind.shelves => library.deleteShelf(id),
+        CollectionKind.tags => library.deleteTag(id),
+        CollectionKind.series => library.deleteSeries(id),
+      };
+      if (!result.success) AppHaptics.rejected();
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'CollectionsSheet',
+        'Removing a ${_copy.singular} failed unexpectedly.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      if (mounted) setState(() => _deleting.remove(id));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final colors = context.colors;
     final library = LibraryScope.of(context);
     final copy = _copy;
-    final names = switch (widget.kind) {
-      CollectionKind.shelves => [for (final s in library.shelves) s.name],
-      CollectionKind.tags => [for (final t in library.tags) t.name],
-      CollectionKind.series => [for (final s in library.mySeries) s.name],
+    final entries = switch (widget.kind) {
+      CollectionKind.shelves => [
+        for (final s in library.shelves) (id: s.id, name: s.name),
+      ],
+      CollectionKind.tags => [
+        for (final t in library.tags) (id: t.id, name: t.name),
+      ],
+      CollectionKind.series => [
+        for (final s in library.mySeries) (id: s.id, name: s.name),
+      ],
     };
     final message = _message;
 
@@ -270,11 +303,11 @@ class _MakeTabState extends State<_MakeTab> with AutomaticKeepAliveClientMixin {
             ),
           ),
         ],
-        if (names.isNotEmpty) ...[
+        if (entries.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),
           Semantics(
             header: true,
-            label: 'Your ${widget.kind.name}, ${names.length}',
+            label: 'Your ${widget.kind.name}, ${entries.length}',
             excludeSemantics: true,
             child: Text(
               'yours',
@@ -289,7 +322,14 @@ class _MakeTabState extends State<_MakeTab> with AutomaticKeepAliveClientMixin {
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
-            children: [for (final name in names) _NameChip(name: name)],
+            children: [
+              for (final entry in entries)
+                _NameChip(
+                  name: entry.name,
+                  busy: _deleting.contains(entry.id),
+                  onRemove: () => _delete(library, entry.id),
+                ),
+            ],
           ),
         ],
       ],
@@ -298,27 +338,58 @@ class _MakeTabState extends State<_MakeTab> with AutomaticKeepAliveClientMixin {
 }
 
 class _NameChip extends StatelessWidget {
-  const _NameChip({required this.name});
+  const _NameChip({
+    required this.name,
+    required this.busy,
+    required this.onRemove,
+  });
 
   final String name;
+  final bool busy;
+  final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs + 2,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: Border.all(color: colors.divider),
-      ),
-      child: Text(
-        name,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: 13,
-          color: colors.primaryText,
+    return Opacity(
+      opacity: busy ? 0.6 : 1,
+      child: Container(
+        padding: const EdgeInsets.only(left: AppSpacing.md),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: colors.divider),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              name,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 13,
+                color: colors.primaryText,
+              ),
+            ),
+            Semantics(
+              // Its own node, so "Remove sci-fi" isn't merged into the
+              // chip's text and read as one unactionable label.
+              container: true,
+              button: true,
+              label: 'Remove $name',
+              excludeSemantics: true,
+              child: InkResponse(
+                onTap: busy ? null : onRemove,
+                radius: 16,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  child: Icon(
+                    Icons.close,
+                    size: 14,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

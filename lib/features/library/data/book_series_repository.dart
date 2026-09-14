@@ -93,4 +93,12 @@ class BookSeriesRepository {
           .eq('id', userBookId);
     }, friendlyMessage: "We couldn't remove that series.");
   }
+
+  /// Unmakes a series the reader made — every book filed under it loses
+  /// that filing too (the composite FK's `on delete set null`).
+  Future<void> deleteSeries(String id) {
+    return runSupabase<void>(() async {
+      await _client.from('series').delete().eq('id', id);
+    }, friendlyMessage: "We couldn't remove that series.");
+  }
 }
