@@ -238,10 +238,7 @@ void main() {
 
       expect(find.byType(CommandsPage), findsOneWidget);
       // The new syntax is listed, and the old one is gone.
-      expect(
-        find.text('add shelf <tbr|reading|finished|dnf> <book>'),
-        findsOneWidget,
-      );
+      expect(find.text('move <book> <shelf>'), findsOneWidget);
       expect(find.text('add tag <tag> <book>'), findsOneWidget);
       expect(find.text('add comment <comment> <book>'), findsOneWidget);
       expect(find.textContaining('add <book> tbr'), findsNothing);

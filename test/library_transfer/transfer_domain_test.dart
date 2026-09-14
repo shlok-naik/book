@@ -122,9 +122,6 @@ void main() {
       author: 'Frank Herbert',
       pageCount: 250,
       isbn13: '9780593098233',
-      seriesId: 's',
-      seriesName: 'Dune',
-      seriesPosition: 2,
     );
 
     final books = [
@@ -138,6 +135,8 @@ void main() {
           rating: 4.5,
           startedAt: DateTime(2026, 1, 2, 9),
           finishedAt: DateTime(2026, 2, 3, 9),
+          seriesId: 's',
+          seriesPosition: 2,
         ),
       ),
       const LibraryBook(
@@ -166,6 +165,7 @@ void main() {
           commentsByBook: {
             'u2': ['first', 'second'],
           },
+          seriesNamesById: {'s': 'Dune'},
         ),
       );
       expect(table.first, LibraryExport.header);
@@ -190,6 +190,7 @@ void main() {
           commentsByBook: {
             'u2': ['first', 'second'],
           },
+          seriesNamesById: {'s': 'Dune'},
         ),
       );
       final messiahRow = parsed.rows.first;

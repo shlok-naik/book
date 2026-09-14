@@ -46,10 +46,10 @@ class LibraryBook {
 
   bool get isReading => progress.status == ReadingStatus.reading;
 
-  /// `add shelf tbr <book>` — queued, never opened yet.
+  /// `move <book> tbr` — queued, never opened yet.
   bool get isToBeRead => progress.status == ReadingStatus.toBeRead;
 
-  /// `add shelf dnf <book>` — dropped.
+  /// `move <book> dnf` — dropped.
   bool get isDnf => progress.status == ReadingStatus.dnf;
 
   /// `rate <book> <stars>`. Can only be *set* on a finished book (see
@@ -58,8 +58,19 @@ class LibraryBook {
   /// shows it should still check [isFinished], as `BookTile` does.
   double? get rating => progress.rating;
 
-  /// Which section of the library page this book is in.
+  /// Where the reader is with this book. Also which built-in section it is
+  /// shown in — unless it is on a custom shelf ([shelfId]).
   ReadingStatus get status => progress.status;
+
+  /// The custom shelf this book is shown on, or null — see
+  /// `UserBook.shelfId`.
+  String? get shelfId => progress.shelfId;
+
+  /// The series this book is filed under, private to this reader — see
+  /// `UserBook.seriesId`. Resolve its display name through
+  /// `LibraryController.seriesLabelFor`/`seriesById`.
+  String? get seriesId => progress.seriesId;
+  double? get seriesPosition => progress.seriesPosition;
 
   /// Completion in the 0..1 range, or null when the total page count is
   /// unknown (Google Books often omits it) — callers must handle null by

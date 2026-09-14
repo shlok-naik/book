@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
+import 'package:book/features/library/data/book_series_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
 import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
+import 'package:book/features/library/domain/book_series.dart';
+import 'package:book/features/library/domain/collections.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/user_book.dart';
@@ -23,6 +26,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import '../support/fake_collections.dart';
 
 const _dune = Book(
   id: 'book-1',
@@ -91,6 +96,21 @@ class StubUserBookRepository extends UserBookRepository {
   }
 }
 
+/// The reader's series list, in memory — the "+" panel's series tab.
+class _StubSeries extends BookSeriesRepository {
+  final mine = <BookSeries>[];
+
+  @override
+  Future<List<BookSeries>> fetchMySeries() async => List.of(mine);
+
+  @override
+  Future<BookSeries> makeSeries(String name) async {
+    final made = BookSeries(id: 'series-${mine.length}', name: name.trim());
+    mine.add(made);
+    return made;
+  }
+}
+
 class UnusedCache extends BookCacheRepository {
   @override
   Future<Book?> findByTitle(String title, {String? author}) async => null;
@@ -108,10 +128,14 @@ LibraryBook _entry(
   bool toBeRead = false,
   bool dnf = false,
   double? rating,
+  String? shelfId,
+  String? seriesId,
+  double? seriesPosition,
 }) {
   return LibraryBook(
     book: book,
     progress: UserBook(
+      shelfId: shelfId,
       id: 'progress-${book.id}',
       bookId: book.id,
       currentPage: page,
@@ -123,6 +147,8 @@ LibraryBook _entry(
           ? ReadingStatus.dnf
           : ReadingStatus.reading,
       rating: rating,
+      seriesId: seriesId,
+      seriesPosition: seriesPosition,
     ),
   );
 }
@@ -131,6 +157,8 @@ void main() {
   LibraryController controllerFor(
     List<LibraryBook> rows, {
     LibraryException? failure,
+    FakeCollectionsRepository? collections,
+    _StubSeries? series,
   }) {
     return LibraryController(
       lookup: BookLookupService(
@@ -140,6 +168,8 @@ void main() {
         ),
       ),
       userBooks: StubUserBookRepository(rows, failure: failure),
+      collections: collections ?? FakeCollectionsRepository(),
+      series: series ?? _StubSeries(),
     );
   }
 
@@ -165,6 +195,16 @@ void main() {
 
   Finder emptyShelf(ReadingStatus status) =>
       find.byKey(ValueKey('empty-shelf-${status.name}'));
+
+  /// Finished and did not finish start collapsed to just their heading —
+  /// expands one so a test can see what's under it.
+  Future<void> expandShelf(WidgetTester tester, String spoken) async {
+    await tester.tap(
+      find.bySemanticsLabel('Show ${spoken.toLowerCase()} books'),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+  }
 
   /// No instructional copy anywhere on the shelf — drop targets and empty
   /// shelves are signalled by outline and highlight alone.
@@ -200,6 +240,10 @@ void main() {
     }
     expect(emptyShelf(ReadingStatus.reading), findsNothing);
     expect(emptyShelf(ReadingStatus.toBeRead), findsOneWidget);
+    // Finished and did not finish start collapsed; expand them to see
+    // their own empty area underneath.
+    await expandShelf(tester, 'finished');
+    await expandShelf(tester, 'did not finish');
     expect(emptyShelf(ReadingStatus.finished), findsOneWidget);
     expect(emptyShelf(ReadingStatus.dnf), findsOneWidget);
     expectNoPromptCopy();
@@ -212,7 +256,7 @@ void main() {
         tester,
         controllerFor([
           _entry(_dune, page: 120),
-          _entry(_noCover, page: 300, finished: true),
+          _entry(_noCover, toBeRead: true),
         ]),
       );
 
@@ -243,6 +287,8 @@ void main() {
   ) async {
     await pumpPage(tester, controllerFor([]));
 
+    await expandShelf(tester, 'finished');
+    await expandShelf(tester, 'did not finish');
     for (final status in ReadingStatus.values) {
       expect(emptyShelf(status), findsOneWidget, reason: status.name);
     }
@@ -279,6 +325,7 @@ void main() {
         _entry(_noCover, page: 300, finished: true),
       ]),
     );
+    await expandShelf(tester, 'finished');
 
     // The section heading and the finished book's own progress label.
     expect(find.text('finished'), findsNWidgets(2));
@@ -309,6 +356,7 @@ void main() {
       tester,
       controllerFor([_entry(_dune, page: 120), _entry(_noCover, dnf: true)]),
     );
+    await expandShelf(tester, 'did not finish');
 
     expect(emptyShelf(ReadingStatus.dnf), findsNothing);
     expect(emptyShelf(ReadingStatus.toBeRead), findsOneWidget);
@@ -320,6 +368,7 @@ void main() {
   ) async {
     final controller = controllerFor([_entry(_dune, page: 120)]);
     await pumpPage(tester, controller);
+    await expandShelf(tester, 'finished');
     expect(emptyShelf(ReadingStatus.finished), findsOneWidget);
 
     // No re-navigation, no manual refresh — just the same command the
@@ -339,6 +388,7 @@ void main() {
       tester,
       controllerFor([_entry(_dune, page: 400, finished: true, rating: 3.5)]),
     );
+    await expandShelf(tester, 'finished');
 
     // 3 full stars, 1 half, 1 outline for a 3.5 rating.
     expect(find.byIcon(Icons.star), findsNWidgets(3));
@@ -529,6 +579,7 @@ void main() {
         userBooks: repo,
       );
       await pumpPage(tester, controller);
+      await expandShelf(tester, 'finished');
       repo.failure = const NetworkException("You're offline");
 
       await dragBook(
@@ -720,9 +771,6 @@ void main() {
       title: 'Dune Messiah',
       author: 'Frank Herbert',
       pageCount: 250,
-      seriesId: 'series-dune',
-      seriesName: 'Dune',
-      seriesPosition: 2,
     );
     const dune = Book(
       id: 'book-1',
@@ -730,10 +778,9 @@ void main() {
       title: 'Dune',
       author: 'Frank Herbert',
       pageCount: 400,
-      seriesId: 'series-dune',
-      seriesName: 'Dune',
-      seriesPosition: 1,
     );
+    final duneSeries = _StubSeries()
+      ..mine.add(const BookSeries(id: 'series-dune', name: 'Dune'));
 
     testWidgets('books in a series show as one group above the shelves', (
       tester,
@@ -741,10 +788,20 @@ void main() {
       await pumpPage(
         tester,
         controllerFor([
-          _entry(messiah, toBeRead: true),
-          _entry(dune, finished: true),
+          _entry(
+            messiah,
+            toBeRead: true,
+            seriesId: 'series-dune',
+            seriesPosition: 2,
+          ),
+          _entry(
+            dune,
+            finished: true,
+            seriesId: 'series-dune',
+            seriesPosition: 1,
+          ),
           _entry(_noCover),
-        ]),
+        ], series: duneSeries),
       );
 
       expect(find.text('series'), findsOneWidget);
@@ -759,15 +816,61 @@ void main() {
       expect(find.text('series'), findsNothing);
     });
 
+    testWidgets(
+      'a series entirely on one shelf collapses to one grouped tile there',
+      (tester) async {
+        await pumpPage(
+          tester,
+          controllerFor([
+            _entry(
+              messiah,
+              toBeRead: true,
+              seriesId: 'series-dune',
+              seriesPosition: 2,
+            ),
+            _entry(
+              dune,
+              toBeRead: true,
+              seriesId: 'series-dune',
+              seriesPosition: 1,
+            ),
+          ], series: duneSeries),
+        );
+
+        // Once for the horizontal row above the shelves, once for the
+        // grouped tile inside "to read" — never a separate tile per book.
+        expect(
+          find.byKey(const ValueKey('series-series-dune')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('shelf-series-series-dune')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('progress-book-5')), findsNothing);
+        expect(find.byKey(const ValueKey('progress-book-1')), findsNothing);
+      },
+    );
+
     testWidgets('tapping a group opens the series page in series order', (
       tester,
     ) async {
       await pumpPage(
         tester,
         controllerFor([
-          _entry(messiah, toBeRead: true),
-          _entry(dune, finished: true),
-        ]),
+          _entry(
+            messiah,
+            toBeRead: true,
+            seriesId: 'series-dune',
+            seriesPosition: 2,
+          ),
+          _entry(
+            dune,
+            finished: true,
+            seriesId: 'series-dune',
+            seriesPosition: 1,
+          ),
+        ], series: duneSeries),
       );
 
       await tester.tap(find.byKey(const ValueKey('series-series-dune')));
@@ -788,6 +891,158 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+  });
+
+  group('making shelves, tags and series from the "+" panel', () {
+    Future<void> openPanel(WidgetTester tester) async {
+      await tester.tap(find.byKey(const ValueKey('library-make-collections')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the "+" sits beside search and opens a three-tab panel', (
+      tester,
+    ) async {
+      await pumpPage(tester, controllerFor([]));
+
+      expect(
+        find.bySemanticsLabel('Make a shelf, tag or series'),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('Search library'), findsOneWidget);
+      final plus = tester.getCenter(
+        find.byKey(const ValueKey('library-make-collections')),
+      );
+      final search = tester.getCenter(find.byIcon(Icons.search));
+      expect(plus.dy, search.dy, reason: 'same row');
+      expect(plus.dx, lessThan(search.dx), reason: 'just before search');
+
+      await openPanel(tester);
+
+      expect(find.text('shelves'), findsOneWidget);
+      expect(find.text('tags'), findsOneWidget);
+      expect(find.text('series'), findsOneWidget);
+    });
+
+    testWidgets('making a shelf adds it to the panel and as a new empty '
+        'section on the page', (tester) async {
+      final collections = FakeCollectionsRepository();
+      final controller = controllerFor([
+        _entry(_dune, page: 120),
+      ], collections: collections);
+      await pumpPage(tester, controller);
+      await openPanel(tester);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('make-shelf-field')),
+        'summer reads',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-shelf-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Made shelf "summer reads"'), findsOneWidget);
+      expect(collections.shelves.single.name, 'summer reads');
+
+      // A duplicate is refused through the same rule `make shelf` uses.
+      await tester.enterText(
+        find.byKey(const ValueKey('make-shelf-field')),
+        'Summer Reads',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-shelf-button')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('You already have a shelf "Summer Reads".'),
+        findsOneWidget,
+      );
+      expect(collections.creates, 1);
+
+      Navigator.of(tester.element(find.text('make'))).pop();
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('empty-shelf-custom-shelf-1')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('summer reads'), findsOneWidget);
+    });
+
+    testWidgets('a built-in shelf name is refused in the panel', (
+      tester,
+    ) async {
+      await pumpPage(tester, controllerFor([]));
+      await openPanel(tester);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('make-shelf-field')),
+        'finished',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-shelf-button')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('"finished" is already one of your built-in shelves.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the tags and series tabs make their own kind', (tester) async {
+      final controller = controllerFor([]);
+      await pumpPage(tester, controller);
+      await openPanel(tester);
+
+      await tester.tap(find.byKey(const ValueKey('collections-tab-tags')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('make-tag-field')),
+        'sci-fi',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-tag-button')));
+      await tester.pumpAndSettle();
+      expect(controller.tags.single.name, 'sci-fi');
+      expect(controller.shelves, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('collections-tab-series')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('make-series-field')),
+        'The Expanse',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-series-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('Made series "The Expanse"'), findsOneWidget);
+      expect(controller.mySeries.single.name, 'The Expanse');
+      expect(controller.tags, hasLength(1));
+    });
+
+    testWidgets('a book on a custom shelf shows under that shelf, and screen '
+        'readers can move books onto it', (tester) async {
+      const summer = Shelf(id: 'shelf-summer', name: 'summer reads');
+      await pumpPage(
+        tester,
+        controllerFor([
+          _entry(_dune, page: 120, shelfId: summer.id),
+          _entry(_noCover, page: 30),
+        ], collections: FakeCollectionsRepository(shelves: [summer])),
+      );
+
+      expect(emptyShelf(ReadingStatus.reading), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('shelf-heading-custom-shelf-summer')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('summer reads'), findsOneWidget);
+
+      final semantics = tester.ensureSemantics();
+      final node = tester.getSemantics(
+        find.bySemanticsLabel(RegExp('^Pale Fire')),
+      );
+      final labels = node.getSemanticsData().customSemanticsActionIds!.map(
+        (id) => CustomSemanticsAction.getAction(id)!.label,
+      );
+      expect(labels, contains('Move to summer reads'));
+      semantics.dispose();
     });
   });
 }

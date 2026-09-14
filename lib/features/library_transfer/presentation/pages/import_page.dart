@@ -66,7 +66,6 @@ class _ImportPageState extends State<ImportPage> {
     _owned = ImportController(
       lookup: library.lookup,
       transfer: LibraryTransferRepository(),
-      series: library.series,
       library: library,
     );
   }

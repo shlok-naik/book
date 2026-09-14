@@ -18,60 +18,102 @@ void main() {
       expect(result.message, 'Removed "Dune"');
     });
 
-    group('add shelf', () {
-      for (final (shelf, message) in [
-        ('tbr', 'Added "Dune" to read'),
-        ('reading', 'Moved "Dune" to reading'),
-        ('finished', 'Added "Dune" as finished'),
-        ('dnf', 'Marked "Dune" as DNF'),
-      ]) {
-        test('add shelf $shelf <book> parses the shelf, book and message', () {
-          final result = LogCommandParser.parse('add shelf $shelf Dune');
-          expect(result.recognized, isTrue);
-          expect(result.type, LogCommandType.addShelf);
-          expect(result.title, 'Dune');
-          expect(result.shelf, shelf);
-          expect(result.message, message);
-        });
-      }
-
-      test('everything after the shelf keyword is the title', () {
-        final result = LogCommandParser.parse('add shelf tbr The Bell Jar');
-        expect(result.title, 'The Bell Jar');
-        final tricky = LogCommandParser.parse(
-          'add shelf dnf Finished Business',
-        );
-        expect(tricky.shelf, 'dnf');
-        expect(tricky.title, 'Finished Business');
+    group('update page or percent', () {
+      test('a bare number is a page', () {
+        final result = LogCommandParser.parse('update Dune 100');
+        expect(result.page, 100);
+        expect(result.percent, isNull);
+        expect(result.message, '"Dune" — pg 100');
       });
 
-      test('is case-insensitive on the keywords', () {
-        final result = LogCommandParser.parse('Add Shelf TBR Dune');
+      test('a number followed by % is a percentage', () {
+        final result = LogCommandParser.parse('update Dune 100%');
+        expect(result.page, isNull);
+        expect(result.percent, 100);
+        expect(result.message, '"Dune" — 100%');
+        expect(LogCommandParser.parse('update Dune 74.5 %').percent, 74.5);
+      });
+    });
+
+    group('move', () {
+      test('a quoted shelf is split from the title here', () {
+        final result = LogCommandParser.parse(
+          'move Dune Messiah "summer reads"',
+        );
         expect(result.recognized, isTrue);
-        expect(result.shelf, 'tbr');
+        expect(result.type, LogCommandType.move);
+        expect(result.title, 'Dune Messiah');
+        expect(result.shelf, 'summer reads');
+        expect(result.argument, isNull);
+        expect(result.message, 'Moved "Dune Messiah" to summer reads');
+        final curly = LogCommandParser.parse('move Circe “to read”');
+        expect(curly.shelf, 'to read');
       });
 
-      test('an unknown shelf or a missing title is unrecognized', () {
+      test('an unquoted move is handed to the library whole', () {
+        final result = LogCommandParser.parse('Move The Bell Jar tbr');
+        expect(result.recognized, isTrue);
+        expect(result.type, LogCommandType.move);
+        expect(result.title, isNull);
+        expect(result.shelf, isNull);
+        expect(result.argument, 'The Bell Jar tbr');
+      });
+
+      test('a move without both a book and a shelf is unrecognized', () {
+        expect(LogCommandParser.parse('move Dune').recognized, isFalse);
+        expect(LogCommandParser.parse('move Dune ""').recognized, isFalse);
         expect(
-          LogCommandParser.parse('add shelf later Dune').recognized,
-          isFalse,
+          LogCommandParser.parse('move Dune').message,
+          contains('move <book> <shelf>'),
         );
-        expect(LogCommandParser.parse('add shelf tbr').recognized, isFalse);
       });
 
-      test('the old "add <book> <shelf>" syntax is no longer recognized', () {
-        final result = LogCommandParser.parse('add Dune tbr');
-        expect(result.recognized, isFalse);
+      test('the old add shelf syntax is gone', () {
+        final result = LogCommandParser.parse('add shelf tbr Dune');
+        expect(result.type, isNot(LogCommandType.move));
+        expect(result.type, isNot(LogCommandType.makeShelf));
+      });
+    });
+
+    group('make', () {
+      test('make shelf takes the rest of the line, quoted or not', () {
+        final plain = LogCommandParser.parse('make shelf  summer   reads ');
+        expect(plain.recognized, isTrue);
+        expect(plain.type, LogCommandType.makeShelf);
+        expect(plain.shelf, 'summer reads');
+        expect(plain.title, isNull);
+        expect(plain.message, 'Made shelf "summer reads"');
         expect(
-          result.message,
-          contains('add shelf <tbr|reading|finished|dnf>'),
+          LogCommandParser.parse('make shelf "Summer reads"').shelf,
+          'Summer reads',
         );
       });
 
-      test('suggests add shelf for a typo of add', () {
-        final result = LogCommandParser.parse('ad shelf tbr Dune');
-        expect(result.recognized, isFalse);
-        expect(result.message, contains('add shelf'));
+      test('make tag and make series never name a book', () {
+        final tag = LogCommandParser.parse('make tag space opera');
+        expect(tag.type, LogCommandType.makeTag);
+        expect(tag.tag, 'space opera');
+        expect(tag.title, isNull);
+
+        final series = LogCommandParser.parse('Make Series “The Expanse”');
+        expect(series.type, LogCommandType.makeSeries);
+        expect(series.series, 'The Expanse');
+        expect(series.title, isNull);
+      });
+
+      test('make with no name, or an unknown kind, is unrecognized', () {
+        expect(LogCommandParser.parse('make tag').recognized, isFalse);
+        expect(LogCommandParser.parse('make shelf ""').recognized, isFalse);
+        final unknown = LogCommandParser.parse('make list favourites');
+        expect(unknown.recognized, isFalse);
+        expect(unknown.message, contains('make shelf <shelf name>'));
+      });
+
+      test('suggests the right make usage for a typo', () {
+        expect(
+          LogCommandParser.parse('mak serie dune').message,
+          contains('make series <series name>'),
+        );
       });
     });
 
@@ -309,11 +351,11 @@ void main() {
     });
   });
 
-  group('series', () {
-    test('series <name> #n <book>', () {
-      final result = LogCommandParser.parse('series dune #2 Dune Messiah');
+  group('add series', () {
+    test('add series <name> #n <book>', () {
+      final result = LogCommandParser.parse('add series dune #2 Dune Messiah');
       expect(result.recognized, isTrue);
-      expect(result.type, LogCommandType.series);
+      expect(result.type, LogCommandType.addSeries);
       expect(result.series, 'dune');
       expect(result.seriesPosition, 2);
       expect(result.title, 'Dune Messiah');
@@ -322,44 +364,40 @@ void main() {
 
     test('a quoted multi-word series, no number', () {
       final result = LogCommandParser.parse(
-        'series "the expanse" Leviathan Wakes',
+        'add series "the expanse" Leviathan Wakes',
       );
-      expect(result.type, LogCommandType.series);
+      expect(result.type, LogCommandType.addSeries);
       expect(result.series, 'the expanse');
       expect(result.seriesPosition, isNull);
       expect(result.title, 'Leviathan Wakes');
     });
 
     test('a half-numbered novella', () {
-      final result = LogCommandParser.parse('series dune #1.5 Dune: A Novella');
+      final result = LogCommandParser.parse(
+        'add series dune #1.5 Dune: A Novella',
+      );
       expect(result.seriesPosition, 1.5);
       expect(result.message, 'Filed "Dune: A Novella" under dune #1.5');
     });
 
-    test('series without a book is not recognized', () {
-      final result = LogCommandParser.parse('series dune');
+    test('add series without a book is not recognized', () {
+      final result = LogCommandParser.parse('add series dune');
       expect(result.recognized, isFalse);
-      expect(result.message, contains('series <series> [#n] <book>'));
+      expect(result.message, contains('add series <series> [#n] <book>'));
     });
 
-    test('start series takes the rest of the line as the series', () {
-      final result = LogCommandParser.parse('start series the expanse');
-      expect(result.recognized, isTrue);
-      expect(result.type, LogCommandType.startSeries);
-      expect(result.series, 'the expanse');
-      expect(result.title, isNull);
-    });
-
-    test('start series with a quoted name', () {
-      final result = LogCommandParser.parse('start series "Dune"');
-      expect(result.type, LogCommandType.startSeries);
-      expect(result.series, 'Dune');
-    });
-
-    test('plain start is unaffected', () {
-      final result = LogCommandParser.parse('start Seriously Funny');
-      expect(result.type, LogCommandType.start);
-      expect(result.title, 'Seriously Funny');
+    test('the old series and start series commands are gone', () {
+      expect(
+        LogCommandParser.parse('series dune #2 Dune Messiah').recognized,
+        isFalse,
+      );
+      final startSeries = LogCommandParser.parse('start series dune');
+      expect(
+        startSeries.type,
+        LogCommandType.start,
+        reason: 'now just a book title, like any other start',
+      );
+      expect(startSeries.title, 'series dune');
     });
   });
 }

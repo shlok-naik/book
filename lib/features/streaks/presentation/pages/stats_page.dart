@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/purchases/plan_controller.dart';
+import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -12,6 +14,7 @@ import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_progress_view.dart';
 import '../../../library/domain/reading_event.dart';
 import '../../../library/presentation/library_scope.dart';
+import '../../../paywall/presentation/pages/paywall_page.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/reading_stats.dart';
 import '../controllers/streaks_controller.dart';
@@ -68,9 +71,17 @@ String _monthName(int index) => _monthNames[index];
 /// Everything but the journal is free and comes straight from
 /// [ReadingStats] over the books `LibraryController` already holds, so it
 /// updates the moment a command lands; only the journal needs the year of
-/// `reading_events` [StreaksController] loads.
+/// `reading_events` [StreaksController] loads — and only the journal is
+/// cactus pro. A free reader sees every chart but a faded, inert preview
+/// where the journal would be (see [_LockedJournal]), the same
+/// discoverability-without-access treatment settings gives "themes and
+/// icons".
 class StatsPage extends StatefulWidget {
-  const StatsPage({super.key});
+  const StatsPage({super.key, this.purchases});
+
+  /// Injection point for tests: a fake wrapping fake customer info
+  /// instead of the real RevenueCat SDK. Null in the app.
+  final PurchasesService? purchases;
 
   @override
   State<StatsPage> createState() => _StatsPageState();
@@ -85,6 +96,27 @@ class _StatsPageState extends State<StatsPage> {
   StreamSubscription<ReadingEvent>? _eventSubscription;
   StreamSubscription<String>? _clearedSubscription;
   StreamSubscription<void>? _resetSubscription;
+
+  late final PurchasesService _purchases =
+      widget.purchases ?? const PurchasesService();
+
+  /// Whether the journal is unlocked. Fails closed — unknown (not yet
+  /// checked, or the store unreachable) reads the same as "no", so a
+  /// slow or offline entitlement check never leaks the journal to a
+  /// free reader for even a moment.
+  bool _isPro = false;
+
+  /// True while a tap on the locked journal has a paywall or entitlement
+  /// check in flight, so a second tap can't stack another paywall on
+  /// top of the first.
+  bool _checkingJournalAccess = false;
+
+  @override
+  void initState() {
+    super.initState();
+    PlanController.isPro.addListener(_onPlanChanged);
+    unawaited(_refreshProStatus());
+  }
 
   @override
   void didChangeDependencies() {
@@ -103,11 +135,47 @@ class _StatsPageState extends State<StatsPage> {
 
   @override
   void dispose() {
+    PlanController.isPro.removeListener(_onPlanChanged);
     _eventSubscription?.cancel();
     _clearedSubscription?.cancel();
     _resetSubscription?.cancel();
     _controller?.dispose();
     super.dispose();
+  }
+
+  void _onPlanChanged() => unawaited(_refreshProStatus());
+
+  /// [PlanController.isPro] first — the same debug override `HomePage`
+  /// checks before gating `remember`/`recommend` — then, for a reader it
+  /// says is free, the real RevenueCat entitlement.
+  Future<void> _refreshProStatus() async {
+    final isPro = PlanController.isPro.value || await _hasProEntitlement();
+    if (!mounted) return;
+    setState(() => _isPro = isPro);
+  }
+
+  Future<bool> _hasProEntitlement() async {
+    try {
+      return _purchases.isPro(await _purchases.customerInfo);
+    } on Object {
+      // Includes an SDK that was never configured — see [_refreshProStatus]
+      // for why an unknown entitlement means "not pro" here.
+      return false;
+    }
+  }
+
+  /// Opens the paywall from the locked journal preview, then rechecks
+  /// entitlement — a reader who just bought pro sees the journal unlock
+  /// immediately rather than needing to leave the page and come back.
+  Future<void> _unlockJournal() async {
+    if (_checkingJournalAccess) return;
+    setState(() => _checkingJournalAccess = true);
+    try {
+      await showPaywallPopup(context, purchases: widget.purchases);
+      if (mounted) await _refreshProStatus();
+    } finally {
+      if (mounted) setState(() => _checkingJournalAccess = false);
+    }
   }
 
   /// The floating bottom bar's total footprint — see bottom_switcher.dart.
@@ -171,7 +239,12 @@ class _StatsPageState extends State<StatsPage> {
                 const SizedBox(height: AppSpacing.xl),
                 const _Heading('journal'),
                 const SizedBox(height: AppSpacing.md),
-                if (controller != null)
+                if (!_isPro)
+                  _LockedJournal(
+                    busy: _checkingJournalAccess,
+                    onTap: _unlockJournal,
+                  )
+                else if (controller != null)
                   AnimatedBuilder(
                     animation: controller,
                     builder: (context, _) {
@@ -1124,6 +1197,73 @@ class _Journal extends StatelessWidget {
           _DayEntries(date: day.date, lines: day.lines),
         ],
       ],
+    );
+  }
+}
+
+/// What a free reader sees where the journal would be: the same
+/// [_DayEntries] the real journal renders, faded and inert, over invented
+/// entries rather than the reader's own — so the preview never leaks a
+/// real title or date to a reader who hasn't unlocked it — plus a line
+/// naming the way out. The whole block is one tap target, the same
+/// visible-but-locked treatment `_CustomisationSection` (settings' "themes
+/// and icons" row) gives a pro feature: faded rather than hidden, so a
+/// free reader knows the journal exists before they ever pay for it.
+class _LockedJournal extends StatelessWidget {
+  const _LockedJournal({required this.busy, required this.onTap});
+
+  final bool busy;
+  final VoidCallback onTap;
+
+  static final _preview = [
+    (date: DateTime(2026, 9, 12), lines: const ['started The Hobbit']),
+    (
+      date: DateTime(2026, 9, 10),
+      lines: const ['read up to page 140 in Dune', 'rated Dune 4.5 stars'],
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Semantics(
+      button: true,
+      label:
+          'Reading journal, locked. Upgrade to cactus pro to unlock. '
+          'Double tap to upgrade.',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: busy ? null : onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Opacity(
+              opacity: 0.4,
+              child: IgnorePointer(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final (i, day) in _preview.indexed) ...[
+                      if (i > 0) const SizedBox(height: _daySpacing),
+                      _DayEntries(date: day.date, lines: day.lines),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'cactus pro unlocks your full reading journal — tap to upgrade',
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colors.accent,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

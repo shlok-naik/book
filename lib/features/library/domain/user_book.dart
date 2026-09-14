@@ -2,12 +2,12 @@ import 'library_exception.dart';
 
 /// Where the reader is with a book.
 enum ReadingStatus {
-  /// `add shelf tbr <book>` — queued, never opened yet.
+  /// `move <book> tbr` — queued, never opened yet.
   toBeRead,
   reading,
   finished,
 
-  /// `add shelf dnf <book>` — dropped. A reason, if the reader wants to
+  /// `move <book> dnf` — dropped. A reason, if the reader wants to
   /// give one, is a comment on the book (`add comment <comment> <book>`).
   dnf;
 
@@ -46,6 +46,9 @@ class UserBook {
     this.rating,
     this.ownedEditionId,
     this.shelfPosition,
+    this.shelfId,
+    this.seriesId,
+    this.seriesPosition,
   });
 
   final String id;
@@ -75,13 +78,29 @@ class UserBook {
   /// trigger for why a status change resets it to null server-side.
   final double? shelfPosition;
 
+  /// The custom shelf (`make shelf`) this book is shown on, or null when it
+  /// sits on its [status] shelf. Independent of [status] — see `Shelf` — so
+  /// only `move` and a drag on the library page ever change it; `finish`,
+  /// `update` and friends leave a book on its custom shelf.
+  final String? shelfId;
+
+  /// The series (`make series`) this book is filed under, private to this
+  /// reader — or null. Independent of [shelfId]/[status]; only `add series`
+  /// ever changes it.
+  final String? seriesId;
+
+  /// Its number within [seriesId] — 1, 2, or 1.5 for a novella. Null when
+  /// filed without a number, or not in a series at all.
+  final double? seriesPosition;
+
   bool get isFinished => status == ReadingStatus.finished;
 
-  /// `clearFinishedAt`/`clearShelfPosition`/`clearOwnedEdition` exist
-  /// because a plain `null` argument can't be told apart from "not given" —
-  /// and each of those three genuinely needs to go back to null (a book
-  /// moved off the finished shelf, a book moved into a new section, an
-  /// edition deselected).
+  /// `clearFinishedAt`/`clearShelfPosition`/`clearOwnedEdition`/
+  /// `clearShelfId`/`clearSeriesPosition` exist because a plain `null`
+  /// argument can't be told apart from "not given" — and each of those
+  /// genuinely needs to go back to null (a book moved off the finished
+  /// shelf, a book moved into a new section, an edition deselected, a
+  /// series re-filed with no number).
   UserBook copyWith({
     int? currentPage,
     ReadingStatus? status,
@@ -92,6 +111,11 @@ class UserBook {
     bool clearOwnedEdition = false,
     double? shelfPosition,
     bool clearShelfPosition = false,
+    String? shelfId,
+    bool clearShelfId = false,
+    String? seriesId,
+    double? seriesPosition,
+    bool clearSeriesPosition = false,
   }) {
     return UserBook(
       id: id,
@@ -104,9 +128,14 @@ class UserBook {
       ownedEditionId: clearOwnedEdition
           ? null
           : ownedEditionId ?? this.ownedEditionId,
+      seriesId: seriesId ?? this.seriesId,
+      seriesPosition: clearSeriesPosition
+          ? null
+          : seriesPosition ?? this.seriesPosition,
       shelfPosition: clearShelfPosition
           ? null
           : shelfPosition ?? this.shelfPosition,
+      shelfId: clearShelfId ? null : shelfId ?? this.shelfId,
     );
   }
 
@@ -142,6 +171,9 @@ class UserBook {
           ? row['owned_edition_id'] as String
           : null,
       shelfPosition: _parseDouble(row['shelf_position']),
+      shelfId: row['shelf_id'] is String ? row['shelf_id'] as String : null,
+      seriesId: row['series_id'] is String ? row['series_id'] as String : null,
+      seriesPosition: _parseDouble(row['series_position']),
     );
   }
 

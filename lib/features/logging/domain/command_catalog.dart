@@ -9,7 +9,7 @@ class CommandReference {
     this.proOnly = false,
   });
 
-  /// The command's first word(s) — `start`, `add shelf`, `remember` — and
+  /// The command's first word(s) — `start`, `make tag`, `remember` — and
   /// the key `LogCommandParser` suggests usage by.
   final String keyword;
 
@@ -30,7 +30,9 @@ class CommandReference {
 /// describes it. `test/logging/command_catalog_test.dart` parses every
 /// [CommandReference.example] to prove each one is real.
 abstract final class CommandCatalog {
-  /// The shelf keywords `add shelf` accepts, in shelf order.
+  /// The built-in shelf keywords `move` accepts, in shelf order. (It also
+  /// accepts the longer "to read" and "did not finish", and any shelf the
+  /// reader made — see `CollectionNames.builtInShelves`.)
   static const shelves = ['tbr', 'reading', 'finished', 'dnf'];
 
   static const all = <CommandReference>[
@@ -41,6 +43,15 @@ abstract final class CommandCatalog {
           'puts a book on your reading shelf at page 0. add a date '
           '(YYYY-MM-DD) to log it for another day.',
       example: 'start Dune',
+    ),
+    CommandReference(
+      keyword: 'start isbn',
+      syntax: 'start isbn [date]',
+      description:
+          'opens your camera to scan a book\'s barcode, then starts '
+          'whatever it finds — for when typing the title is more trouble '
+          'than pointing your phone at it.',
+      example: 'start isbn',
     ),
     CommandReference(
       keyword: 'update',
@@ -71,21 +82,57 @@ abstract final class CommandCatalog {
       example: 'delete Dune',
     ),
     CommandReference(
-      keyword: 'add shelf',
-      syntax: 'add shelf <tbr|reading|finished|dnf> <book>',
+      keyword: 'move',
+      syntax: 'move <book> <shelf>',
       description:
-          'adds a book straight to a shelf, or moves one that is already '
-          'on another. to read and reading start it at page 0; finished '
-          'sets it to 100%; dnf keeps how far you got.',
-      example: 'add shelf tbr Piranesi',
+          'puts a book on a shelf: tbr, reading, finished, dnf, or one you '
+          'made. to read and reading start it at page 0; finished sets it '
+          'to 100%; dnf and your own shelves keep how far you got. quote a '
+          'shelf name with spaces if the title is ambiguous: '
+          'move Dune "summer reads".',
+      example: 'move Piranesi tbr',
+    ),
+    CommandReference(
+      keyword: 'make shelf',
+      syntax: 'make shelf <shelf name>',
+      description:
+          'makes a shelf of your own, shown under the built-in ones in your '
+          'library. then move books onto it.',
+      example: 'make shelf summer reads',
+    ),
+    CommandReference(
+      keyword: 'make tag',
+      syntax: 'make tag <tag>',
+      description:
+          'makes a tag you can put on books. make it once, then add it to '
+          'as many books as you like.',
+      example: 'make tag sci-fi',
     ),
     CommandReference(
       keyword: 'add tag',
       syntax: 'add tag <tag> <book>',
       description:
-          'labels a book on your shelf. one word, or wrap a longer tag in '
-          'quotes: add tag "space opera" Dune.',
+          'puts a tag you made on a book on your shelf. one word, or wrap a '
+          'longer tag in quotes: add tag "space opera" Dune.',
       example: 'add tag sci-fi Dune',
+    ),
+    CommandReference(
+      keyword: 'make series',
+      syntax: 'make series <series name>',
+      description:
+          'makes a series, or adds one another reader already made to your '
+          'list. then file books under it.',
+      example: 'make series dune',
+    ),
+    CommandReference(
+      keyword: 'add series',
+      syntax: 'add series <series> [#n] <book>',
+      description:
+          'files a book on your shelf under a series you made, optionally '
+          'with its number. one word, or quote a longer name: add series '
+          '"the expanse" #1 leviathan wakes. series are shared, so the first '
+          'reader to file a book decides where it goes.',
+      example: 'add series dune #2 Dune Messiah',
     ),
     CommandReference(
       keyword: 'add comment',
@@ -94,24 +141,6 @@ abstract final class CommandCatalog {
           'writes a note on a book on your shelf — like why you stopped '
           'reading a dnf. quotes around the comment are optional.',
       example: 'add comment "lost me in the middle" Dune',
-    ),
-    CommandReference(
-      keyword: 'series',
-      syntax: 'series <series> [#n] <book>',
-      description:
-          'files a book on your shelf under a series, optionally with its '
-          'number. one word, or quote a longer name: series "the expanse" '
-          '#1 leviathan wakes. series are shared, so the first reader to '
-          'file a book decides where it goes.',
-      example: 'series dune #2 Dune Messiah',
-    ),
-    CommandReference(
-      keyword: 'start series',
-      syntax: 'start series <series>',
-      description:
-          'starts the next book in a series — the first one you have not '
-          'finished or dropped.',
-      example: 'start series dune',
     ),
     CommandReference(
       keyword: 'remember',

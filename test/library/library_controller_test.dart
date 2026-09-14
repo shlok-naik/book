@@ -1,6 +1,7 @@
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/book_details_repository.dart';
 import 'package:book/features/library/data/book_notes_repository.dart';
+import 'package:book/features/library/data/book_series_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
 import 'package:book/features/library/data/reading_event_repository.dart';
@@ -10,6 +11,8 @@ import 'package:book/features/library/domain/book_details_service.dart';
 import 'package:book/features/library/domain/book_edition.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
 import 'package:book/features/library/domain/book_note.dart';
+import 'package:book/features/library/domain/book_series.dart';
+import 'package:book/features/library/domain/collections.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
@@ -18,6 +21,8 @@ import 'package:book/features/library/presentation/controllers/library_controlle
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import '../support/fake_collections.dart';
 
 const _dune = Book(
   id: 'book-1',
@@ -81,6 +86,7 @@ class FakeUserBookRepository extends UserBookRepository {
     String bookId,
     ReadingStatus status, {
     int currentPage = 0,
+    String? shelfId,
   }) async {
     if (failure != null) throw failure!;
     final existing = _statusByBookId[bookId];
@@ -92,6 +98,7 @@ class FakeUserBookRepository extends UserBookRepository {
         bookId: bookId,
         currentPage: existing == null ? currentPage : 0,
         status: actual,
+        shelfId: existing == null ? shelfId : null,
         finishedAt: actual == ReadingStatus.finished
             ? DateTime.now().toUtc()
             : null,
@@ -112,6 +119,12 @@ class FakeUserBookRepository extends UserBookRepository {
     return UserBook(
       id: userBookId,
       bookId: 'book',
+      // The real row comes back with its custom shelf untouched.
+      shelfId: rows
+          .where((e) => e.progress.id == userBookId)
+          .firstOrNull
+          ?.progress
+          .shelfId,
       currentPage: currentPage,
       status: finished ? ReadingStatus.finished : ReadingStatus.reading,
       finishedAt: finished ? (finishedAt ?? DateTime.now()).toUtc() : null,
@@ -241,14 +254,13 @@ class FakeBookNotesRepository extends BookNotesRepository {
   LibraryException? failure;
 
   @override
-  Future<BookTag> addTag(String userBookId, String tag) async {
-    final clean = BookNotesRepository.validateTag(tag);
+  Future<BookTag> addTag(String userBookId, ReaderTag tag) async {
     if (failure != null) throw failure!;
-    tags.add((userBookId, clean));
+    tags.add((userBookId, tag.name));
     return BookTag(
-      id: 'tag-${tags.length}',
+      id: 'book-tag-${tags.length}',
       userBookId: userBookId,
-      tag: clean,
+      tag: tag.name,
       createdAt: DateTime(2026),
     );
   }
@@ -264,6 +276,38 @@ class FakeBookNotesRepository extends BookNotesRepository {
       body: clean,
       createdAt: DateTime(2026),
     );
+  }
+}
+
+/// In-memory series list — `make series` and `add series` without Supabase.
+/// Private to the reader, like [FakeCollectionsRepository]'s shelves/tags.
+class FakeSeriesRepository extends BookSeriesRepository {
+  final List<BookSeries> mine = [];
+  final List<(String userBookId, String seriesId, double? position)> filed = [];
+
+  @override
+  Future<List<BookSeries>> fetchMySeries() async => List.of(mine);
+
+  @override
+  Future<BookSeries> makeSeries(String name) async {
+    final clean = CollectionNames.validateSeries(name);
+    for (final series in mine) {
+      if (series.matches(clean)) {
+        throw InvalidInputException('You already have a series "$clean".');
+      }
+    }
+    final made = BookSeries(id: 'series-${mine.length + 1}', name: clean);
+    mine.add(made);
+    return made;
+  }
+
+  @override
+  Future<void> setSeries(
+    String userBookId,
+    String seriesId, {
+    double? position,
+  }) async {
+    filed.add((userBookId, seriesId, position));
   }
 }
 
@@ -303,6 +347,9 @@ class AlwaysHitCache extends BookCacheRepository {
   Future<Book?> findByGoogleBooksId(String id) async => book;
 
   @override
+  Future<Book?> findByIsbn(String isbn) async => book;
+
+  @override
   Future<Book> cache(GoogleBook volume) async => book;
 }
 
@@ -313,10 +360,12 @@ LibraryBook _entry(
   ReadingStatus? status,
   double? position,
   double? rating,
+  String? shelfId,
 }) {
   return LibraryBook(
     book: book,
     progress: UserBook(
+      shelfId: shelfId,
       id: 'progress-${book.id}',
       bookId: book.id,
       currentPage: page,
@@ -348,15 +397,20 @@ void main() {
   late FakeUserBookRepository userBooks;
   late FakeReadingEventRepository events;
   late FakeBookNotesRepository notes;
+  late FakeCollectionsRepository collections;
+  late FakeSeriesRepository series;
 
   LibraryController controllerWith(
     List<LibraryBook> rows, {
     Book? cached,
     BookDetailsService? details,
+    List<Shelf> shelves = const [],
   }) {
     userBooks = FakeUserBookRepository(rows);
     events = FakeReadingEventRepository();
     notes = FakeBookNotesRepository();
+    collections = FakeCollectionsRepository(shelves: shelves);
+    series = FakeSeriesRepository();
     return LibraryController(
       lookup: BookLookupService(
         cache: AlwaysHitCache(cached ?? _dune),
@@ -370,6 +424,8 @@ void main() {
       events: events,
       notes: notes,
       details: details,
+      collections: collections,
+      series: series,
     );
   }
 
@@ -506,48 +562,81 @@ void main() {
     );
   });
 
-  group('addToShelf', () {
+  group('startBookByIsbn', () {
+    test('resolves the ISBN and puts the book on the shelf', () async {
+      final controller = controllerWith([]);
+
+      final result = await controller.startBookByIsbn('9780441172719');
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Started "Dune"');
+      expect(controller.inProgress.single.book.title, 'Dune');
+    });
+
+    test('scanning a book already on the shelf fails the same way '
+        'starting it by title does', () async {
+      final controller = controllerWith([]);
+
+      final first = await controller.startBookByIsbn('9780441172719');
+      final second = await controller.startBookByIsbn('9780441172719');
+
+      expect(first.success, isTrue);
+      expect(second.success, isFalse);
+      expect(second.message, '"Dune" is already on your shelf.');
+      expect(controller.inProgress, hasLength(1));
+    });
+
+    test(
+      'refuses a future date without logging or touching the shelf',
+      () async {
+        final controller = controllerWith([]);
+        final tomorrow = DateTime.now().add(const Duration(days: 1));
+
+        final result = await controller.startBookByIsbn(
+          '9780441172719',
+          loggedAt: tomorrow,
+        );
+
+        expect(result.success, isFalse);
+        expect(controller.inProgress, isEmpty);
+        expect(events.logged, isEmpty);
+      },
+    );
+  });
+
+  group('moveToShelf', () {
     test('warms the shared edition cache for the newly shelved book', () async {
       final spy = SpyBookDetailsService();
       final controller = controllerWith([], details: spy);
 
-      await controller.addToShelf('Dune', ReadingStatus.toBeRead);
+      await controller.moveToShelf('Dune', 'tbr');
       await Future<void>.delayed(Duration.zero);
 
       expect(spy.warmed, ['Dune']);
     });
 
-    test(
-      'add shelf tbr puts a resolved book on the to-be-read shelf',
-      () async {
-        final controller = controllerWith([]);
-        var notifications = 0;
-        controller.addListener(() => notifications++);
+    test('move tbr puts a resolved book on the to-be-read shelf', () async {
+      final controller = controllerWith([]);
+      var notifications = 0;
+      controller.addListener(() => notifications++);
 
-        final result = await controller.addToShelf(
-          'Dune',
-          ReadingStatus.toBeRead,
-        );
+      final result = await controller.moveToShelf('Dune', 'tbr');
 
-        expect(result.success, isTrue);
-        expect(result.message, 'Added "Dune" to read');
-        expect(controller.toBeRead.single.book.title, 'Dune');
-        expect(controller.toBeRead.single.currentPage, 0);
-        expect(controller.inProgress, isEmpty);
-        expect(controller.finished, isEmpty);
-        expect(notifications, greaterThan(0));
-      },
-    );
+      expect(result.success, isTrue);
+      expect(result.message, 'Added "Dune" to read');
+      expect(controller.toBeRead.single.book.title, 'Dune');
+      expect(controller.toBeRead.single.currentPage, 0);
+      expect(controller.inProgress, isEmpty);
+      expect(controller.finished, isEmpty);
+      expect(notifications, greaterThan(0));
+    });
 
     test(
-      'add shelf finished puts a new book on the finished shelf at 100%',
+      'move finished puts a new book on the finished shelf at 100%',
       () async {
         final controller = controllerWith([]);
 
-        final result = await controller.addToShelf(
-          'Dune',
-          ReadingStatus.finished,
-        );
+        final result = await controller.moveToShelf('Dune', 'finished');
 
         expect(result.success, isTrue);
         expect(result.message, 'Added "Dune" as finished');
@@ -558,10 +647,10 @@ void main() {
       },
     );
 
-    test('add shelf reading adds a new book at page 0', () async {
+    test('move reading adds a new book at page 0', () async {
       final controller = controllerWith([]);
 
-      final result = await controller.addToShelf('Dune', ReadingStatus.reading);
+      final result = await controller.moveToShelf('Dune', 'reading');
 
       expect(result.success, isTrue);
       expect(result.message, 'Started "Dune"');
@@ -569,15 +658,15 @@ void main() {
     });
 
     test('logs each shelf as its own journal event', () async {
-      for (final (status, type) in [
-        (ReadingStatus.toBeRead, ReadingEventType.addToBeRead),
-        (ReadingStatus.finished, ReadingEventType.finish),
-        (ReadingStatus.dnf, ReadingEventType.dnf),
-        (ReadingStatus.reading, ReadingEventType.start),
+      for (final (shelf, type) in [
+        ('tbr', ReadingEventType.addToBeRead),
+        ('finished', ReadingEventType.finish),
+        ('dnf', ReadingEventType.dnf),
+        ('reading', ReadingEventType.start),
       ]) {
         final controller = controllerWith([]);
 
-        await controller.addToShelf('Dune', status);
+        await controller.moveToShelf('Dune', shelf);
         await Future<void>.delayed(Duration.zero);
 
         expect(events.loggedTypesAndTitles, [(type: type, title: 'Dune')]);
@@ -587,11 +676,8 @@ void main() {
     test('adding a book to the shelf it is already on fails', () async {
       final controller = controllerWith([]);
 
-      await controller.addToShelf('Dune', ReadingStatus.toBeRead);
-      final second = await controller.addToShelf(
-        'dune',
-        ReadingStatus.toBeRead,
-      );
+      await controller.moveToShelf('Dune', 'tbr');
+      final second = await controller.moveToShelf('dune', 'tbr');
 
       expect(second.success, isFalse);
       expect(second.message, '"Dune" is already on your to-read shelf.');
@@ -600,9 +686,9 @@ void main() {
 
     test('refuses a book already marked DNF', () async {
       final controller = controllerWith([]);
-      await controller.addToShelf('Dune', ReadingStatus.dnf);
+      await controller.moveToShelf('Dune', 'dnf');
 
-      final result = await controller.addToShelf('Dune', ReadingStatus.dnf);
+      final result = await controller.moveToShelf('Dune', 'dnf');
 
       expect(result.success, isFalse);
       expect(result.message, '"Dune" is already marked as DNF.');
@@ -614,10 +700,7 @@ void main() {
       final controller = controllerWith([_entry(_dune, page: 120)]);
       await controller.load();
 
-      final result = await controller.addToShelf(
-        'Dune',
-        ReadingStatus.finished,
-      );
+      final result = await controller.moveToShelf('Dune', 'finished');
 
       expect(result.success, isTrue);
       expect(result.message, 'Finished "Dune"');
@@ -635,7 +718,7 @@ void main() {
       ], cached: _untitledLength);
       await controller.load();
 
-      await controller.addToShelf('Pale Fire', ReadingStatus.finished);
+      await controller.moveToShelf('Pale Fire', 'finished');
 
       final entry = controller.finished.single;
       expect(entry.currentPage, 80);
@@ -646,7 +729,7 @@ void main() {
       final controller = controllerWith([_entry(_dune, page: 120)]);
       await controller.load();
 
-      await controller.addToShelf('Dune', ReadingStatus.toBeRead);
+      await controller.moveToShelf('Dune', 'tbr');
 
       expect(controller.toBeRead.single.currentPage, 0);
       expect(controller.toBeRead.single.completion, 0);
@@ -662,7 +745,7 @@ void main() {
         ]);
         await controller.load();
 
-        await controller.addToShelf('Dune', ReadingStatus.reading);
+        await controller.moveToShelf('Dune', 'reading');
 
         final entry = controller.inProgress.single;
         expect(entry.currentPage, 0);
@@ -674,7 +757,7 @@ void main() {
       final controller = controllerWith([_entry(_dune, page: 120)]);
       await controller.load();
 
-      final result = await controller.addToShelf('Dune', ReadingStatus.dnf);
+      final result = await controller.moveToShelf('Dune', 'dnf');
 
       expect(result.success, isTrue);
       expect(result.message, 'Marked "Dune" as DNF');
@@ -686,7 +769,7 @@ void main() {
       await controller.load();
       userBooks.failure = const NetworkException("You're offline");
 
-      final result = await controller.addToShelf('Dune', ReadingStatus.dnf);
+      final result = await controller.moveToShelf('Dune', 'dnf');
 
       expect(result.success, isFalse);
       expect(result.message, "You're offline");
@@ -724,7 +807,7 @@ void main() {
 
         final result = await controller.moveBook(
           'progress-book-4',
-          ReadingStatus.reading,
+          const StatusShelfRef(ReadingStatus.reading),
           0,
         );
         await Future<void>.delayed(Duration.zero);
@@ -758,7 +841,11 @@ void main() {
         await controller.load();
 
         // Dropped "before index 2" (before Dune Messiah) — lands second.
-        await controller.moveBook('progress-book-1', ReadingStatus.reading, 2);
+        await controller.moveBook(
+          'progress-book-1',
+          const StatusShelfRef(ReadingStatus.reading),
+          2,
+        );
 
         expect(controller.inProgress.map((e) => e.book.title), [
           'Circe',
@@ -774,7 +861,7 @@ void main() {
 
       final result = await controller.moveBook(
         'progress-book-1',
-        ReadingStatus.reading,
+        const StatusShelfRef(ReadingStatus.reading),
         0,
       );
 
@@ -794,7 +881,7 @@ void main() {
 
       final result = await controller.moveBook(
         'progress-book-1',
-        ReadingStatus.finished,
+        const StatusShelfRef(ReadingStatus.finished),
         1,
       );
       await Future<void>.delayed(Duration.zero);
@@ -823,7 +910,11 @@ void main() {
       final controller = controllerWith([_entry(_dune, page: 120)]);
       await controller.load();
 
-      await controller.moveBook('progress-book-1', ReadingStatus.toBeRead, 0);
+      await controller.moveBook(
+        'progress-book-1',
+        const StatusShelfRef(ReadingStatus.toBeRead),
+        0,
+      );
 
       expect(controller.toBeRead.single.currentPage, 0);
     });
@@ -839,7 +930,7 @@ void main() {
 
       final result = await controller.moveBook(
         'progress-book-1',
-        ReadingStatus.finished,
+        const StatusShelfRef(ReadingStatus.finished),
         0,
       );
 
@@ -880,10 +971,360 @@ void main() {
     });
   });
 
-  group('tags and comments commands', () {
-    test('add tag tags a book on the shelf', () async {
+  group('making collections', () {
+    test('make shelf adds a custom shelf the page can show at once', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      final result = await controller.makeShelf('  Summer   reads ');
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Made shelf "Summer reads"');
+      expect(controller.shelves.single.name, 'Summer reads');
+      expect(collections.shelves, hasLength(1));
+      expect(notifications, greaterThan(0));
+    });
+
+    test(
+      'make shelf refuses a duplicate, ignoring case, without a write',
+      () async {
+        final controller = controllerWith([]);
+        await controller.load();
+        await controller.makeShelf('Summer reads');
+
+        final again = await controller.makeShelf('summer READS');
+
+        expect(again.success, isFalse);
+        expect(again.message, 'You already have a shelf "summer READS".');
+        expect(collections.creates, 1);
+      },
+    );
+
+    test('make shelf refuses a built-in shelf name', () async {
+      final controller = controllerWith([]);
+
+      for (final name in ['tbr', 'Reading', 'did not finish']) {
+        final result = await controller.makeShelf(name);
+        expect(result.success, isFalse, reason: name);
+        expect(result.message, contains('built-in'));
+      }
+      expect(collections.creates, 0);
+    });
+
+    test('make shelf refuses an empty or overlong name', () async {
+      final controller = controllerWith([]);
+
+      expect(
+        (await controller.makeShelf('   ')).message,
+        'Name the shelf first.',
+      );
+      expect(
+        (await controller.makeShelf('x' * 41)).message,
+        'Shelf names can be at most 40 characters.',
+      );
+    });
+
+    test('make shelf surfaces a repository failure', () async {
+      final controller = controllerWith([]);
+      collections.failure = const NetworkException("You're offline");
+
+      final result = await controller.makeShelf('Summer');
+
+      expect(result.success, isFalse);
+      expect(result.message, "You're offline");
+      expect(controller.shelves, isEmpty);
+    });
+
+    test(
+      'make tag creates a standalone tag without touching any book',
+      () async {
+        final controller = controllerWith([_entry(_dune)]);
+        await controller.load();
+
+        final result = await controller.makeTag('sci-fi');
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Made tag "sci-fi"');
+        expect(controller.tags.single.name, 'sci-fi');
+        expect(
+          notes.tags,
+          isEmpty,
+          reason: 'making a tag applies it to nothing',
+        );
+        expect((await controller.makeTag('Sci-Fi')).success, isFalse);
+      },
+    );
+
+    test('make series makes a new series and refuses one already on the '
+        'list', () async {
+      final controller = controllerWith([]);
+
+      final made = await controller.makeSeries('dune');
+      final again = await controller.makeSeries('DUNE');
+
+      expect(made.success, isTrue);
+      expect(made.message, 'Made series "dune"');
+      expect(again.success, isFalse);
+      expect(again.message, 'You already have a series "dune".');
+      expect(controller.mySeries.map((s) => s.name), ['dune']);
+    });
+  });
+
+  group('applying collections never creates them', () {
+    test('add tag refuses a tag that was never made', () async {
       final controller = controllerWith([_entry(_dune)]);
       await controller.load();
+
+      final result = await controller.addTag('Dune', 'sci-fi');
+
+      expect(result.success, isFalse);
+      expect(
+        result.message,
+        'No tag called "sci-fi" yet — make it first with make tag sci-fi.',
+      );
+      expect(notes.tags, isEmpty);
+      expect(controller.tags, isEmpty);
+    });
+
+    test('add series refuses a series that was never made', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+
+      final result = await controller.addToSeries('Dune', 'dune', position: 1);
+
+      expect(result.success, isFalse);
+      expect(result.message, contains('make series dune'));
+      expect(series.filed, isEmpty);
+      expect(series.mine, isEmpty);
+    });
+
+    test('add series files the book under a series made first', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+      await controller.makeSeries('Dune');
+      final made = controller.findSeries('Dune')!;
+
+      final result = await controller.addToSeries('dune', 'dune', position: 1);
+
+      expect(result.success, isTrue);
+      expect(series.filed.single, ('progress-book-1', made.id, 1.0));
+    });
+
+    test('move refuses a shelf that was never made', () async {
+      final controller = controllerWith([_entry(_dune, page: 120)]);
+      await controller.load();
+
+      final result = await controller.moveToShelf('Dune', 'summer reads');
+
+      expect(result.success, isFalse);
+      expect(
+        result.message,
+        'No shelf called "summer reads" — make it first with make shelf '
+        'summer reads.',
+      );
+      expect(collections.shelves, isEmpty);
+      expect(userBooks.shelfChanges, isEmpty);
+    });
+  });
+
+  group('custom shelves', () {
+    const summer = Shelf(id: 'shelf-summer', name: 'Summer reads');
+    const summerRef = CustomShelfRef('shelf-summer');
+
+    test('a book on a custom shelf is shown there, not in its status section, '
+        'and still counts as what it is', () async {
+      final controller = controllerWith(
+        [
+          _entry(_dune, page: 120, shelfId: summer.id),
+          _entry(_circe, page: 20),
+        ],
+        shelves: [summer],
+      );
+      await controller.load();
+
+      expect(controller.shelfSection(summerRef).single.book.title, 'Dune');
+      expect(controller.inProgress.map((e) => e.book.title), ['Circe']);
+      expect(controller.books.where((e) => e.isReading), hasLength(2));
+    });
+
+    test('a shelf id whose shelf failed to load falls back to its status '
+        'section rather than vanishing', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 120, shelfId: 'shelf-gone'),
+      ]);
+      await controller.load();
+
+      expect(controller.inProgress.single.book.title, 'Dune');
+    });
+
+    test('move to a custom shelf keeps progress and logs nothing', () async {
+      final controller = controllerWith(
+        [_entry(_dune, page: 120)],
+        shelves: [summer],
+      );
+      await controller.load();
+
+      final result = await controller.moveToShelf('Dune', 'summer READS');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Moved "Dune" to Summer reads');
+      final entry = controller.shelfSection(summerRef).single;
+      expect(entry.currentPage, 120);
+      expect(entry.status, ReadingStatus.reading);
+      expect(userBooks.shelfChanges.single.shelfId, summer.id);
+      expect(events.logged, isEmpty);
+    });
+
+    test('move to the custom shelf it is already on fails', () async {
+      final controller = controllerWith(
+        [_entry(_dune, shelfId: summer.id)],
+        shelves: [summer],
+      );
+      await controller.load();
+
+      final result = await controller.moveToShelf('Dune', 'Summer reads');
+
+      expect(result.success, isFalse);
+      expect(result.message, '"Dune" is already on Summer reads.');
+    });
+
+    test(
+      'moving back to the built-in shelf of the same status keeps the page',
+      () async {
+        final controller = controllerWith(
+          [_entry(_dune, page: 120, shelfId: summer.id)],
+          shelves: [summer],
+        );
+        await controller.load();
+
+        final result = await controller.moveToShelf('Dune', 'reading');
+
+        expect(result.success, isTrue);
+        expect(controller.inProgress.single.currentPage, 120);
+        expect(userBooks.shelfChanges.single.shelfId, isNull);
+      },
+    );
+
+    test('moving off a custom shelf to another status applies that shelf\'s '
+        'rules', () async {
+      final controller = controllerWith(
+        [_entry(_dune, page: 120, shelfId: summer.id)],
+        shelves: [summer],
+      );
+      await controller.load();
+
+      await controller.moveToShelf('Dune', 'finished');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.finished.single.currentPage, 400);
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.finish, title: 'Dune'),
+      ]);
+    });
+
+    test('move adds a book not on the shelf yet straight to a custom shelf, '
+        'as a to-read book', () async {
+      final controller = controllerWith([], shelves: [summer]);
+      await controller.load();
+
+      final result = await controller.moveToShelf('Dune', 'summer reads');
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Added "Dune" to Summer reads');
+      final entry = controller.shelfSection(summerRef).single;
+      expect(entry.status, ReadingStatus.toBeRead);
+    });
+
+    test('finish leaves a book on its custom shelf', () async {
+      final controller = controllerWith(
+        [_entry(_dune, page: 120, shelfId: summer.id)],
+        shelves: [summer],
+      );
+      await controller.load();
+
+      await controller.finishBook('Dune');
+
+      final entry = controller.shelfSection(summerRef).single;
+      expect(entry.isFinished, isTrue);
+    });
+
+    test(
+      'an unquoted move splits on the longest shelf name that exists',
+      () async {
+        const summerReading = Shelf(id: 'shelf-sr', name: 'summer reading');
+        final controller = controllerWith(
+          [_entry(_dune, page: 120)],
+          shelves: [summerReading],
+        );
+        await controller.load();
+
+        final result = await controller.moveToShelfUnsplit(
+          'dune summer reading',
+        );
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Moved "Dune" to summer reading');
+        expect(
+          controller.splitTrailingShelf('dune reading')?.shelfName,
+          'reading',
+        );
+        expect(controller.splitTrailingShelf('reading'), isNull);
+      },
+    );
+
+    test(
+      'an unquoted move naming no shelf fails with the make command',
+      () async {
+        final controller = controllerWith([_entry(_dune)]);
+        await controller.load();
+
+        final result = await controller.moveToShelfUnsplit('dune later');
+
+        expect(result.success, isFalse);
+        expect(result.message, contains('make shelf later'));
+      },
+    );
+
+    test(
+      'dragging onto a custom shelf moves the book there and orders it',
+      () async {
+        final controller = controllerWith(
+          [
+            _entry(_dune, page: 120),
+            _entry(_circe, page: 20, shelfId: summer.id),
+          ],
+          shelves: [summer],
+        );
+        await controller.load();
+
+        final result = await controller.moveBook(
+          'progress-book-1',
+          summerRef,
+          0,
+        );
+
+        expect(result.success, isTrue);
+        expect(controller.shelfSection(summerRef).map((e) => e.book.title), [
+          'Dune',
+          'Circe',
+        ]);
+        expect(controller.shelfSection(summerRef).first.currentPage, 120);
+        expect(userBooks.savedOrders.single, [
+          'progress-book-1',
+          'progress-book-3',
+        ]);
+      },
+    );
+  });
+
+  group('tags and comments commands', () {
+    test('add tag tags a book on the shelf with a tag made first', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+      await controller.makeTag('sci-fi');
 
       final result = await controller.addTag('dune', 'sci-fi');
 
@@ -910,12 +1351,13 @@ void main() {
       final result = await controller.addTag('Dune', 'x' * 41);
 
       expect(result.success, isFalse);
-      expect(result.message, 'Tags can be at most 40 characters.');
+      expect(result.message, 'Tag names can be at most 40 characters.');
     });
 
     test('add tag surfaces a repository failure', () async {
       final controller = controllerWith([_entry(_dune)]);
       await controller.load();
+      await controller.makeTag('sci-fi');
       notes.failure = const NetworkException("You're offline");
 
       final result = await controller.addTag('Dune', 'sci-fi');

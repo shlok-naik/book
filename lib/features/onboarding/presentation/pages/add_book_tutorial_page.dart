@@ -44,7 +44,7 @@ const _commands = [
   'update <book> <page number>',
   'finish <book>',
   'rate <book> <number of stars>',
-  'add shelf <tbr, reading, finished or dnf> <book>',
+  'move <book> <tbr, reading, finished, dnf or your own shelf>',
 ];
 
 class _TutorialCopy extends StatelessWidget {

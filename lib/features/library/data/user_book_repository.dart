@@ -36,7 +36,7 @@ class UserBookRepository {
   /// The embedded-join projection: every progress row plus the cached
   /// book it points at, in one round-trip instead of an N+1 fan-out.
   static const _withBook =
-      '*, book:books(${Book.selectWithSeries}), '
+      '*, book:books(*), '
       // Named by foreign key: `book_editions` is reachable from here only
       // through the composite (book_id, owned_edition_id) key, and naming
       // it keeps PostgREST from guessing if another relationship appears.
@@ -110,8 +110,9 @@ class UserBookRepository {
   }
 
   /// Puts a book straight onto the shelf at [status] —
-  /// `add shelf <shelf> <book>` for a book not on the shelf yet — instead of the
-  /// page-0 "reading" row [start] always creates. [currentPage] is the
+  /// `move <book> <shelf>` for a book not on the shelf yet — instead of the
+  /// page-0 "reading" row [start] always creates. [shelfId] places it on a
+  /// custom shelf the reader already made; it never creates one. [currentPage] is the
   /// page `ShelfRules.enter` decided the shelf implies (the last page for
   /// "finished", 0 otherwise). Same dedupe as [start]: a book already on
   /// the shelf in any status is found rather than duplicated, and the
@@ -120,6 +121,7 @@ class UserBookRepository {
     String bookId,
     ReadingStatus status, {
     int currentPage = 0,
+    String? shelfId,
   }) {
     return runSupabase(() async {
       final existing = await _client
@@ -142,6 +144,7 @@ class UserBookRepository {
             // book gets one too; nothing reads it for a to-read book.
             'started_at': now,
             if (status == ReadingStatus.finished) 'finished_at': now,
+            'shelf_id': ?shelfId,
           })
           .select()
           .single();
@@ -194,15 +197,17 @@ class UserBookRepository {
     }, friendlyMessage: "We couldn't save your progress.");
   }
 
-  /// Moves an existing shelf row to [updated]'s status, writing the
-  /// progress that move implies — the page and finish date
-  /// `ShelfRules.enter` computed. Used by every section change: dragging
-  /// a tile (or its keyboard/screen-reader equivalents) on the library
-  /// page, and `add shelf <shelf> <book>` on a book already on the shelf.
+  /// Moves an existing shelf row to [updated]'s shelf — its status and its
+  /// custom shelf (`shelf_id`, null for a built-in shelf) — writing the
+  /// progress that move implies, as `ShelfRules.enterShelf` computed it.
+  /// Used by every section change: dragging a tile (or its keyboard/
+  /// screen-reader equivalents) on the library page, and
+  /// `move <book> <shelf>` on a book already on the shelf.
   ///
   /// `shelf_position` is not sent: the `touch_updated_at` trigger clears
-  /// it on a status change, and a drop that also places the book follows
-  /// up with [saveShelfOrder].
+  /// it on a status or shelf change, and a drop that also places the book
+  /// follows up with [saveShelfOrder]. A `shelf_id` that isn't one of the
+  /// reader's own shelves is refused by the composite foreign key.
   Future<UserBook> changeShelf(UserBook updated) {
     return runSupabase(() async {
       final row = await _client
@@ -215,6 +220,7 @@ class UserBookRepository {
                       .toUtc()
                       .toIso8601String()
                 : null,
+            'shelf_id': updated.shelfId,
           })
           .eq('id', updated.id)
           .select()

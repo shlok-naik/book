@@ -23,7 +23,9 @@ class TagsCommentsTutorialPage extends StatelessWidget {
   /// tags and comments in use, including a DNF with its reason.
   static const wallRows = [
     [
+      'make tag sci-fi',
       'add tag sci-fi Dune',
+      'make tag cosy',
       'add tag cosy Emma',
       'add tag "book club" Circe',
       'add tag reread 1984',
@@ -34,7 +36,7 @@ class TagsCommentsTutorialPage extends StatelessWidget {
       'add comment "cried twice" The Hobbit',
     ],
     [
-      'add shelf dnf Ulysses',
+      'move Ulysses dnf',
       'add comment "too dense for me right now" Ulysses',
       'add tag maybe-later Ulysses',
     ],

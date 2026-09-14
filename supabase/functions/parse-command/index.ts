@@ -1,12 +1,18 @@
 // parse-command — turns a reader's free-form sentence into the app's own
-// twelve-command grammar: the five original shelf commands (`start`,
-// `update`, `finish`, `rate`, `delete` — the first three take an
-// optional trailing date, resolved from a phrase like "yesterday"), the
-// three `add` commands (`add shelf`, `add tag`, `add comment`), the two
-// series commands (`series`, `start series`), plus
-// `remember` (save a note on how a book made them feel) and `recommend`
-// (suggest a book, grounded in the reader's own shelf and remembered
-// notes).
+// command grammar: the five original shelf commands (`start`, `update`,
+// `finish`, `rate`, `delete` — the first three take an optional trailing
+// date, resolved from a phrase like "yesterday"), `move` (to a built-in or
+// custom shelf), the make-first collection commands (`make shelf`,
+// `make tag`, `make series`, then `add tag`, `add series`), `add comment`,
+// plus `remember` (save a note on how a book made them feel) and
+// `recommend` (suggest a book, grounded in the reader's own shelf and
+// remembered notes). `start isbn` opens the camera and is never emitted
+// here.
+//
+// Shelves, tags and series must be made before they are applied; the app
+// refuses to apply one that doesn't exist. So when a sentence both names a
+// new collection and puts a book in it ("make a summer shelf and put Dune
+// on it"), the prompt asks for the `make` line first.
 //
 // This exists so the Groq API key never leaves the server. It used to sit
 // in the Flutter app's bundled `.env`, which meant it shipped inside every
@@ -45,18 +51,21 @@ const MAX_CONTEXT_ITEM_LENGTH = 200;
 const GROQ_TIMEOUT_MS = 15_000;
 
 const BASE_SYSTEM_PROMPT =
-  `You split a reader's natural-language sentence about their reading into a list of structured commands. Only these twelve commands exist, and every line you output must match one of them exactly (case-insensitive keyword, one command per line, no numbering, no extra words):
+  `You split a reader's natural-language sentence about their reading into a list of structured commands. Only these commands exist, and every line you output must match one of them exactly (case-insensitive keyword, one command per line, no numbering, no extra words):
 
 start <book title> [date]
 update <book title> <page number> [date]
+update <book title> <percent>% [date]
 finish <book title> [date]
 rate <book title> <stars, 0-5, .5 allowed>
 delete <book title>
-add shelf <tbr|reading|finished|dnf> <book title>
+move <book title> "<shelf>"
+make shelf "<shelf name>"
+make tag "<tag>"
 add tag <tag> <book title>
+make series "<series name>"
+add series "<series name>" [#<number>] <book title>
 add comment "<comment>" <book title>
-series "<series name>" [#<number>] <book title>
-start series "<series name>"
 remember <book title> :: <note>
 recommend <book title> :: <reason>
 
@@ -65,11 +74,12 @@ Rules:
 - Use the book title as written (fix obvious capitalization only).
 - If a sentence mentions no page number or star rating, don't guess one — drop that action instead of inventing a number.
 - The optional trailing [date] on start/update/finish is a YYYY-MM-DD, present only when the sentence itself names or implies when the action happened ("yesterday", "last Friday", "on the 3rd", "two days ago", "this morning"). Resolve it relative to the reader's own "today" given below and append it as one more space-separated token after the command's other arguments (after the page number for update). Omit it entirely when the sentence doesn't reference a day — never invent one for a plain "started Dune".
-- Use "add shelf tbr" when the reader wants to read a book later or adds it to their to-read list; "add shelf dnf" when they gave up on, abandoned, or stopped reading a book; "add shelf finished" for a book they say they read in the past without mentioning when they finished it; "add shelf reading" only when they move a book they already have back to reading.
+- A bare number on update is a page; a percentage ("74% through") uses the percent form with a trailing %.
+- Use move with the shelf "tbr" when the reader wants to read a book later or adds it to their to-read list; "dnf" when they gave up on, abandoned, or stopped reading a book; "finished" for a book they say they read in the past without mentioning when they finished it; "reading" only when they move a book they already have back to reading. Use a shelf of their own ("summer reads") when they name one. Always wrap the shelf in straight double quotes, even the built-in ones: move Dune "tbr".
+- Shelves, tags and series have to exist before a book can go in them. Use "make shelf", "make tag" or "make series" only when the reader asks to create, make, or start a new one, and when a sentence both creates one and puts a book in it, emit the make line before the move/add line. Never emit a make line just because a book is being moved, tagged or filed.
 - Use "add tag" when the reader asks to tag, label, or file a book under something. The tag is a single lowercase word or hyphenated-phrase (e.g. sci-fi, book-club); never put spaces in it.
-- Use "add comment" when the reader asks to comment on or add a note to a book, and whenever they give a reason for not finishing one (alongside its "add shelf dnf" line). Always wrap the comment in straight double quotes, keep it short and in the reader's own words, and replace any double quotes inside it with single quotes.
-- Use "series" when the reader says a book belongs to a series, or is a numbered book in one ("Dune Messiah is the second Dune book"). Always wrap the series name in straight double quotes. Add #<number> only when the sentence gives the book's position; never guess it.
-- Use "start series" when the reader wants to start, begin, or continue a series rather than a named book ("start the Expanse series", "time to continue Discworld"). Wrap the series name in straight double quotes.
+- Use "add comment" when the reader asks to comment on or add a note to a book, and whenever they give a reason for not finishing one (alongside its move to "dnf"). Always wrap the comment in straight double quotes, keep it short and in the reader's own words, and replace any double quotes inside it with single quotes.
+- Use "add series" when the reader says a book belongs to a series, or is a numbered book in one ("Dune Messiah is the second Dune book"). Always wrap the series name in straight double quotes. Add #<number> only when the sentence gives the book's position; never guess it.
 - Emit a "remember" line whenever the sentence expresses a personal reaction, opinion, or feeling about a book, a character, or a chapter — not just a plain shelf action. Keep the note short and in the reader's own words; don't editorialize.
 - Emit a "recommend" line whenever the sentence asks for a book suggestion. Recommend one real, already-published book that is not already on the reader's shelf (see the shelf and remembered notes below, if any) and that fits both the sentence's own stated criteria and, where relevant, what the remembered notes reveal about the reader's taste. <reason> is one short sentence explaining the pick.
 - Output ONLY a JSON array of strings, each string one command line. No prose, no markdown fences.

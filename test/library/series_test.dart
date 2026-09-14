@@ -16,74 +16,65 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-Book _book(String id, String title, {String? series, double? position}) => Book(
+Book _book(String id, String title) => Book(
   id: id,
   googleBooksId: 'g-$id',
   title: title,
   author: 'Frank Herbert',
   pageCount: 300,
-  seriesId: series == null ? null : 'series-${series.toLowerCase()}',
-  seriesName: series,
-  seriesPosition: position,
 );
 
-LibraryBook _entry(Book book, ReadingStatus status) => LibraryBook(
+LibraryBook _entry(
+  Book book,
+  ReadingStatus status, {
+  String? seriesId,
+  double? seriesPosition,
+}) => LibraryBook(
   book: book,
   progress: UserBook(
     id: 'u-${book.id}',
     bookId: book.id,
     currentPage: 0,
     status: status,
+    seriesId: seriesId,
+    seriesPosition: seriesPosition,
   ),
 );
 
-final _dune = _book('1', 'Dune', series: 'Dune', position: 1);
-final _messiah = _book('2', 'Dune Messiah', series: 'Dune', position: 2);
-final _children = _book('3', 'Children of Dune', series: 'Dune', position: 3);
-final _novella = _book('4', 'Dune: A Novella', series: 'Dune');
+final _dune = _book('1', 'Dune');
+final _messiah = _book('2', 'Dune Messiah');
+final _children = _book('3', 'Children of Dune');
+final _novella = _book('4', 'Dune: A Novella');
+const _duneSeries = BookSeries(id: 'series-dune', name: 'Dune');
 
 class _FakeSeries extends BookSeriesRepository {
-  _FakeSeries({this.catalogue = const [], this.failure});
+  _FakeSeries({this.failure});
 
-  final List<Book> catalogue;
   final LibraryException? failure;
   final calls = <(String, String, double?)>[];
 
   @override
-  Future<Book> setSeries(
-    String bookId,
-    String seriesName, {
+  Future<void> setSeries(
+    String userBookId,
+    String seriesId, {
     double? position,
   }) async {
     if (failure != null) throw failure!;
-    calls.add((bookId, seriesName, position));
-    final base = catalogue.firstWhere(
-      (book) => book.id == bookId,
-      orElse: () => _book(bookId, 'unknown'),
-    );
-    return base.withSeries(
-      seriesId: 'series-${seriesName.toLowerCase()}',
-      seriesName: seriesName,
-      seriesPosition: position,
-    );
+    calls.add((userBookId, seriesId, position));
   }
 
-  @override
-  Future<BookSeries?> findByName(String name) async {
-    for (final book in catalogue) {
-      if (book.seriesName != null &&
-          book.seriesName!.toLowerCase() == name.trim().toLowerCase()) {
-        return BookSeries(id: book.seriesId!, name: book.seriesName!);
-      }
-    }
-    return null;
-  }
+  /// The reader's own series list — what `add series` requires.
+  final mine = <BookSeries>[];
 
   @override
-  Future<List<Book>> booksInSeries(String seriesId) async =>
-      BookSeries.sortBooks(
-        catalogue.where((book) => book.seriesId == seriesId),
-      );
+  Future<List<BookSeries>> fetchMySeries() async => List.of(mine);
+
+  @override
+  Future<BookSeries> makeSeries(String name) async {
+    final made = BookSeries(id: 'series-${name.toLowerCase()}', name: name);
+    mine.add(made);
+    return made;
+  }
 }
 
 class _Shelf extends UserBookRepository {
@@ -157,27 +148,33 @@ Future<(LibraryController, _Shelf)> _controller(
 void main() {
   group('BookSeries', () {
     test('sorts numbered books by number, unnumbered after by title', () {
-      expect(
-        BookSeries.sortBooks([
-          _novella,
+      final entries = [
+        _entry(_novella, ReadingStatus.reading, seriesId: 'series-dune'),
+        _entry(
           _children,
+          ReadingStatus.reading,
+          seriesId: 'series-dune',
+          seriesPosition: 3,
+        ),
+        _entry(
           _dune,
+          ReadingStatus.reading,
+          seriesId: 'series-dune',
+          seriesPosition: 1,
+        ),
+        _entry(
           _messiah,
-        ]).map((b) => b.title),
-        ['Dune', 'Dune Messiah', 'Children of Dune', 'Dune: A Novella'],
-      );
-    });
-
-    test('next to read skips finished and dropped books', () {
-      final shelf = {
-        _dune.id: _entry(_dune, ReadingStatus.finished),
-        _messiah.id: _entry(_messiah, ReadingStatus.dnf),
-      };
-      expect(
-        BookSeries.nextToRead([_messiah, _dune, _children], shelf),
-        _children,
-      );
-      expect(BookSeries.nextToRead([_dune], shelf), isNull);
+          ReadingStatus.reading,
+          seriesId: 'series-dune',
+          seriesPosition: 2,
+        ),
+      ];
+      expect(BookSeries.sortEntries(entries).map((e) => e.book.title), [
+        'Dune',
+        'Dune Messiah',
+        'Children of Dune',
+        'Dune: A Novella',
+      ]);
     });
 
     test('names match ignoring case and spacing', () {
@@ -187,11 +184,24 @@ void main() {
     });
 
     test('groups a shelf by series, in series order', () {
-      final groups = SeriesGroup.fromShelf([
-        _entry(_messiah, ReadingStatus.reading),
-        _entry(_book('9', 'Circe'), ReadingStatus.reading),
-        _entry(_dune, ReadingStatus.finished),
-      ]);
+      final groups = SeriesGroup.fromShelf(
+        [
+          _entry(
+            _messiah,
+            ReadingStatus.reading,
+            seriesId: 'series-dune',
+            seriesPosition: 2,
+          ),
+          _entry(_book('9', 'Circe'), ReadingStatus.reading),
+          _entry(
+            _dune,
+            ReadingStatus.finished,
+            seriesId: 'series-dune',
+            seriesPosition: 1,
+          ),
+        ],
+        const [_duneSeries],
+      );
       expect(groups, hasLength(1));
       expect(groups.single.name, 'Dune');
       expect(groups.single.entries.map((e) => e.book.title), [
@@ -200,29 +210,20 @@ void main() {
       ]);
       expect(groups.single.summary, '2 books · 1 finished');
     });
+
+    test('a book filed under a series the reader no longer has groups '
+        'under nothing', () {
+      final groups = SeriesGroup.fromShelf([
+        _entry(_dune, ReadingStatus.reading, seriesId: 'series-gone'),
+      ], const []);
+      expect(groups, isEmpty);
+    });
   });
 
-  group('Book series fields', () {
-    test('parse from a row with the series embedded', () {
-      final book = Book.fromRow({
-        'id': 'b',
-        'title': 'Dune Messiah',
-        'series_id': 's1',
-        'series_position': '2.0',
-        'series': {'id': 's1', 'name': 'Dune'},
-      });
-      expect(book.seriesId, 's1');
-      expect(book.seriesName, 'Dune');
-      expect(book.seriesPosition, 2);
-      expect(book.seriesLabel, 'Dune #2');
-    });
-
+  group('BookSeries.formatPosition', () {
     test('a novella number keeps its half', () {
-      expect(
-        _book('x', 'x', series: 'Dune', position: 1.5).seriesLabel,
-        'Dune #1.5',
-      );
-      expect(_book('x', 'x').seriesLabel, isNull);
+      expect(BookSeries.formatPosition(1.5), '1.5');
+      expect(BookSeries.formatPosition(2), '2');
     });
   });
 
@@ -237,7 +238,15 @@ void main() {
     });
 
     test('matches series and tags', () {
-      expect(LibrarySearch.matches(entry, 'dune'), isTrue);
+      final unrelated = _entry(
+        _book('9', 'Some Other Title'),
+        ReadingStatus.reading,
+      );
+      expect(
+        LibrarySearch.matches(unrelated, 'dune', seriesName: 'Dune'),
+        isTrue,
+      );
+      expect(LibrarySearch.matches(unrelated, 'dune'), isFalse);
       expect(LibrarySearch.matches(entry, 'sci-fi'), isFalse);
       expect(LibrarySearch.matches(entry, 'sci-fi', tags: ['Sci-Fi']), isTrue);
     });
@@ -252,104 +261,76 @@ void main() {
   });
 
   group('LibraryController series commands', () {
-    test('series files a shelf book and updates it locally', () async {
-      final series = _FakeSeries(catalogue: [_book('2', 'Dune Messiah')]);
+    test('add series files a shelf book under a series made first and '
+        'updates it locally', () async {
+      final series = _FakeSeries();
       final (controller, _) = await _controller([
-        _entry(_book('2', 'Dune Messiah'), ReadingStatus.toBeRead),
+        _entry(_messiah, ReadingStatus.toBeRead),
       ], series);
+      await controller.makeSeries('Dune');
+      final made = controller.findSeries('Dune')!;
 
-      final result = await controller.setSeries(
+      final result = await controller.addToSeries(
         'dune messiah',
-        'Dune',
+        'dune',
         position: 2,
       );
 
       expect(result.success, isTrue);
       expect(result.message, 'Filed "Dune Messiah" under Dune #2');
-      expect(series.calls.single, ('2', 'Dune', 2.0));
-      expect(controller.match('Dune Messiah')!.book.seriesLabel, 'Dune #2');
+      expect(series.calls.single, (
+        'u-2',
+        made.id,
+        2.0,
+      ), reason: 'filed under this reader\'s own series');
+      expect(controller.match('Dune Messiah')!.seriesId, made.id);
+      expect(
+        controller.seriesLabelFor(controller.match('Dune Messiah')!),
+        'Dune #2',
+      );
       expect(controller.seriesGroups.single.name, 'Dune');
     });
 
-    test('series refuses a book that is not on the shelf', () async {
+    test('add series refuses a series that was never made', () async {
       final series = _FakeSeries();
-      final (controller, _) = await _controller([], series);
-
-      final result = await controller.setSeries('Dune', 'Dune');
-      expect(result.success, isFalse);
-      expect(series.calls, isEmpty);
-    });
-
-    test('series reports a locked series as a failure', () async {
-      final series = _FakeSeries(
-        failure: const InvalidInputException(
-          'That book is already filed in a series by another reader.',
-        ),
-      );
       final (controller, _) = await _controller([
         _entry(_dune, ReadingStatus.reading),
       ], series);
 
-      final result = await controller.setSeries('Dune', 'Wrong');
-      expect(result.success, isFalse);
-      expect(result.message, contains('already filed'));
-    });
-
-    test('start series adds the first unread book when none is on the '
-        'shelf', () async {
-      final series = _FakeSeries(catalogue: [_messiah, _dune]);
-      final (controller, shelf) = await _controller([], series);
-
-      final result = await controller.startSeries('dune');
-
-      expect(result.success, isTrue);
-      expect(result.message, 'Started "Dune" from Dune');
-      expect(shelf.started, [_dune.id]);
-      expect(controller.match('Dune')!.isReading, isTrue);
-    });
-
-    test('start series moves the next queued book to reading, skipping '
-        'finished ones', () async {
-      final series = _FakeSeries(catalogue: [_dune, _messiah, _children]);
-      final (controller, shelf) = await _controller([
-        _entry(_dune, ReadingStatus.finished),
-        _entry(_messiah, ReadingStatus.toBeRead),
-      ], series);
-
-      final result = await controller.startSeries('Dune');
-
-      expect(result.message, 'Started "Dune Messiah" from Dune');
-      expect(shelf.moved, [ReadingStatus.reading]);
-      expect(shelf.started, isEmpty);
-    });
-
-    test('start series refuses while a book in it is being read', () async {
-      final series = _FakeSeries(catalogue: [_dune, _messiah]);
-      final (controller, shelf) = await _controller([
-        _entry(_messiah, ReadingStatus.reading),
-      ], series);
-
-      final result = await controller.startSeries('Dune');
+      final result = await controller.addToSeries('Dune', 'Dune');
 
       expect(result.success, isFalse);
-      expect(result.message, contains('already reading "Dune Messiah"'));
-      expect(shelf.started, isEmpty);
+      expect(
+        result.message,
+        'No series called "Dune" yet — make it first with make series Dune.',
+      );
+      expect(series.calls, isEmpty);
+      expect(series.mine, isEmpty, reason: 'never created implicitly');
     });
 
-    test('start series with nothing left, or no such series', () async {
-      final series = _FakeSeries(catalogue: [_dune]);
+    test('add series refuses a book that is not on the shelf', () async {
+      final series = _FakeSeries();
+      final (controller, _) = await _controller([], series);
+      await controller.makeSeries('Dune');
+
+      final result = await controller.addToSeries('Dune', 'Dune');
+      expect(result.success, isFalse);
+      expect(series.calls, isEmpty);
+    });
+
+    test('add series rolls back and reports a failed save', () async {
+      final series = _FakeSeries(
+        failure: const NetworkException("You're offline"),
+      );
       final (controller, _) = await _controller([
-        _entry(_dune, ReadingStatus.finished),
+        _entry(_dune, ReadingStatus.reading),
       ], series);
+      await controller.makeSeries('Dune');
 
-      expect(
-        (await controller.startSeries('Dune')).message,
-        "You've read every book in Dune we know about.",
-      );
-      expect(
-        (await controller.startSeries('Discworld')).message,
-        contains('No series called "Discworld" yet'),
-      );
+      final result = await controller.addToSeries('Dune', 'Dune');
+      expect(result.success, isFalse);
+      expect(result.message, "You're offline");
+      expect(controller.match('Dune')!.seriesId, isNull);
     });
   });
 }

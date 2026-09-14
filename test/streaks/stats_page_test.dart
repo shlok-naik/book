@@ -1,3 +1,5 @@
+import 'package:book/core/purchases/entitlements.dart';
+import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/goals/presentation/controllers/goal_controller.dart';
 import 'package:book/features/goals/presentation/goal_scope.dart';
@@ -12,13 +14,51 @@ import 'package:book/features/library/domain/reading_event.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
 import 'package:book/features/library/presentation/library_scope.dart';
+import 'package:book/features/paywall/presentation/pages/paywall_page.dart';
 import 'package:book/features/streaks/presentation/pages/stats_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 
 import '../support/fake_goals.dart';
+
+class _FakePurchasesService extends PurchasesService {
+  _FakePurchasesService({required this.info});
+
+  final CustomerInfo info;
+
+  @override
+  Future<CustomerInfo> get customerInfo async => info;
+}
+
+CustomerInfo _customerInfo({required bool pro}) {
+  final entitlements = pro
+      ? {
+          Entitlements.cactusPro: const EntitlementInfo(
+            Entitlements.cactusPro,
+            true,
+            true,
+            '2024-01-01T00:00:00Z',
+            '2024-01-01T00:00:00Z',
+            'yearly',
+            false,
+          ),
+        }
+      : const <String, EntitlementInfo>{};
+  return CustomerInfo(
+    EntitlementInfos(entitlements, entitlements),
+    const {},
+    const [],
+    const [],
+    const [],
+    '2024-01-01T00:00:00Z',
+    'fake-user-id',
+    const {},
+    '2024-01-01T00:00:00Z',
+  );
+}
 
 /// The streak page as a journal: every logged command rendered back as
 /// text, grouped under the day it happened. What matters here is the
@@ -72,6 +112,7 @@ Future<GoalController> pumpJournal(
   List<ReadingEvent> rows, {
   List<LibraryBook> books = const [],
   int? goal,
+  PurchasesService? purchases,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.625;
@@ -88,7 +129,18 @@ Future<GoalController> pumpJournal(
       controller: goals,
       child: LibraryScope(
         controller: controller,
-        child: MaterialApp(theme: AppTheme.light, home: const StatsPage()),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          // Pro by default — what the journal itself renders is what
+          // most of this file is testing, and that's only reachable
+          // once it's unlocked. The `pro gate` group below covers the
+          // locked state on its own.
+          home: StatsPage(
+            purchases:
+                purchases ??
+                _FakePurchasesService(info: _customerInfo(pro: true)),
+          ),
+        ),
       ),
     ),
   );
@@ -322,5 +374,63 @@ void main() {
         expect(find.text('steady pace'), findsOneWidget);
       },
     );
+  });
+
+  group('pro gate', () {
+    const cta = 'cactus pro unlocks your full reading journal — tap to upgrade';
+
+    testWidgets('a free reader sees a locked preview, not the real journal', (
+      tester,
+    ) async {
+      await pumpJournal(tester, [
+        ReadingEvent(
+          type: ReadingEventType.start,
+          occurredAt: DateTime.utc(2026, 1, 1),
+          title: 'Neuromancer',
+        ),
+      ], purchases: _FakePurchasesService(info: _customerInfo(pro: false)));
+
+      expect(find.text('journal'), findsOneWidget);
+      expect(find.text(cta), findsOneWidget);
+      expect(find.textContaining('Neuromancer'), findsNothing);
+      expect(find.text('started The Hobbit'), findsOneWidget);
+    });
+
+    testWidgets('a pro reader sees the real journal, not the locked preview', (
+      tester,
+    ) async {
+      await pumpJournal(tester, [
+        ReadingEvent(
+          type: ReadingEventType.start,
+          occurredAt: DateTime.utc(2026, 1, 1),
+          title: 'Neuromancer',
+        ),
+      ], purchases: _FakePurchasesService(info: _customerInfo(pro: true)));
+
+      expect(find.text('started Neuromancer'), findsOneWidget);
+      expect(find.text(cta), findsNothing);
+      expect(find.text('started The Hobbit'), findsNothing);
+    });
+
+    testWidgets('tapping the locked journal reaches the paywall', (
+      tester,
+    ) async {
+      await pumpJournal(
+        tester,
+        [],
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+      );
+
+      final row = find.text(cta);
+      await tester.scrollUntilVisible(
+        row,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PaywallPage), findsOneWidget);
+    });
   });
 }

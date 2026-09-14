@@ -7,6 +7,7 @@ import 'package:book/features/library/domain/book.dart';
 import 'package:book/features/library/domain/book_details_service.dart';
 import 'package:book/features/library/domain/book_edition.dart';
 import 'package:book/features/library/domain/book_note.dart';
+import 'package:book/features/library/domain/collections.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/presentation/controllers/book_detail_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -88,12 +89,12 @@ class FakeNotes extends BookNotesRepository {
   }
 
   @override
-  Future<BookTag> addTag(String userBookId, String tag) async {
+  Future<BookTag> addTag(String userBookId, ReaderTag tag) async {
     await _write();
     final saved = BookTag(
       id: 'tag-${tags.length}',
       userBookId: userBookId,
-      tag: tag,
+      tag: tag.name,
       createdAt: DateTime(2026),
     );
     tags.add(saved);
@@ -130,6 +131,19 @@ class FakeNotes extends BookNotesRepository {
   Future<void> deleteComment(String commentId) => _write();
 }
 
+/// The reader's made tags — the only names the tag field will apply.
+const _madeTags = [
+  ReaderTag(id: 'reader-tag-sci-fi', name: 'sci-fi'),
+  ReaderTag(id: 'reader-tag-cosy', name: 'cosy'),
+];
+
+ReaderTag? _findMadeTag(String name) {
+  for (final tag in _madeTags) {
+    if (tag.name.toLowerCase() == name.trim().toLowerCase()) return tag;
+  }
+  return null;
+}
+
 void main() {
   late FakeDetailsService details;
   late FakeNotes notes;
@@ -143,6 +157,7 @@ void main() {
       book: _dune,
       details: details,
       notes: notes,
+      findTag: _findMadeTag,
     );
   });
 
@@ -239,8 +254,26 @@ void main() {
     test('rejects an empty tag without writing', () async {
       final result = await controller.addTag('   ');
       expect(result.success, isFalse);
-      expect(result.message, 'Type a tag first.');
+      expect(result.message, 'Name the tag first.');
     });
+
+    test(
+      'refuses a tag that was never made, rather than creating it',
+      () async {
+        await controller.load();
+
+        final result = await controller.addTag('space opera');
+
+        expect(result.success, isFalse);
+        expect(
+          result.message,
+          'No tag called "space opera" yet — make it first with make tag '
+          'space opera.',
+        );
+        expect(controller.tags.data, isEmpty);
+        expect(notes.tags, isEmpty);
+      },
+    );
 
     test('rolls back a failed remove', () async {
       await controller.addTag('sci-fi');
@@ -307,6 +340,7 @@ void main() {
       book: _dune,
       details: slow,
       notes: notes,
+      findTag: _findMadeTag,
     );
     final loading = early.loadDetails();
     early.dispose();

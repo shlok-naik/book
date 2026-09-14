@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- `start isbn` opens the camera to scan a book's barcode. Not
+         `required` — a device with no camera can still install and use
+         every other feature. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="cactus"
         android:name="${applicationName}"
