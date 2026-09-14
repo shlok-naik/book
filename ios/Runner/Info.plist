@@ -144,6 +144,9 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- `start isbn` opens the camera to scan a book's barcode. -->
+	<key>NSCameraUsageDescription</key>
+	<string>cactus uses your camera to scan a book's ISBN barcode when you start it with "start isbn".</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

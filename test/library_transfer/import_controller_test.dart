@@ -5,6 +5,7 @@ import 'package:book/features/library/data/reading_event_repository.dart';
 import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
+import 'package:book/features/library/domain/book_series.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
@@ -16,6 +17,8 @@ import 'package:book/features/library_transfer/presentation/controllers/import_c
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import '../support/fake_collections.dart';
 
 const _csv =
     'Title,Author,ISBN13,My Rating,Exclusive Shelf,Date Read,Bookshelves\n'
@@ -88,6 +91,19 @@ class _Transfer extends LibraryTransferRepository {
 
 class _Series extends BookSeriesRepository {
   final filed = <(String, String, double?)>[];
+  final made = <String>[];
+
+  /// The import makes each series before filing into it — the same
+  /// make-first path as `make series`.
+  @override
+  Future<MadeSeries> makeSeries(String name) async {
+    made.add(name);
+    return MadeSeries(
+      BookSeries(id: 'series-$name', name: name),
+      createdNew: true,
+      alreadyYours: false,
+    );
+  }
 
   @override
   Future<Book> setSeries(
@@ -120,12 +136,14 @@ void main() {
   late _Transfer transfer;
   late _Series series;
   late _Shelf shelf;
+  late FakeCollectionsRepository collections;
 
   ImportController build({int networkFailures = 0, LibraryException? fail}) {
     lookup = _Lookup(networkFailures: networkFailures);
     transfer = _Transfer(failure: fail);
     series = _Series();
     shelf = _Shelf();
+    collections = FakeCollectionsRepository();
     return ImportController(
       lookup: lookup,
       transfer: transfer,
@@ -134,6 +152,8 @@ void main() {
         lookup: lookup,
         userBooks: shelf,
         events: _Events(),
+        collections: collections,
+        series: series,
       ),
       concurrency: 2,
       retryDelay: Duration.zero,
@@ -175,7 +195,13 @@ void main() {
     expect(dune.rating, 5);
     expect(dune.finishedAt, DateTime(2024, 3, 17, 12));
     expect(dune.tags, ['sci-fi']);
+    expect(
+      collections.tags.map((t) => t.name),
+      ['sci-fi'],
+      reason: "the file's tags are made before the replace links them",
+    );
     expect(transfer.replaced![1].currentPage, 0);
+    expect(series.made, ['Dune'], reason: 'made first, never implicitly');
     expect(series.filed, [('dune', 'Dune', 1.0)]);
     expect(shelf.loads, greaterThan(0));
   });

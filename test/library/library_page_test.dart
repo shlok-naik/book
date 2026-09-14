@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
+import 'package:book/features/library/data/book_series_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
 import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
+import 'package:book/features/library/domain/book_series.dart';
+import 'package:book/features/library/domain/collections.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/user_book.dart';
@@ -23,6 +26,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import '../support/fake_collections.dart';
 
 const _dune = Book(
   id: 'book-1',
@@ -91,6 +96,21 @@ class StubUserBookRepository extends UserBookRepository {
   }
 }
 
+/// The reader's series list, in memory — the "+" panel's series tab.
+class _StubSeries extends BookSeriesRepository {
+  final mine = <BookSeries>[];
+
+  @override
+  Future<List<BookSeries>> fetchMySeries() async => List.of(mine);
+
+  @override
+  Future<MadeSeries> makeSeries(String name) async {
+    final made = BookSeries(id: 'series-${mine.length}', name: name.trim());
+    mine.add(made);
+    return MadeSeries(made, createdNew: true, alreadyYours: false);
+  }
+}
+
 class UnusedCache extends BookCacheRepository {
   @override
   Future<Book?> findByTitle(String title, {String? author}) async => null;
@@ -108,10 +128,12 @@ LibraryBook _entry(
   bool toBeRead = false,
   bool dnf = false,
   double? rating,
+  String? shelfId,
 }) {
   return LibraryBook(
     book: book,
     progress: UserBook(
+      shelfId: shelfId,
       id: 'progress-${book.id}',
       bookId: book.id,
       currentPage: page,
@@ -131,6 +153,7 @@ void main() {
   LibraryController controllerFor(
     List<LibraryBook> rows, {
     LibraryException? failure,
+    FakeCollectionsRepository? collections,
   }) {
     return LibraryController(
       lookup: BookLookupService(
@@ -140,6 +163,8 @@ void main() {
         ),
       ),
       userBooks: StubUserBookRepository(rows, failure: failure),
+      collections: collections ?? FakeCollectionsRepository(),
+      series: _StubSeries(),
     );
   }
 
@@ -788,6 +813,158 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+  });
+
+  group('making shelves, tags and series from the "+" panel', () {
+    Future<void> openPanel(WidgetTester tester) async {
+      await tester.tap(find.byKey(const ValueKey('library-make-collections')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the "+" sits beside search and opens a three-tab panel', (
+      tester,
+    ) async {
+      await pumpPage(tester, controllerFor([]));
+
+      expect(
+        find.bySemanticsLabel('Make a shelf, tag or series'),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('Search library'), findsOneWidget);
+      final plus = tester.getCenter(
+        find.byKey(const ValueKey('library-make-collections')),
+      );
+      final search = tester.getCenter(find.byIcon(Icons.search));
+      expect(plus.dy, search.dy, reason: 'same row');
+      expect(plus.dx, lessThan(search.dx), reason: 'just before search');
+
+      await openPanel(tester);
+
+      expect(find.text('shelves'), findsOneWidget);
+      expect(find.text('tags'), findsOneWidget);
+      expect(find.text('series'), findsOneWidget);
+    });
+
+    testWidgets('making a shelf adds it to the panel and as a new empty '
+        'section on the page', (tester) async {
+      final collections = FakeCollectionsRepository();
+      final controller = controllerFor([
+        _entry(_dune, page: 120),
+      ], collections: collections);
+      await pumpPage(tester, controller);
+      await openPanel(tester);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('make-shelf-field')),
+        'summer reads',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-shelf-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Made shelf "summer reads"'), findsOneWidget);
+      expect(collections.shelves.single.name, 'summer reads');
+
+      // A duplicate is refused through the same rule `make shelf` uses.
+      await tester.enterText(
+        find.byKey(const ValueKey('make-shelf-field')),
+        'Summer Reads',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-shelf-button')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('You already have a shelf "Summer Reads".'),
+        findsOneWidget,
+      );
+      expect(collections.creates, 1);
+
+      Navigator.of(tester.element(find.text('make'))).pop();
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('empty-shelf-custom-shelf-1')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('summer reads'), findsOneWidget);
+    });
+
+    testWidgets('a built-in shelf name is refused in the panel', (
+      tester,
+    ) async {
+      await pumpPage(tester, controllerFor([]));
+      await openPanel(tester);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('make-shelf-field')),
+        'finished',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-shelf-button')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('"finished" is already one of your built-in shelves.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the tags and series tabs make their own kind', (tester) async {
+      final controller = controllerFor([]);
+      await pumpPage(tester, controller);
+      await openPanel(tester);
+
+      await tester.tap(find.byKey(const ValueKey('collections-tab-tags')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('make-tag-field')),
+        'sci-fi',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-tag-button')));
+      await tester.pumpAndSettle();
+      expect(controller.tags.single.name, 'sci-fi');
+      expect(controller.shelves, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('collections-tab-series')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('make-series-field')),
+        'The Expanse',
+      );
+      await tester.tap(find.byKey(const ValueKey('make-series-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('Made series "The Expanse"'), findsOneWidget);
+      expect(controller.mySeries.single.name, 'The Expanse');
+      expect(controller.tags, hasLength(1));
+    });
+
+    testWidgets('a book on a custom shelf shows under that shelf, and screen '
+        'readers can move books onto it', (tester) async {
+      const summer = Shelf(id: 'shelf-summer', name: 'summer reads');
+      await pumpPage(
+        tester,
+        controllerFor([
+          _entry(_dune, page: 120, shelfId: summer.id),
+          _entry(_noCover, page: 30),
+        ], collections: FakeCollectionsRepository(shelves: [summer])),
+      );
+
+      expect(emptyShelf(ReadingStatus.reading), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('shelf-heading-custom-shelf-summer')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('summer reads'), findsOneWidget);
+
+      final semantics = tester.ensureSemantics();
+      final node = tester.getSemantics(
+        find.bySemanticsLabel(RegExp('^Pale Fire')),
+      );
+      final labels = node.getSemanticsData().customSemanticsActionIds!.map(
+        (id) => CustomSemanticsAction.getAction(id)!.label,
+      );
+      expect(labels, contains('Move to summer reads'));
+      semantics.dispose();
     });
   });
 }

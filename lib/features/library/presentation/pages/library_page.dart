@@ -13,6 +13,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../logging/presentation/widgets/confirmation_pill.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/book_series.dart';
+import '../../domain/collections.dart';
 import '../../domain/library_book.dart';
 import '../../domain/library_search.dart';
 import '../../domain/user_book.dart';
@@ -20,30 +21,58 @@ import '../controllers/library_controller.dart';
 import '../library_scope.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/book_tile.dart';
+import '../widgets/collections_sheet.dart';
 import 'book_detail_page.dart';
 import 'series_page.dart';
 
-/// One shelf section on the page: which status it holds and what it's
+/// One shelf section on the page: which shelf it holds and what it's
 /// called — on screen (lowercase, like every heading in the app) and to a
 /// screen reader.
-typedef _Shelf = ({ReadingStatus status, String label, String spoken});
+typedef _Shelf = ({ShelfRef ref, String label, String spoken});
 
-/// Section order on the page — reading-journey order.
-const List<_Shelf> _shelves = [
-  (status: ReadingStatus.reading, label: 'reading', spoken: 'Reading'),
-  (status: ReadingStatus.toBeRead, label: 'to read', spoken: 'To read'),
-  (status: ReadingStatus.finished, label: 'finished', spoken: 'Finished'),
+/// The built-in sections, in reading-journey order.
+const List<_Shelf> _builtInShelves = [
   (
-    status: ReadingStatus.dnf,
+    ref: StatusShelfRef(ReadingStatus.reading),
+    label: 'reading',
+    spoken: 'Reading',
+  ),
+  (
+    ref: StatusShelfRef(ReadingStatus.toBeRead),
+    label: 'to read',
+    spoken: 'To read',
+  ),
+  (
+    ref: StatusShelfRef(ReadingStatus.finished),
+    label: 'finished',
+    spoken: 'Finished',
+  ),
+  (
+    ref: StatusShelfRef(ReadingStatus.dnf),
     label: 'did not finish',
     spoken: 'Did not finish',
   ),
 ];
 
-/// The reader's shelf: four sections — reading, to read, finished, did not
-/// finish — each a cover grid, always all four, whether or not a section
-/// has anything in it yet. An empty section is its heading over a quiet
-/// empty area, not copy telling the reader it's empty.
+/// Every section on the page, in page order: the four built-in shelves,
+/// then the reader's own shelves oldest first.
+List<_Shelf> _shelvesOf(LibraryController controller) => [
+  ..._builtInShelves,
+  for (final shelf in controller.shelves)
+    (ref: CustomShelfRef(shelf.id), label: shelf.name, spoken: shelf.name),
+];
+
+/// A stable key fragment for a section — `reading`, `custom-<id>`.
+String _shelfKey(ShelfRef ref) => switch (ref) {
+  StatusShelfRef(:final status) => status.name,
+  CustomShelfRef(:final shelfId) => 'custom-$shelfId',
+};
+
+/// The reader's shelf: the four built-in sections — reading, to read,
+/// finished, did not finish — then one per shelf the reader made, each a
+/// cover grid, always all of them, whether or not a section has anything in
+/// it yet. An empty section is its heading over a quiet empty area, not copy
+/// telling the reader it's empty.
 ///
 /// Purely a view — it reads [LibraryController] out of [LibraryScope]
 /// and rebuilds when it notifies, so a progress update from the log page
@@ -63,7 +92,7 @@ const List<_Shelf> _shelves = [
 /// * an empty section's area — outlined and tinted while hovered.
 ///
 /// The drop is [LibraryController.moveBook], which applies the same
-/// shelf-change side effects as a typed `add shelf` command and rolls the
+/// shelf-change side effects as a typed `move` command and rolls the
 /// whole shelf back if it can't be saved. While one move is being saved,
 /// no book can be picked up and keyboard moves are ignored, so two moves
 /// never race each other's rollback.
@@ -71,6 +100,13 @@ const List<_Shelf> _shelves = [
 /// The same moves exist without a pointer: screen-reader custom actions
 /// on every tile, and keyboard shortcuts on a focused one (Alt+↑/↓ to the
 /// previous/next shelf, Alt+←/→ earlier/later within its shelf).
+///
+/// ## Making shelves, tags and series
+///
+/// The "+" beside the search icon opens [showCollectionsSheet]: a panel with
+/// shelves, tags and series tabs, each making one through the same
+/// `LibraryController` function its `make` command uses. A shelf made there
+/// appears here as a new empty section straight away.
 ///
 /// ## Series and search
 ///
@@ -120,13 +156,28 @@ class _LibraryPageState extends State<LibraryPage> {
   /// visit to the library always opens every shelf again. Ignored while
   /// searching: collapsing a shelf and then finding a match in it should
   /// still show that match rather than hide it.
-  final _collapsed = <ReadingStatus>{};
+  final _collapsed = <ShelfRef>{};
 
-  void _toggleCollapsed(ReadingStatus status) {
+  void _toggleCollapsed(ShelfRef shelf) {
     AppHaptics.selection();
     setState(() {
-      if (!_collapsed.add(status)) _collapsed.remove(status);
+      if (!_collapsed.add(shelf)) _collapsed.remove(shelf);
     });
+  }
+
+  Future<void> _openCollections() async {
+    AppHaptics.selection();
+    try {
+      await showCollectionsSheet(context);
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'LibraryPage',
+        'Opening the collections panel failed.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) _showMessage("We couldn't open that. Try again.");
+    }
   }
 
   /// Every tag on the shelf by `user_books` id, fetched when search opens
@@ -251,14 +302,14 @@ class _LibraryPageState extends State<LibraryPage> {
   /// throwing; the catch below is for anything it didn't anticipate, so an
   /// unexpected error still reads as a failed move rather than an unhandled
   /// exception with the pill never appearing.
-  Future<void> _move(String id, ReadingStatus status, int index) async {
+  Future<void> _move(String id, ShelfRef shelf, int index) async {
     _onDragEnded();
     if (_moving) return;
     setState(() => _moving = true);
 
     LibraryActionResult result;
     try {
-      result = await LibraryScope.read(context).moveBook(id, status, index);
+      result = await LibraryScope.read(context).moveBook(id, shelf, index);
     } on Object catch (error, stackTrace) {
       AppLogger.error(
         'LibraryPage',
@@ -331,6 +382,7 @@ class _LibraryPageState extends State<LibraryPage> {
                     child: _Header(
                       searching: _searching,
                       onToggleSearch: _toggleSearch,
+                      onOpenCollections: _openCollections,
                       searchField: _SearchField(
                         controller: _searchText,
                         focusNode: _searchFocus,
@@ -395,10 +447,11 @@ class _LibraryPageState extends State<LibraryPage> {
             ).contains(LibrarySearch.normalize(_query)))
           group,
     ];
+    final shelves = _shelvesOf(controller);
     final sections = {
-      for (final shelf in _shelves)
-        shelf.status: [
-          for (final entry in controller.section(shelf.status))
+      for (final shelf in shelves)
+        shelf.ref: [
+          for (final entry in controller.shelfSection(shelf.ref))
             if (!filtering || _visible(entry)) entry,
         ],
     };
@@ -416,40 +469,42 @@ class _LibraryPageState extends State<LibraryPage> {
         const SliverToBoxAdapter(child: _SeriesHeading()),
         SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
       ],
-      for (final shelf in _shelves)
-        if (!filtering || sections[shelf.status]!.isNotEmpty) ...[
+      for (final shelf in shelves)
+        if (!filtering || sections[shelf.ref]!.isNotEmpty) ...[
           SliverToBoxAdapter(
             child: _SectionHeading(
+              key: ValueKey('shelf-heading-${_shelfKey(shelf.ref)}'),
               shelf: shelf,
-              count: sections[shelf.status]!.length,
+              count: sections[shelf.ref]!.length,
               dragging: dragging,
-              collapsed: _collapsed.contains(shelf.status) && !filtering,
-              onToggleCollapse: () => _toggleCollapsed(shelf.status),
+              collapsed: _collapsed.contains(shelf.ref) && !filtering,
+              onToggleCollapse: () => _toggleCollapsed(shelf.ref),
               // Dropping on a heading puts the book first in that section.
-              onAccept: (id) => _move(id, shelf.status, 0),
+              onAccept: (id) => _move(id, shelf.ref, 0),
             ),
           ),
-          if (_collapsed.contains(shelf.status) && !filtering)
+          if (_collapsed.contains(shelf.ref) && !filtering)
             const SliverToBoxAdapter(child: SizedBox.shrink())
-          else if (sections[shelf.status]! case final entries
-              when entries.isEmpty)
+          else if (sections[shelf.ref]! case final entries when entries.isEmpty)
             SliverToBoxAdapter(
               child: _EmptyShelf(
-                key: ValueKey('empty-shelf-${shelf.status.name}'),
+                key: ValueKey('empty-shelf-${_shelfKey(shelf.ref)}'),
                 shelf: shelf,
                 dragging: dragging,
-                onAccept: (id) => _move(id, shelf.status, 0),
+                onAccept: (id) => _move(id, shelf.ref, 0),
               ),
             )
           else
             _BookGrid(
-              entries: sections[shelf.status]!,
-              status: shelf.status,
+              entries: sections[shelf.ref]!,
+              shelf: shelf.ref,
+              shelves: shelves,
               // Finished and dropped books are shown faded, so the shelves
-              // still in play stay the visually dominant ones.
+              // still in play stay the visually dominant ones. A custom
+              // shelf holds books of any status, so it never is.
               dimmed:
-                  shelf.status == ReadingStatus.finished ||
-                  shelf.status == ReadingStatus.dnf,
+                  shelf.ref == const StatusShelfRef(ReadingStatus.finished) ||
+                  shelf.ref == const StatusShelfRef(ReadingStatus.dnf),
               draggingId: _draggingId,
               canDrag: !_moving && !_searching,
               onDragStarted: _onDragStarted,
@@ -469,7 +524,8 @@ class _LibraryPageState extends State<LibraryPage> {
 class _BookGrid extends StatelessWidget {
   const _BookGrid({
     required this.entries,
-    required this.status,
+    required this.shelf,
+    required this.shelves,
     required this.draggingId,
     required this.canDrag,
     required this.onDragStarted,
@@ -481,7 +537,11 @@ class _BookGrid extends StatelessWidget {
   });
 
   final List<LibraryBook> entries;
-  final ReadingStatus status;
+  final ShelfRef shelf;
+
+  /// Every section on the page, in page order — where keyboard and
+  /// screen-reader moves can send a book.
+  final List<_Shelf> shelves;
   final bool dimmed;
   final String? draggingId;
   final bool canDrag;
@@ -490,7 +550,7 @@ class _BookGrid extends StatelessWidget {
   final VoidCallback onDragEnded;
 
   /// A book id moved to a section at an index within it.
-  final void Function(String id, ReadingStatus status, int index) onMove;
+  final void Function(String id, ShelfRef shelf, int index) onMove;
   final ValueChanged<LibraryBook> onOpen;
 
   static const _maxTileWidth = 150.0;
@@ -531,7 +591,8 @@ class _BookGrid extends StatelessWidget {
                 entry: entry,
                 index: index,
                 isLast: index == entries.length - 1,
-                status: status,
+                shelf: shelf,
+                shelves: shelves,
                 size: Size(tileWidth, tileHeight),
                 dimmed: dimmed,
                 canDrag: canDrag,
@@ -573,7 +634,8 @@ class _DraggableBookTile extends StatefulWidget {
     required this.entry,
     required this.index,
     required this.isLast,
-    required this.status,
+    required this.shelf,
+    required this.shelves,
     required this.size,
     required this.dimmed,
     required this.canDrag,
@@ -587,14 +649,15 @@ class _DraggableBookTile extends StatefulWidget {
   final LibraryBook entry;
   final int index;
   final bool isLast;
-  final ReadingStatus status;
+  final ShelfRef shelf;
+  final List<_Shelf> shelves;
   final Size size;
   final bool dimmed;
   final bool canDrag;
   final ValueChanged<String> onDragStarted;
   final ValueChanged<Offset> onDragUpdate;
   final VoidCallback onDragEnded;
-  final void Function(String id, ReadingStatus status, int index) onMove;
+  final void Function(String id, ShelfRef shelf, int index) onMove;
   final ValueChanged<LibraryBook> onOpen;
 
   @override
@@ -640,10 +703,11 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
   );
 
   void _moveToShelf(int step) {
-    final current = _shelves.indexWhere((s) => s.status == widget.status);
+    final shelves = widget.shelves;
+    final current = shelves.indexWhere((s) => s.ref == widget.shelf);
     final target = current + step;
-    if (target < 0 || target >= _shelves.length) return;
-    widget.onMove(widget.entry.id, _shelves[target].status, 0);
+    if (target < 0 || target >= shelves.length) return;
+    widget.onMove(widget.entry.id, shelves[target].ref, 0);
   }
 
   void _moveWithinShelf(int step) {
@@ -653,7 +717,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
     // which is removed before inserting (see ShelfRules.orderAfterDrop).
     widget.onMove(
       widget.entry.id,
-      widget.status,
+      widget.shelf,
       step < 0 ? widget.index - 1 : widget.index + 2,
     );
   }
@@ -738,7 +802,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
         setState(() => _hoverAfter = null);
         widget.onMove(
           details.data,
-          widget.status,
+          widget.shelf,
           widget.index + (after ? 1 : 0),
         );
       },
@@ -789,12 +853,11 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
   /// sight; these are the same moves by another route.
   Map<CustomSemanticsAction, VoidCallback> _moveActions() {
     final id = widget.entry.id;
-    final status = widget.status;
     return {
-      for (final shelf in _shelves)
-        if (shelf.status != status)
+      for (final shelf in widget.shelves)
+        if (shelf.ref != widget.shelf)
           CustomSemanticsAction(label: 'Move to ${shelf.label}'): () =>
-              widget.onMove(id, shelf.status, 0),
+              widget.onMove(id, shelf.ref, 0),
       if (widget.index > 0)
         const CustomSemanticsAction(label: 'Move earlier'): () =>
             _moveWithinShelf(-1),
@@ -811,6 +874,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
 /// no instructional text.
 class _SectionHeading extends StatelessWidget {
   const _SectionHeading({
+    super.key,
     required this.shelf,
     required this.count,
     required this.dragging,
@@ -862,7 +926,11 @@ class _SectionHeading extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                           color: active ? colors.accent : colors.secondaryText,
                         ),
-                        child: Text(shelf.label),
+                        child: Text(
+                          shelf.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       AnimatedContainer(
@@ -981,11 +1049,15 @@ class _Header extends StatelessWidget {
   const _Header({
     required this.searching,
     required this.onToggleSearch,
+    required this.onOpenCollections,
     required this.searchField,
   });
 
   final bool searching;
   final VoidCallback onToggleSearch;
+
+  /// The "+" — opens the shelves/tags/series panel.
+  final VoidCallback onOpenCollections;
   final Widget searchField;
 
   @override
@@ -1003,23 +1075,23 @@ class _Header extends StatelessWidget {
         children: [
           TopBar(
             title: 'library',
-            trailing: Semantics(
-              button: true,
-              label: searching ? 'Close search' : 'Search library',
-              excludeSemantics: true,
-              child: SizedBox(
-                width: 44,
-                height: 44,
-                child: InkResponse(
-                  onTap: onToggleSearch,
-                  radius: 22,
-                  child: Icon(
-                    searching ? Icons.close : Icons.search,
-                    size: 20,
-                    color: colors.secondaryText,
-                  ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _HeaderIcon(
+                  key: const ValueKey('library-make-collections'),
+                  icon: Icons.add,
+                  label: 'Make a shelf, tag or series',
+                  color: colors.secondaryText,
+                  onTap: onOpenCollections,
                 ),
-              ),
+                _HeaderIcon(
+                  icon: searching ? Icons.close : Icons.search,
+                  label: searching ? 'Close search' : 'Search library',
+                  color: colors.secondaryText,
+                  onTap: onToggleSearch,
+                ),
+              ],
             ),
           ),
           if (searching) ...[
@@ -1027,6 +1099,41 @@ class _Header extends StatelessWidget {
             searchField,
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// One 44×44 icon button in the library header — the "+" and search share
+/// it so they line up exactly.
+class _HeaderIcon extends StatelessWidget {
+  const _HeaderIcon({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: InkResponse(
+          onTap: onTap,
+          radius: 22,
+          child: Icon(icon, size: 20, color: color),
+        ),
       ),
     );
   }

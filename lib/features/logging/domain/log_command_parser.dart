@@ -1,48 +1,83 @@
 import 'command_catalog.dart';
 
 // Zero-cost, rule-based parser for Structured mode commands:
-// `start <book> [date]`, `update <book> <page> [date]`,
-// `update <book> <percent>% [date]`, `finish <book> [date]`,
-// `rate <book> <stars>`, `delete <book>`,
-// `add shelf <tbr|reading|finished|dnf> <book>`, `add tag <tag> <book>`,
-// `add comment <comment> <book>`, `series <series> [#n] <book>` and
-// `start series <series>` — the optional trailing date
-// (`YYYY-MM-DD`) on the first three backdates the reading event it
-// logs, so "I started Dune yesterday" (resolved to a concrete date by
-// cactus pro before it ever reaches this parser) logs — and streaks —
-// on that day rather than today. Plus two "cactus pro"-only commands
-// that only ever arrive as an AI-extracted line, never typed directly:
-// `remember <book> :: <note>` and `recommend <book> :: <reason>`.
-// Recognizing their syntax here doesn't make them free-plan features —
-// `HomePage` gates both behind `PlanController.isPro` at the point they'd
-// actually run, the same way every other pro-only surface in the app is
-// gated.
 //
-// The `add` family puts its own argument (the shelf, the tag, the
-// comment) *before* the book, so the title is always the free-form tail
-// of the line and never needs a terminator. Help text for every command
-// lives in [CommandCatalog], not here.
+//   start <book> [date]            start isbn [date]
+//   update <book> <page> [date]    update <book> <percent>% [date]
+//   finish <book> [date]           rate <book> <stars>
+//   delete <book>                  move <book> <shelf>
+//   make shelf <shelf name>        make tag <tag>
+//   make series <series name>      add tag <tag> <book>
+//   add series <series> [#n] <book>
+//   add comment <comment> <book>
+//
+// The optional trailing date (`YYYY-MM-DD`) on start/update/finish
+// backdates the reading event it logs, so "I started Dune yesterday"
+// (resolved to a concrete date by cactus pro before it ever reaches this
+// parser) logs — and streaks — on that day rather than today. Plus two
+// "cactus pro"-only commands that only ever arrive as an AI-extracted line,
+// never typed directly: `remember <book> :: <note>` and
+// `recommend <book> :: <reason>`. Recognizing their syntax here doesn't
+// make them free-plan features — `HomePage` gates both behind
+// `PlanController.isPro` at the point they'd actually run.
+//
+// ## Page or percent
+//
+// `update` reads a bare number as a *page* and a number followed by `%` as a
+// *percentage*: `update Dune 100` is page 100, `update Dune 100%` is the
+// whole book. A percentage is resolved to a page by `LibraryController`,
+// the only place that knows the book's length.
+//
+// ## Make first, apply after
+//
+// Shelves, tags and series are standalone collections. The `make` family
+// creates one and never touches a book; `move`, `add tag` and `add series`
+// apply an *existing* one and never create it. This parser only recognizes
+// the syntax — whether the named collection exists is the library's call
+// (see `LibraryController.moveToShelf`/`addTag`/`addToSeries`), which
+// answers an unknown name with the `make` command that would create it.
+//
+// ## Where the title ends
+//
+// The `add` family puts its own argument (the tag, the series, the comment)
+// *before* the book, so the title is always the free-form tail of the line.
+// `move` is the other way round — `move <book> <shelf>` — and both halves
+// can be several words, so a shelf in straight or curly double quotes is
+// split right here, and an unquoted line is handed to the library whole
+// (see [ParsedLogCommand.argument]) to split against the shelves that
+// actually exist. Help text for every command lives in [CommandCatalog].
 enum LogCommandType {
   start,
+
+  /// `start isbn` — opens the camera to scan a barcode instead of typing
+  /// a title; the scanned ISBN is what actually gets started, once the
+  /// scan resolves. Only ever entered by hand, never AI-extracted.
+  startIsbn,
   update,
   finish,
   rate,
   delete,
 
-  /// `add shelf <shelf> <book>`.
-  addShelf,
+  /// `move <book> <shelf>` — to a built-in or custom shelf.
+  move,
+
+  /// `make shelf <shelf name>`.
+  makeShelf,
+
+  /// `make tag <tag>`.
+  makeTag,
+
+  /// `make series <series name>`.
+  makeSeries,
 
   /// `add tag <tag> <book>`.
   addTag,
 
+  /// `add series <series> [#n] <book>`.
+  addSeries,
+
   /// `add comment <comment> <book>`.
   addComment,
-
-  /// `series <series> [#n] <book>`.
-  series,
-
-  /// `start series <series>`.
-  startSeries,
   remember,
   recommend,
   unknown,
@@ -63,6 +98,7 @@ class ParsedLogCommand {
     this.tag,
     this.series,
     this.seriesPosition,
+    this.argument,
   });
 
   /// Confirmation (or error/suggestion) text for the pill.
@@ -71,11 +107,11 @@ class ParsedLogCommand {
 
   final LogCommandType type;
 
-  /// The book the command refers to — null when unrecognized. For
-  /// `recommend` this is the *recommended* title, not one already on
-  /// the shelf. Also null for an *unquoted* `add comment`, where only the
-  /// shelf can tell where the comment ends and the title begins — see
-  /// [note].
+  /// The book the command refers to — null when unrecognized, and for the
+  /// `make` family, which never names one. For `recommend` this is the
+  /// *recommended* title, not one already on the shelf. Also null for an
+  /// *unquoted* `add comment` or `move`, where only the shelf can tell
+  /// where the title begins or ends — see [note] and [argument].
   final String? title;
 
   /// Page argument of `update`. Always a non-negative int when present;
@@ -106,46 +142,50 @@ class ParsedLogCommand {
   /// The optional trailing `YYYY-MM-DD` on `start`/`update`/`finish` —
   /// "I started Dune yesterday" resolves to this, on cactus pro, before
   /// ever reaching this parser (see `parse-command`'s prompt). Null
-  /// means "just now", same as before this existed. A plain calendar
-  /// date with no time component — callers that persist it should
-  /// treat it as local midnight on that day, not UTC.
+  /// means "just now". A plain calendar date with no time component —
+  /// callers that persist it should treat it as local midnight on that
+  /// day, not UTC.
   final DateTime? date;
 
-  /// `tbr`, `reading`, `finished` or `dnf` on `add shelf` — the raw
-  /// keyword, lowercased, not a `ReadingStatus`, so this file stays free
-  /// of any dependency on the library feature's domain;
-  /// `HomePage._applyToLibrary` is what maps it to one. Null for every
-  /// other command.
+  /// The shelf of `move` (quoted form) or `make shelf`, quotes removed and
+  /// spelled as typed — a built-in keyword (`tbr`, `reading`…) or a custom
+  /// shelf's name. Deliberately not resolved to a `ReadingStatus` or shelf
+  /// id here, so this file stays free of any dependency on the library
+  /// feature's domain. Null for every other command.
   final String? shelf;
 
-  /// The tag of `add tag`, surrounding quotes removed. Null for every
-  /// other command.
+  /// The tag of `add tag` or `make tag`, surrounding quotes removed. Null
+  /// for every other command.
   final String? tag;
 
-  /// The series name of `series` and `start series`, quotes removed.
+  /// The series name of `add series` and `make series`, quotes removed.
   final String? series;
 
-  /// The optional `#n` of `series` — 1, 2, or 1.5 for a novella.
+  /// The optional `#n` of `add series` — 1, 2, or 1.5 for a novella.
   final double? seriesPosition;
+
+  /// The whole `<book> <shelf>` of a `move` typed without quotes around the
+  /// shelf ("move dune summer reads"), with [title] and [shelf] both null:
+  /// `LibraryController.moveToShelfUnsplit` splits it against the shelves
+  /// that exist. Null for every other command, and for a quoted `move`.
+  final String? argument;
 }
 
 abstract final class LogCommandParser {
-  // Optional trailing `YYYY-MM-DD` on these three — lazy title capture
-  // means it always tries the *shortest* title first, so "start Dune
-  // 2026-08-31" splits into title "Dune" + date, rather than the date
-  // getting swallowed into the title (same reasoning `_updatePattern`
-  // already relies on for its own trailing number).
-  // `start series <series>` — checked before `start <book>`, which would
-  // otherwise read "series dune" as a title. The series name is the whole
-  // rest of the line, quoted or not.
-  static final _startSeriesPattern = RegExp(
-    r'^start\s+series\s+(?:"([^"]+)"|“([^”]+)”|(.+))$',
-    caseSensitive: false,
-  );
-  // `series <series> [#n] <book>` — one word, or a quoted name, like a tag;
-  // an optional `#2` numbers the book within the series.
-  static final _seriesPattern = RegExp(
-    r'^series\s+(?:"([^"]+)"|“([^”]+)”|(\S+))(?:\s+#(\d+(?:\.\d)?))?\s+(.+)$',
+  /// A name that is either one bare word or wrapped in straight or curly
+  /// double quotes. (Never single quotes: an apostrophe belongs to plenty of
+  /// real tags and titles.) Three capture groups — see [_quotedOrWord].
+  static const _quotedOrWordPattern = r'(?:"([^"]+)"|“([^”]+)”|(\S+))';
+
+  // Optional trailing `YYYY-MM-DD` on start/update/finish — lazy title
+  // capture means it always tries the *shortest* title first, so "start
+  // Dune 2026-08-31" splits into title "Dune" + date, rather than the date
+  // getting swallowed into the title.
+  //
+  // `start isbn [date]` — checked before `_startPattern`, which would
+  // otherwise happily read "isbn" as a (nonexistent) book title.
+  static final _startIsbnPattern = RegExp(
+    r'^start\s+isbn(?:\s+(\d{4}-\d{2}-\d{2}))?$',
     caseSensitive: false,
   );
   static final _startPattern = RegExp(
@@ -176,17 +216,34 @@ abstract final class LogCommandParser {
     r'^delete\s+(.+)$',
     caseSensitive: false,
   );
-  // `add shelf <shelf> <book>` — the shelf is a closed set of keywords,
-  // so everything after it is the title, whatever words that contains.
-  static final _addShelfPattern = RegExp(
-    '^add\\s+shelf\\s+(${CommandCatalog.shelves.join('|')})\\s+(.+)\$',
+  // `move <book> "<shelf>"` — the quoted form, split here.
+  static final _moveQuotedPattern = RegExp(
+    r'^move\s+(.+?)\s+(?:"([^"]+)"|“([^”]+)”)$',
     caseSensitive: false,
   );
-  // `add tag <tag> <book>` — one word, or a longer tag in straight or
-  // curly double quotes. (Never single quotes: an apostrophe belongs to
-  // plenty of real tags and titles.)
+  // `move <book> <shelf>` without quotes — at least two words, split later
+  // by the library (see [ParsedLogCommand.argument]). Must not end in a
+  // quote: a quote that never opened is a mistyped quoted shelf.
+  static final _movePattern = RegExp(
+    r'^move\s+(\S+(?:\s+\S+)*\s+[^"”\s]*[^"”\s])$',
+    caseSensitive: false,
+  );
+  // `make shelf|tag|series <name>` — the name is the whole rest of the line,
+  // with or without quotes, since nothing follows it.
+  static final _makePattern = RegExp(
+    r'^make\s+(shelf|tag|series)\s+(?:"([^"]*)"|“([^”]*)”|(.+))$',
+    caseSensitive: false,
+  );
+  // `add tag <tag> <book>` — one word, or a longer tag in quotes.
   static final _addTagPattern = RegExp(
-    r'^add\s+tag\s+(?:"([^"]+)"|“([^”]+)”|(\S+))\s+(.+)$',
+    '^add\\s+tag\\s+$_quotedOrWordPattern\\s+(.+)\$',
+    caseSensitive: false,
+  );
+  // `add series <series> [#n] <book>` — one word or a quoted name, like a
+  // tag; an optional `#2` numbers the book within the series.
+  static final _addSeriesPattern = RegExp(
+    '^add\\s+series\\s+$_quotedOrWordPattern'
+    '(?:\\s+#(\\d+(?:\\.\\d)?))?\\s+(.+)\$',
     caseSensitive: false,
   );
   // `add comment "<comment>" <book>` — the quoted form, where the split
@@ -226,13 +283,15 @@ abstract final class LogCommandParser {
     'finish',
     'rate',
     'delete',
+    'move',
+    'make',
     'add',
-    'series',
   ];
 
-  /// The second word of the `add` family — used to pick which of the three
-  /// usages to suggest for a mistyped `add` line.
-  static const _addKinds = ['shelf', 'tag', 'comment'];
+  /// The second word of the `add` and `make` families — used to pick which
+  /// usage to suggest for a mistyped line.
+  static const _addKinds = ['tag', 'series', 'comment'];
+  static const _makeKinds = ['shelf', 'tag', 'series'];
 
   static ParsedLogCommand parse(String input) {
     final text = input.trim();
@@ -305,44 +364,17 @@ abstract final class LogCommandParser {
       );
     }
 
-    final startSeries = _startSeriesPattern.firstMatch(text);
-    if (startSeries != null) {
-      final name =
-          (startSeries.group(1) ??
-                  startSeries.group(2) ??
-                  startSeries.group(3))!
-              .trim();
-      if (name.isNotEmpty) {
-        return ParsedLogCommand(
-          // The book isn't known until the library looks the series up, so
-          // the pill uses the library's message instead.
-          message: 'Started the next book in $name',
-          recognized: true,
-          type: LogCommandType.startSeries,
-          series: name,
-        );
-      }
-    }
-
-    final series = _seriesPattern.firstMatch(text);
-    if (series != null) {
-      final name = (series.group(1) ?? series.group(2) ?? series.group(3))!
-          .trim();
-      final position = series.group(4) == null
-          ? null
-          : double.tryParse(series.group(4)!);
-      final title = series.group(5)!.trim();
-      if (name.isNotEmpty && (series.group(4) == null || position != null)) {
-        final number = position == null ? '' : ' #${_formatStars(position)}';
-        return ParsedLogCommand(
-          message: 'Filed "$title" under $name$number',
-          recognized: true,
-          type: LogCommandType.series,
-          title: title,
-          series: name,
-          seriesPosition: position,
-        );
-      }
+    final startIsbn = _startIsbnPattern.firstMatch(text);
+    if (startIsbn != null) {
+      final date = _parseDate(startIsbn.group(1));
+      return ParsedLogCommand(
+        // The book isn't known until the scan resolves one, so the pill
+        // uses the library's own message once that happens.
+        message: 'Scan a book to start it',
+        recognized: true,
+        type: LogCommandType.startIsbn,
+        date: date,
+      );
     }
 
     final start = _startPattern.firstMatch(text);
@@ -369,28 +401,12 @@ abstract final class LogCommandParser {
       );
     }
 
-    final addShelf = _addShelfPattern.firstMatch(text);
-    if (addShelf != null) {
-      final shelf = addShelf.group(1)!.toLowerCase();
-      final title = addShelf.group(2)!.trim();
-      return ParsedLogCommand(
-        message: switch (shelf) {
-          'finished' => 'Added "$title" as finished',
-          'dnf' => 'Marked "$title" as DNF',
-          'reading' => 'Moved "$title" to reading',
-          _ => 'Added "$title" to read',
-        },
-        recognized: true,
-        type: LogCommandType.addShelf,
-        title: title,
-        shelf: shelf,
-      );
-    }
+    if (_parseMove(text) case final move?) return move;
+    if (_parseMake(text) case final make?) return make;
 
     final addTag = _addTagPattern.firstMatch(text);
     if (addTag != null) {
-      final tag = (addTag.group(1) ?? addTag.group(2) ?? addTag.group(3))!
-          .trim();
+      final tag = _quotedOrWord(addTag, 1);
       final title = addTag.group(4)!.trim();
       // `"  "` quotes around nothing but space match the pattern but are
       // not a tag; fall through to the "did you mean" suggestion.
@@ -401,6 +417,27 @@ abstract final class LogCommandParser {
           type: LogCommandType.addTag,
           title: title,
           tag: tag,
+        );
+      }
+    }
+
+    final addSeries = _addSeriesPattern.firstMatch(text);
+    if (addSeries != null) {
+      final name = _quotedOrWord(addSeries, 1);
+      final rawPosition = addSeries.group(4);
+      final position = rawPosition == null
+          ? null
+          : double.tryParse(rawPosition);
+      final title = addSeries.group(5)!.trim();
+      if (name.isNotEmpty && (rawPosition == null || position != null)) {
+        final number = position == null ? '' : ' #${_formatStars(position)}';
+        return ParsedLogCommand(
+          message: 'Filed "$title" under $name$number',
+          recognized: true,
+          type: LogCommandType.addSeries,
+          title: title,
+          series: name,
+          seriesPosition: position,
         );
       }
     }
@@ -465,33 +502,96 @@ abstract final class LogCommandParser {
     return ParsedLogCommand(message: _suggestionFor(text), recognized: false);
   }
 
+  /// `move <book> <shelf>`, quoted or not — null when the line isn't one.
+  static ParsedLogCommand? _parseMove(String text) {
+    final quoted = _moveQuotedPattern.firstMatch(text);
+    if (quoted != null) {
+      final title = quoted.group(1)!.trim();
+      final shelf = (quoted.group(2) ?? quoted.group(3))!.trim();
+      // `move Dune ""` names no shelf; fall through to the suggestion.
+      if (title.isEmpty || shelf.isEmpty) return null;
+      return ParsedLogCommand(
+        message: 'Moved "$title" to $shelf',
+        recognized: true,
+        type: LogCommandType.move,
+        title: title,
+        shelf: shelf,
+      );
+    }
+
+    final unquoted = _movePattern.firstMatch(text);
+    if (unquoted == null) return null;
+    return ParsedLogCommand(
+      // Neither the book nor the shelf is known until the library splits
+      // the line, so the pill uses the library's own message.
+      message: 'Moved',
+      recognized: true,
+      type: LogCommandType.move,
+      argument: unquoted.group(1)!.trim(),
+    );
+  }
+
+  /// `make shelf|tag|series <name>` — null when the line isn't one, or names
+  /// nothing (`make tag ""`).
+  static ParsedLogCommand? _parseMake(String text) {
+    final make = _makePattern.firstMatch(text);
+    if (make == null) return null;
+    final kind = make.group(1)!.toLowerCase();
+    final name = (make.group(2) ?? make.group(3) ?? make.group(4))!
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    if (name.isEmpty) return null;
+    return switch (kind) {
+      'shelf' => ParsedLogCommand(
+        message: 'Made shelf "$name"',
+        recognized: true,
+        type: LogCommandType.makeShelf,
+        shelf: name,
+      ),
+      'tag' => ParsedLogCommand(
+        message: 'Made tag "$name"',
+        recognized: true,
+        type: LogCommandType.makeTag,
+        tag: name,
+      ),
+      _ => ParsedLogCommand(
+        message: 'Made series "$name"',
+        recognized: true,
+        type: LogCommandType.makeSeries,
+        series: name,
+      ),
+    };
+  }
+
+  /// The name captured by [_quotedOrWordPattern] starting at group [first]:
+  /// the straight-quoted, curly-quoted or bare-word alternative, trimmed.
+  static String _quotedOrWord(RegExpMatch match, int first) =>
+      (match.group(first) ?? match.group(first + 1) ?? match.group(first + 2))!
+          .trim();
+
   /// Finds the closest known keyword to the input's first word (by edit
-  /// distance) and suggests its usage from [CommandCatalog] — for `add`,
-  /// the second word picks which of shelf/tag/comment. Falls back to a
-  /// generic hint.
+  /// distance) and suggests its usage from [CommandCatalog] — for `add` and
+  /// `make`, the second word picks which usage. Falls back to a generic
+  /// hint.
   static String _suggestionFor(String text) {
     final words = text.split(RegExp(r'\s+'));
     final closest = _closest(words.first.toLowerCase(), _keywords);
     if (closest != null) {
       var keyword = closest;
-      if (closest == 'start' &&
-          words.length > 1 &&
-          words[1].toLowerCase() == 'series') {
-        keyword = 'start series';
-      } else if (closest == 'add') {
+      if (closest == 'add' || closest == 'make') {
+        final kinds = closest == 'add' ? _addKinds : _makeKinds;
         final kind = words.length > 1
-            ? _closest(words[1].toLowerCase(), _addKinds)
+            ? _closest(words[1].toLowerCase(), kinds)
             : null;
-        keyword = 'add ${kind ?? 'shelf'}';
+        keyword = '$closest ${kind ?? kinds.first}';
       }
       final usage = CommandCatalog.byKeyword(keyword)?.syntax;
       if (usage != null) return 'Not recognized. Did you mean "$usage"?';
     }
     return 'Not recognized. Try "start Dune", "update Dune 120" (or '
-        '"update Dune 74%"), "finish Dune", "rate Dune 5", "delete Dune", '
-        '"add shelf tbr Dune", "add tag sci-fi Dune", "add comment '
-        'loved it Dune" or "series dune #1 Dune". Settings → commands '
-        'lists them all.';
+        '"update Dune 74%"), "finish Dune", "rate Dune 5", "move Dune tbr", '
+        '"make tag sci-fi", "add tag sci-fi Dune" or "add comment loved it '
+        'Dune". Settings → commands lists them all.';
   }
 
   static const _months = [

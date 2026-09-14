@@ -62,7 +62,12 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   late final PurchasesService _purchases =
       widget.purchases ?? const PurchasesService();
 
-  static const _pages = [MemoryPage(), StatsPage(), LibraryPage(), HomePage()];
+  late final _pages = [
+    const MemoryPage(),
+    StatsPage(purchases: widget.purchases),
+    const LibraryPage(),
+    const HomePage(),
+  ];
 
   /// Reloads are skipped when the app was only away briefly.
   static const _staleAfter = Duration(minutes: 1);

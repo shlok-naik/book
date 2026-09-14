@@ -46,10 +46,11 @@ class CommandWall extends StatelessWidget {
       'finish 1984',
     ],
     [
-      'add shelf tbr Middlemarch',
-      'add shelf finished The Bell Jar',
-      'add shelf tbr Piranesi',
-      'add shelf dnf Beloved',
+      'move Middlemarch tbr',
+      'make shelf summer reads',
+      'move The Bell Jar finished',
+      'move Piranesi "summer reads"',
+      'move Beloved dnf',
     ],
   ];
 

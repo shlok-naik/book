@@ -11,7 +11,6 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/confirm_dialog.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_progress_view.dart';
-import '../../../library/domain/user_book.dart' show ReadingStatus;
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../memory/presentation/memory_scope.dart';
@@ -23,6 +22,7 @@ import '../widgets/confirmation_pill.dart';
 import '../widgets/currently_reading_card.dart';
 import '../widgets/instruction_row.dart';
 import '../widgets/reading_streak.dart';
+import 'isbn_scanner_page.dart';
 
 /// One AI-extracted command line and where it stands in its own
 /// execution — see [InstructionState].
@@ -192,12 +192,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
     // The parser's own optimistic message is the pill text for every
     // command — except the ones it couldn't name a book for (an unquoted
-    // `add comment`), where only the library's result knows which book.
+    // `add comment` or `move`, and the `make` family), where only the
+    // library's result knows which book, shelf or stored name it was; and
+    // every `move`, where only the library knows whether the book was added
+    // or moved, and what the shelf is really called.
     final libraryMessage = outcome?.message;
+    final preferLibrary =
+        parsed.title == null || parsed.type == LogCommandType.move;
     return (
       success: true,
       cancelled: false,
-      message: parsed.title == null && libraryMessage != null
+      message: preferLibrary && libraryMessage != null
           ? libraryMessage
           : parsed.message,
     );
@@ -266,8 +271,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // recommend request; it's cheap and the edge function itself
         // decides whether to use it.
         libraryTitles: [
-          for (final book in [...library.inProgress, ...library.finished])
-            book.book.title,
+          // Every book being read or finished, whichever shelf it sits on.
+          for (final book in library.books)
+            if (book.isReading || book.isFinished) book.book.title,
         ],
         memoryNotes: [
           for (final entry in memory.memories)
@@ -387,14 +393,34 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       return library.addComment(note);
     }
 
-    if (command.type == LogCommandType.startSeries) {
-      final name = command.series;
-      if (name == null || name.isEmpty) {
+    if (command.type == LogCommandType.startIsbn) {
+      return _startByIsbnScan(library, loggedAt: command.date);
+    }
+
+    // An unquoted `move` has no title either — only the shelves that exist
+    // can say where the title ends and the shelf name begins.
+    if (command.type == LogCommandType.move && command.title == null) {
+      final argument = command.argument;
+      if (argument == null || argument.isEmpty) {
         return Future.value(
-          const LibraryActionResult.failure('Name the series to start.'),
+          const LibraryActionResult.failure('Name a book and a shelf.'),
         );
       }
-      return library.startSeries(name);
+      return library.moveToShelfUnsplit(argument);
+    }
+
+    // The `make` family names a collection, never a book, so it is routed
+    // before the title check. Each goes to the same creation function the
+    // library page's "+" panel uses.
+    switch (command.type) {
+      case LogCommandType.makeShelf:
+        return library.makeShelf(command.shelf ?? '');
+      case LogCommandType.makeTag:
+        return library.makeTag(command.tag ?? '');
+      case LogCommandType.makeSeries:
+        return library.makeSeries(command.series ?? '');
+      default:
+        break;
     }
 
     final title = command.title;
@@ -456,14 +482,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         return library.finishBook(title, loggedAt: command.date);
       case LogCommandType.delete:
         return _confirmDelete(library, title);
-      case LogCommandType.addShelf:
-        final status = switch (command.shelf) {
-          'reading' => ReadingStatus.reading,
-          'finished' => ReadingStatus.finished,
-          'dnf' => ReadingStatus.dnf,
-          _ => ReadingStatus.toBeRead,
-        };
-        return library.addToShelf(title, status);
+      case LogCommandType.move:
+        // Only the quoted form gets here — an unquoted move has no title
+        // and was routed at the top of this method.
+        final shelf = command.shelf;
+        if (shelf == null || shelf.isEmpty) {
+          return Future.value(
+            const LibraryActionResult.failure('Name the shelf to move it to.'),
+          );
+        }
+        return library.moveToShelf(title, shelf);
       case LogCommandType.addTag:
         final tag = command.tag;
         if (tag == null || tag.isEmpty) {
@@ -476,15 +504,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // Only the quoted form gets here — an unquoted comment has no
         // title and was routed at the top of this method.
         return library.addComment(command.note ?? '', title: title);
-      case LogCommandType.series:
+      case LogCommandType.addSeries:
         final name = command.series;
         if (name == null || name.isEmpty) {
           return Future.value(
             const LibraryActionResult.failure('Name the series first.'),
           );
         }
-        return library.setSeries(title, name, position: command.seriesPosition);
-      case LogCommandType.startSeries:
+        return library.addToSeries(
+          title,
+          name,
+          position: command.seriesPosition,
+        );
+      case LogCommandType.startIsbn:
+      case LogCommandType.makeShelf:
+      case LogCommandType.makeTag:
+      case LogCommandType.makeSeries:
+        // Handled above, before the title check — never reached.
         return Future.value(null);
       case LogCommandType.rate:
         final rating = command.rating;
@@ -499,6 +535,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.unknown:
         return Future.value(null);
     }
+  }
+
+  /// `start isbn` — opens the camera and, once it scans a barcode, starts
+  /// whatever book that ISBN resolves to. Backing out of the camera
+  /// (the header's back chevron) is a cancel, not a failure, same as
+  /// backing out of the delete confirmation above.
+  Future<LibraryActionResult> _startByIsbnScan(
+    LibraryController library, {
+    DateTime? loggedAt,
+  }) async {
+    final isbn = await scanIsbn(context);
+    if (!mounted) return const LibraryActionResult.cancelled(null);
+    if (isbn == null) {
+      return const LibraryActionResult.cancelled('Kept looking');
+    }
+    return library.startBookByIsbn(isbn, loggedAt: loggedAt);
   }
 
   /// `delete` asks first: it takes the book's tags, comments and journal

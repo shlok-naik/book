@@ -13,6 +13,7 @@ import 'package:book/features/library/domain/book_details_service.dart';
 import 'package:book/features/library/domain/book_edition.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
 import 'package:book/features/library/domain/book_note.dart';
+import 'package:book/features/library/domain/collections.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
@@ -29,6 +30,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import '../support/fake_collections.dart';
 
 const _dune = Book(
   id: 'book-1',
@@ -173,11 +176,11 @@ class _Notes extends BookNotesRepository {
       List.of(comments);
 
   @override
-  Future<BookTag> addTag(String userBookId, String tag) async {
+  Future<BookTag> addTag(String userBookId, ReaderTag tag) async {
     final saved = BookTag(
       id: 'tag-${tags.length}',
       userBookId: userBookId,
-      tag: tag,
+      tag: tag.name,
       createdAt: DateTime(2026),
     );
     tags.add(saved);
@@ -271,6 +274,10 @@ void main() {
       events: _Events(),
       notes: notes,
       details: details,
+      // The tag field only applies tags that were made first.
+      collections: FakeCollectionsRepository(
+        tags: const [ReaderTag(id: 'reader-tag-sci-fi', name: 'sci-fi')],
+      ),
     );
     addTearDown(library.dispose);
     await library.load();

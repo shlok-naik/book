@@ -2,12 +2,12 @@ import 'library_exception.dart';
 
 /// Where the reader is with a book.
 enum ReadingStatus {
-  /// `add shelf tbr <book>` — queued, never opened yet.
+  /// `move <book> tbr` — queued, never opened yet.
   toBeRead,
   reading,
   finished,
 
-  /// `add shelf dnf <book>` — dropped. A reason, if the reader wants to
+  /// `move <book> dnf` — dropped. A reason, if the reader wants to
   /// give one, is a comment on the book (`add comment <comment> <book>`).
   dnf;
 
@@ -46,6 +46,7 @@ class UserBook {
     this.rating,
     this.ownedEditionId,
     this.shelfPosition,
+    this.shelfId,
   });
 
   final String id;
@@ -75,10 +76,16 @@ class UserBook {
   /// trigger for why a status change resets it to null server-side.
   final double? shelfPosition;
 
+  /// The custom shelf (`make shelf`) this book is shown on, or null when it
+  /// sits on its [status] shelf. Independent of [status] — see `Shelf` — so
+  /// only `move` and a drag on the library page ever change it; `finish`,
+  /// `update` and friends leave a book on its custom shelf.
+  final String? shelfId;
+
   bool get isFinished => status == ReadingStatus.finished;
 
-  /// `clearFinishedAt`/`clearShelfPosition`/`clearOwnedEdition` exist
-  /// because a plain `null` argument can't be told apart from "not given" —
+  /// `clearFinishedAt`/`clearShelfPosition`/`clearOwnedEdition`/
+  /// `clearShelfId` exist because a plain `null` argument can't be told apart from "not given" —
   /// and each of those three genuinely needs to go back to null (a book
   /// moved off the finished shelf, a book moved into a new section, an
   /// edition deselected).
@@ -92,6 +99,8 @@ class UserBook {
     bool clearOwnedEdition = false,
     double? shelfPosition,
     bool clearShelfPosition = false,
+    String? shelfId,
+    bool clearShelfId = false,
   }) {
     return UserBook(
       id: id,
@@ -107,6 +116,7 @@ class UserBook {
       shelfPosition: clearShelfPosition
           ? null
           : shelfPosition ?? this.shelfPosition,
+      shelfId: clearShelfId ? null : shelfId ?? this.shelfId,
     );
   }
 
@@ -142,6 +152,7 @@ class UserBook {
           ? row['owned_edition_id'] as String
           : null,
       shelfPosition: _parseDouble(row['shelf_position']),
+      shelfId: row['shelf_id'] is String ? row['shelf_id'] as String : null,
     );
   }
 

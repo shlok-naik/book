@@ -68,15 +68,17 @@ class _FakeSeries extends BookSeriesRepository {
     );
   }
 
+  /// The reader's own series list — what `add series` requires.
+  final mine = <BookSeries>[];
+
   @override
-  Future<BookSeries?> findByName(String name) async {
-    for (final book in catalogue) {
-      if (book.seriesName != null &&
-          book.seriesName!.toLowerCase() == name.trim().toLowerCase()) {
-        return BookSeries(id: book.seriesId!, name: book.seriesName!);
-      }
-    }
-    return null;
+  Future<List<BookSeries>> fetchMySeries() async => List.of(mine);
+
+  @override
+  Future<MadeSeries> makeSeries(String name) async {
+    final made = BookSeries(id: 'series-${name.toLowerCase()}', name: name);
+    mine.add(made);
+    return MadeSeries(made, createdNew: true, alreadyYours: false);
   }
 
   @override
@@ -168,18 +170,6 @@ void main() {
       );
     });
 
-    test('next to read skips finished and dropped books', () {
-      final shelf = {
-        _dune.id: _entry(_dune, ReadingStatus.finished),
-        _messiah.id: _entry(_messiah, ReadingStatus.dnf),
-      };
-      expect(
-        BookSeries.nextToRead([_messiah, _dune, _children], shelf),
-        _children,
-      );
-      expect(BookSeries.nextToRead([_dune], shelf), isNull);
-    });
-
     test('names match ignoring case and spacing', () {
       const series = BookSeries(id: 's', name: 'The Expanse');
       expect(series.matches('  the   expanse '), isTrue);
@@ -252,35 +242,59 @@ void main() {
   });
 
   group('LibraryController series commands', () {
-    test('series files a shelf book and updates it locally', () async {
+    test('add series files a shelf book under a series made first and '
+        'updates it locally', () async {
       final series = _FakeSeries(catalogue: [_book('2', 'Dune Messiah')]);
       final (controller, _) = await _controller([
         _entry(_book('2', 'Dune Messiah'), ReadingStatus.toBeRead),
       ], series);
+      await controller.makeSeries('Dune');
 
-      final result = await controller.setSeries(
+      final result = await controller.addToSeries(
         'dune messiah',
-        'Dune',
+        'dune',
         position: 2,
       );
 
       expect(result.success, isTrue);
       expect(result.message, 'Filed "Dune Messiah" under Dune #2');
-      expect(series.calls.single, ('2', 'Dune', 2.0));
+      expect(
+        series.calls.single,
+        ('2', 'Dune', 2.0),
+        reason: 'filed under the stored spelling of the made series',
+      );
       expect(controller.match('Dune Messiah')!.book.seriesLabel, 'Dune #2');
       expect(controller.seriesGroups.single.name, 'Dune');
     });
 
-    test('series refuses a book that is not on the shelf', () async {
+    test('add series refuses a series that was never made', () async {
+      final series = _FakeSeries();
+      final (controller, _) = await _controller([
+        _entry(_dune, ReadingStatus.reading),
+      ], series);
+
+      final result = await controller.addToSeries('Dune', 'Dune');
+
+      expect(result.success, isFalse);
+      expect(
+        result.message,
+        'No series called "Dune" yet — make it first with make series Dune.',
+      );
+      expect(series.calls, isEmpty);
+      expect(series.mine, isEmpty, reason: 'never created implicitly');
+    });
+
+    test('add series refuses a book that is not on the shelf', () async {
       final series = _FakeSeries();
       final (controller, _) = await _controller([], series);
+      await controller.makeSeries('Dune');
 
-      final result = await controller.setSeries('Dune', 'Dune');
+      final result = await controller.addToSeries('Dune', 'Dune');
       expect(result.success, isFalse);
       expect(series.calls, isEmpty);
     });
 
-    test('series reports a locked series as a failure', () async {
+    test('add series reports a locked series as a failure', () async {
       final series = _FakeSeries(
         failure: const InvalidInputException(
           'That book is already filed in a series by another reader.',
@@ -289,67 +303,11 @@ void main() {
       final (controller, _) = await _controller([
         _entry(_dune, ReadingStatus.reading),
       ], series);
+      await controller.makeSeries('Wrong');
 
-      final result = await controller.setSeries('Dune', 'Wrong');
+      final result = await controller.addToSeries('Dune', 'Wrong');
       expect(result.success, isFalse);
       expect(result.message, contains('already filed'));
-    });
-
-    test('start series adds the first unread book when none is on the '
-        'shelf', () async {
-      final series = _FakeSeries(catalogue: [_messiah, _dune]);
-      final (controller, shelf) = await _controller([], series);
-
-      final result = await controller.startSeries('dune');
-
-      expect(result.success, isTrue);
-      expect(result.message, 'Started "Dune" from Dune');
-      expect(shelf.started, [_dune.id]);
-      expect(controller.match('Dune')!.isReading, isTrue);
-    });
-
-    test('start series moves the next queued book to reading, skipping '
-        'finished ones', () async {
-      final series = _FakeSeries(catalogue: [_dune, _messiah, _children]);
-      final (controller, shelf) = await _controller([
-        _entry(_dune, ReadingStatus.finished),
-        _entry(_messiah, ReadingStatus.toBeRead),
-      ], series);
-
-      final result = await controller.startSeries('Dune');
-
-      expect(result.message, 'Started "Dune Messiah" from Dune');
-      expect(shelf.moved, [ReadingStatus.reading]);
-      expect(shelf.started, isEmpty);
-    });
-
-    test('start series refuses while a book in it is being read', () async {
-      final series = _FakeSeries(catalogue: [_dune, _messiah]);
-      final (controller, shelf) = await _controller([
-        _entry(_messiah, ReadingStatus.reading),
-      ], series);
-
-      final result = await controller.startSeries('Dune');
-
-      expect(result.success, isFalse);
-      expect(result.message, contains('already reading "Dune Messiah"'));
-      expect(shelf.started, isEmpty);
-    });
-
-    test('start series with nothing left, or no such series', () async {
-      final series = _FakeSeries(catalogue: [_dune]);
-      final (controller, _) = await _controller([
-        _entry(_dune, ReadingStatus.finished),
-      ], series);
-
-      expect(
-        (await controller.startSeries('Dune')).message,
-        "You've read every book in Dune we know about.",
-      );
-      expect(
-        (await controller.startSeries('Discworld')).message,
-        contains('No series called "Discworld" yet'),
-      );
     });
   });
 }

@@ -22,12 +22,30 @@ void main() {
     }
   });
 
-  test('lists the new add family, and nothing in the old add syntax', () {
+  test('lists the make-first command set, and none of the removed ones', () {
     final syntaxes = CommandCatalog.all.map((c) => c.syntax).toList();
-    expect(syntaxes, contains('add shelf <tbr|reading|finished|dnf> <book>'));
-    expect(syntaxes, contains('add tag <tag> <book>'));
-    expect(syntaxes, contains('add comment <comment> <book>'));
-    expect(syntaxes.where((s) => s.startsWith('add <book>')), isEmpty);
+    expect(
+      syntaxes,
+      containsAll(const [
+        'start <book> [date]',
+        'start isbn [date]',
+        'update <book> <page or percent%> [date]',
+        'finish <book> [date]',
+        'rate <book> <stars>',
+        'delete <book>',
+        'move <book> <shelf>',
+        'make shelf <shelf name>',
+        'make tag <tag>',
+        'add tag <tag> <book>',
+        'make series <series name>',
+        'add series <series> [#n] <book>',
+        'add comment <comment> <book>',
+      ]),
+    );
+    final keywords = CommandCatalog.all.map((c) => c.keyword);
+    expect(keywords, isNot(contains('add shelf')));
+    expect(keywords, isNot(contains('series')));
+    expect(keywords, isNot(contains('start series')));
   });
 
   test('free commands exclude the pro-only ones', () {
@@ -38,9 +56,11 @@ void main() {
     ]);
   });
 
-  test('every shelf keyword is accepted by add shelf', () {
+  test('every built-in shelf keyword parses as a move', () {
     for (final shelf in CommandCatalog.shelves) {
-      expect(LogCommandParser.parse('add shelf $shelf Dune').shelf, shelf);
+      final parsed = LogCommandParser.parse('move Dune $shelf');
+      expect(parsed.type, LogCommandType.move);
+      expect(parsed.argument, 'Dune $shelf');
     }
   });
 }

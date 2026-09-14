@@ -1,12 +1,13 @@
 import 'book_edition.dart';
+import 'collections.dart';
 import 'library_book.dart';
 import 'user_book.dart';
 
 /// The rules for what happens to a book when it changes shelf, and how a
 /// shelf section is ordered — in one place, so moving a book on the
 /// library page (drag, keyboard or screen-reader action),
-/// `add shelf <shelf> <book>` on the add tab, and `finish <book>` can't
-/// drift apart.
+/// `move <book> <shelf>` on the add tab, and `finish <book>` can't drift
+/// apart.
 ///
 /// Pure functions over domain values, no I/O: `LibraryController` applies
 /// the result optimistically and persists it.
@@ -86,6 +87,42 @@ abstract final class ShelfRules {
         : current;
     // Not finished, so never on the last page — that would read as 100%.
     return scaled.clamp(0, newTotal > 0 ? newTotal - 1 : 0);
+  }
+
+  /// [entry]'s progress row once it lands on [target] — built-in *or*
+  /// custom shelf. The one rule every move uses.
+  ///
+  /// * **onto a custom shelf** — only `shelfId` changes (and the manual
+  ///   position resets). Status, page, finish date and rating are kept: a
+  ///   custom shelf is a place, not a reading state, so moving a half-read
+  ///   book to "summer" must not start it over.
+  /// * **onto a built-in shelf from a custom one** — the custom shelf is
+  ///   cleared; if the status also changes, [enter]'s side effects apply,
+  ///   and if it doesn't (a reading book moved back to "reading") the
+  ///   progress is kept, exactly as a reorder would keep it.
+  /// * **onto a built-in shelf from a built-in one** — [enter].
+  ///
+  /// Returns [entry]'s own progress unchanged when it is already on
+  /// [target].
+  static UserBook enterShelf(
+    LibraryBook entry,
+    ShelfRef target, {
+    DateTime? at,
+  }) {
+    final progress = entry.progress;
+    switch (target) {
+      case CustomShelfRef(:final shelfId):
+        if (progress.shelfId == shelfId) return progress;
+        return progress.copyWith(shelfId: shelfId, clearShelfPosition: true);
+      case StatusShelfRef(:final status):
+        if (progress.shelfId == null) return enter(entry, status, at: at);
+        final offCustom = progress.copyWith(
+          clearShelfId: true,
+          clearShelfPosition: true,
+        );
+        if (progress.status == status) return offCustom;
+        return enter(entry.copyWith(progress: offCustom), status, at: at);
+    }
   }
 
   /// Orders one section for display.

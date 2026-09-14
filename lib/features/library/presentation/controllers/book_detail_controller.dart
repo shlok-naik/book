@@ -8,6 +8,7 @@ import '../../domain/book.dart';
 import '../../domain/book_details_service.dart';
 import '../../domain/book_edition.dart';
 import '../../domain/book_note.dart';
+import '../../domain/collections.dart';
 import '../../domain/library_exception.dart';
 import 'library_controller.dart';
 
@@ -46,11 +47,18 @@ class BookDetailController extends ChangeNotifier {
     required Book book,
     required this.details,
     required this.notes,
+    required this.findTag,
   }) : _book = DetailSection(data: book);
 
   final String userBookId;
   final BookDetailsService details;
   final BookNotesRepository notes;
+
+  /// Resolves a typed tag name to one of the reader's own tags —
+  /// `LibraryController.findTag` in the app. The tag field only *applies*
+  /// tags; making one is `make tag` or the library's "+" panel, so an
+  /// unknown name is refused here rather than created.
+  final ReaderTag? Function(String name) findTag;
 
   /// Starts as the shelf's own copy of the book, so the page has a title,
   /// cover and (often) a blurb from the very first frame; [load] replaces
@@ -139,14 +147,21 @@ class BookDetailController extends ChangeNotifier {
     _notify();
   }
 
-  /// Adds [raw] as a tag. Refuses a tag the book already has (ignoring
-  /// case) before any I/O, since the unique index would refuse it anyway.
+  /// Applies the reader's tag named [raw] to this book. Refuses a tag that
+  /// hasn't been made yet, and one the book already has (ignoring case),
+  /// before any I/O.
   Future<LibraryActionResult> addTag(String raw) async {
     final String tag;
     try {
       tag = BookNotesRepository.validateTag(raw);
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
+    }
+    final resolved = findTag(tag);
+    if (resolved == null) {
+      return LibraryActionResult.failure(
+        LibraryController.unknownTagMessage(tag),
+      );
     }
     final existing = _tags.data ?? const <BookTag>[];
     if (existing.any(
@@ -158,14 +173,14 @@ class BookDetailController extends ChangeNotifier {
     final placeholder = BookTag(
       id: _pendingId(),
       userBookId: userBookId,
-      tag: tag,
+      tag: resolved.name,
       createdAt: DateTime.now(),
     );
     _tags = DetailSection(data: [...existing, placeholder]);
     _notify();
 
     try {
-      final saved = await notes.addTag(userBookId, tag);
+      final saved = await notes.addTag(userBookId, resolved);
       _tags = DetailSection(
         data: [
           for (final t in _tags.data ?? const <BookTag>[])

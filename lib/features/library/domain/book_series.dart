@@ -1,6 +1,6 @@
 import 'book.dart';
+import 'collections.dart';
 import 'library_book.dart';
-import 'user_book.dart';
 
 /// A row of the shared `book_series` table.
 class BookSeries {
@@ -9,12 +9,9 @@ class BookSeries {
   final String id;
   final String name;
 
-  static const maxNameLength = 80;
-
   /// Trimmed, inner whitespace collapsed — the same normalisation the
   /// database's unique index uses, so "The  Expanse " is "The Expanse".
-  static String normalizeName(String name) =>
-      name.trim().replaceAll(RegExp(r'\s+'), ' ');
+  static String normalizeName(String name) => CollectionNames.clean(name);
 
   bool matches(String other) =>
       normalizeName(name).toLowerCase() == normalizeName(other).toLowerCase();
@@ -36,25 +33,6 @@ class BookSeries {
       if (pa == null && pb != null) return 1;
       return a.title.toLowerCase().compareTo(b.title.toLowerCase());
     });
-  }
-
-  /// `start series <series>`: the first book in series order the reader
-  /// hasn't finished or dropped — the one to read next. Null when every
-  /// book the catalogue knows about in this series is done.
-  ///
-  /// [shelf] maps a catalogue book id to the reader's row for it.
-  static Book? nextToRead(
-    List<Book> seriesBooks,
-    Map<String, LibraryBook> shelf,
-  ) {
-    for (final book in sortBooks(seriesBooks)) {
-      final status = shelf[book.id]?.status;
-      if (status == ReadingStatus.finished || status == ReadingStatus.dnf) {
-        continue;
-      }
-      return book;
-    }
-    return null;
   }
 }
 

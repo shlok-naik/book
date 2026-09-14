@@ -51,7 +51,7 @@ Future<void> openBookDetail(BuildContext context, LibraryBook entry) {
 ///
 /// Which shelf a book is on is shown here but not changed here — moving
 /// between shelves belongs to the library page (drag, keyboard or
-/// screen-reader actions) and the `add shelf` command.
+/// screen-reader actions) and the `move` command.
 ///
 /// ## Where the state lives
 ///
@@ -114,6 +114,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
       book: entry.book,
       details: library.details,
       notes: library.notes,
+      findTag: library.findTag,
     );
     // Loads are async and notify as they land; nothing here depends on
     // them finishing. `load` never throws — each section records its own

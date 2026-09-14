@@ -1,4 +1,5 @@
 import 'package:book/core/auth/session_service.dart';
+import 'package:book/core/purchases/plan_controller.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/book_notes_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
@@ -8,6 +9,7 @@ import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
 import 'package:book/features/library/domain/book_note.dart';
+import 'package:book/features/library/domain/collections.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
@@ -24,6 +26,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'support/fake_collections.dart';
 import 'support/fake_goals.dart';
 
 /// The log page's own flow (parsing, animation, timers) is what these
@@ -80,6 +83,7 @@ class _InMemoryUserBookRepository extends UserBookRepository {
     String bookId,
     ReadingStatus status, {
     int currentPage = 0,
+    String? shelfId,
   }) async {
     final isNew = _started.add(bookId);
     return StartOutcome(
@@ -88,6 +92,7 @@ class _InMemoryUserBookRepository extends UserBookRepository {
         bookId: bookId,
         currentPage: 0,
         status: status,
+        shelfId: shelfId,
       ),
       alreadyExists: !isNew,
     );
@@ -180,10 +185,10 @@ class _FakeReadingEventRepository extends ReadingEventRepository {
 /// uninitialized Supabase client.
 class _InMemoryNotesRepository extends BookNotesRepository {
   @override
-  Future<BookTag> addTag(String userBookId, String tag) async => BookTag(
-    id: 'tag',
+  Future<BookTag> addTag(String userBookId, ReaderTag tag) async => BookTag(
+    id: 'book-tag',
     userBookId: userBookId,
-    tag: BookNotesRepository.validateTag(tag),
+    tag: tag.name,
     createdAt: DateTime(2026),
   );
 
@@ -208,6 +213,7 @@ LibraryController _newLibraryController({LibraryException? eventsFailure}) {
     userBooks: _InMemoryUserBookRepository(),
     events: _FakeReadingEventRepository(failure: eventsFailure),
     notes: _InMemoryNotesRepository(),
+    collections: FakeCollectionsRepository(),
   );
 }
 
@@ -332,9 +338,9 @@ void main() {
   });
 
   for (final (command, confirmation) in [
-    ('add shelf tbr Dune', 'Added "Dune" to read'),
-    ('add shelf finished Dune', 'Added "Dune" as finished'),
-    ('add shelf dnf Dune', 'Marked "Dune" as DNF'),
+    ('move Dune tbr', 'Added "Dune" to read'),
+    ('move Dune finished', 'Added "Dune" as finished'),
+    ('move Dune "dnf"', 'Marked "Dune" as DNF'),
   ]) {
     testWidgets('recognizes $command', (WidgetTester tester) async {
       await useDeviceSize(tester);
@@ -366,6 +372,8 @@ void main() {
     );
 
     await submit(tester, 'start Dune');
+    await submit(tester, 'make tag sci-fi');
+    expect(find.text('Made tag "sci-fi"'), findsOneWidget);
     await submit(tester, 'add tag sci-fi Dune');
     expect(find.text('Tagged "Dune" sci-fi'), findsOneWidget);
 
@@ -393,11 +401,55 @@ void main() {
 
     await submit(tester, 'add tag sci-fi Dune');
     expect(
+      find.text('"Dune" isn\'t on your shelf yet — try "move Dune tbr" first.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a tag that was never made is refused, not created', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+
+    await submit(tester, 'start Dune');
+    await send(tester, 'add tag sci-fi Dune');
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
       find.text(
-        '"Dune" isn\'t on your shelf yet — try "add shelf tbr Dune" first.',
+        'No tag called "sci-fi" yet — make it first with make tag sci-fi.',
       ),
       findsOneWidget,
     );
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('make shelf, then move a book onto it by name', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+
+    await submit(tester, 'make shelf summer reads');
+    expect(find.text('Made shelf "summer reads"'), findsOneWidget);
+
+    // Unquoted: the library splits the title from the shelf it knows.
+    await submit(tester, 'move Dune summer reads');
+    expect(find.text('Added "Dune" to summer reads'), findsOneWidget);
   });
 
   testWidgets('strikes the command through in place, then clears the field', (
@@ -660,6 +712,10 @@ void main() {
     WidgetTester tester,
   ) async {
     await useDeviceSize(tester);
+    // The journal itself is cactus pro — see stats_page_test.dart's
+    // "pro gate" group for the locked state.
+    PlanController.isPro.value = true;
+    addTearDown(() => PlanController.isPro.value = false);
     await tester.pumpWidget(
       BookApp(
         libraryController: _newLibraryController(),
@@ -679,6 +735,8 @@ void main() {
     'showing an empty journal',
     (WidgetTester tester) async {
       await useDeviceSize(tester);
+      PlanController.isPro.value = true;
+      addTearDown(() => PlanController.isPro.value = false);
       await tester.pumpWidget(
         BookApp(
           libraryController: _newLibraryController(

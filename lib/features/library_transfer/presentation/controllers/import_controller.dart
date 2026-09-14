@@ -6,6 +6,7 @@ import '../../../../core/diagnostics/app_logger.dart';
 import '../../../library/data/book_series_repository.dart';
 import '../../../library/domain/book.dart';
 import '../../../library/domain/book_lookup_service.dart';
+import '../../../library/domain/collections.dart';
 import '../../../library/domain/library_exception.dart';
 import '../../../library/domain/user_book.dart';
 import '../../../library/presentation/controllers/library_controller.dart';
@@ -24,9 +25,17 @@ typedef UnmatchedRow = ({ImportRow row, String reason});
 ///    changed yet, and the reader can cancel.
 /// 2. **review** — how many matched, which didn't, and what the replace
 ///    will delete. Still nothing changed.
-/// 3. **importing** — one `replace_library` call swaps the library in a
-///    single transaction, then series found in the file are filed
-///    (best-effort — a series another reader already set is left alone).
+/// 3. **importing** — the file's tags are made first, then one
+///    `replace_library` call swaps the library in a single transaction
+///    (linking only tags that exist), then series found in the file are
+///    made and filed (best-effort — a series another reader already set is
+///    left alone).
+///
+/// Tags and series follow the app's make-first rule even here: the import
+/// makes them through the same creation paths as `make tag` and
+/// `make series` (`CollectionsRepository.createTag`,
+/// `BookSeriesRepository.makeSeries`) and only then applies them — nothing
+/// downstream invents one while adding a book.
 /// 4. **done** / **failed** — either way the shelf is reloaded, so what the
 ///    app shows is what the server actually holds.
 class ImportController extends ChangeNotifier {
@@ -156,6 +165,8 @@ class ImportController extends ChangeNotifier {
     _stage = ImportStage.importing;
     _notify();
 
+    await _makeTags();
+
     try {
       _imported = await transfer.replaceLibrary([
         for (final (row, book) in _matched) toImported(row, book),
@@ -171,6 +182,9 @@ class ImportController extends ChangeNotifier {
       final name = row.series;
       if (name == null || name.trim().isEmpty) continue;
       try {
+        // Joining a series the reader (or anyone) already made is fine
+        // here; `alreadyYours` is only a failure for a typed `make series`.
+        await series.makeSeries(name);
         await series.setSeries(book.id, name, position: row.seriesPosition);
       } on LibraryException catch (error) {
         AppLogger.info(
@@ -183,6 +197,34 @@ class ImportController extends ChangeNotifier {
     await _reloadQuietly();
     _stage = ImportStage.done;
     _notify();
+  }
+
+  /// Makes every tag named in the matched rows that the reader doesn't have
+  /// yet, so `replace_library` has something to link. Best-effort per tag,
+  /// like series: a name that can't be made is logged and that tag skipped,
+  /// never the whole import.
+  Future<void> _makeTags() async {
+    final wanted = <String, String>{};
+    for (final (row, _) in _matched) {
+      for (final tag in row.tags) {
+        final key = CollectionNames.key(tag);
+        if (key.isNotEmpty) wanted.putIfAbsent(key, () => tag);
+      }
+    }
+    final existing = {
+      for (final tag in library.tags) CollectionNames.key(tag.name),
+    };
+    for (final MapEntry(key: key, value: name) in wanted.entries) {
+      if (existing.contains(key)) continue;
+      try {
+        await library.collections.createTag(name);
+      } on LibraryException catch (error) {
+        AppLogger.info(
+          'ImportController',
+          'Skipped making an imported tag: ${error.message}',
+        );
+      }
+    }
   }
 
   /// Back to [ImportStage.idle], for another file.

@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/book_note.dart';
+import '../domain/collections.dart';
 import '../domain/library_exception.dart';
 import 'supabase_guard.dart';
 
@@ -56,19 +57,23 @@ class BookNotesRepository {
     }, friendlyMessage: "We couldn't load this book's tags.");
   }
 
-  /// Adds [tag] to [userBookId] and returns the stored row.
+  /// Applies the reader's existing [tag] to [userBookId] and returns the
+  /// stored link row — `add tag`, or the book page's tag field.
   ///
-  /// Validates before any I/O (see [validateTag]). A tag the book already
-  /// has — in any capitalisation — fails with a message saying so rather
-  /// than a generic "couldn't save", since the unique index is the
-  /// authority on that and a race past a client-side check is possible.
-  Future<BookTag> addTag(String userBookId, String tag) async {
-    final clean = validateTag(tag);
+  /// Takes a [ReaderTag], not a string, on purpose: tags are made first
+  /// (`CollectionsRepository.createTag`) and only then applied, so there is
+  /// no way to reach this with a name that doesn't exist yet. The link row's
+  /// display name is copied from `tags` by a database trigger, never sent.
+  ///
+  /// A tag the book already has fails with a message saying so rather than
+  /// a generic "couldn't save", since the unique index is the authority on
+  /// that and a race past a client-side check is possible.
+  Future<BookTag> addTag(String userBookId, ReaderTag tag) async {
     try {
       return await runSupabase(() async {
         final row = await _client
             .from('book_tags')
-            .insert({'user_book_id': userBookId, 'tag': clean})
+            .insert({'user_book_id': userBookId, 'tag_id': tag.id})
             .select()
             .single();
         final parsed = BookTag.fromRow(row);
@@ -82,8 +87,18 @@ class BookNotesRepository {
       }, friendlyMessage: "We couldn't save that tag.");
     } on RemoteDataException catch (error) {
       final cause = error.cause;
-      if (cause is PostgrestException && cause.code == _uniqueViolation) {
-        throw InvalidInputException('This book is already tagged "$clean".');
+      if (cause is PostgrestException) {
+        if (cause.code == _uniqueViolation) {
+          throw InvalidInputException(
+            'This book is already tagged "${tag.name}".',
+          );
+        }
+        if (cause.hint == 'tag_missing') {
+          throw InvalidInputException(
+            'No tag called "${tag.name}" yet — make it first with '
+            'make tag ${tag.name}.',
+          );
+        }
       }
       rethrow;
     }
@@ -146,19 +161,10 @@ class BookNotesRepository {
     return parsed;
   }
 
-  /// Trims [tag] and checks it against the `book_tags` constraint. Tags
-  /// are labels, not sentences — one line, at most [BookTag.maxLength].
-  /// Throws [InvalidInputException]; returns the cleaned tag.
-  static String validateTag(String tag) {
-    final clean = tag.trim().replaceAll(RegExp(r'\s+'), ' ');
-    if (clean.isEmpty) throw const InvalidInputException('Type a tag first.');
-    if (clean.length > BookTag.maxLength) {
-      throw const InvalidInputException(
-        'Tags can be at most ${BookTag.maxLength} characters.',
-      );
-    }
-    return clean;
-  }
+  /// Trims [tag] and checks it against the `tags` constraint — the same
+  /// rule `make tag` uses, see [CollectionNames.validateTag]. Throws
+  /// [InvalidInputException]; returns the cleaned tag.
+  static String validateTag(String tag) => CollectionNames.validateTag(tag);
 
   /// Trims [body] and checks it against the `book_comments` constraint.
   static String validateComment(String body) {
