@@ -1501,14 +1501,18 @@ class _SeriesRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: _coverWidth,
-                      child: ValueListenableBuilder<bool>(
-                        valueListenable: SeriesTileStyleController.patchwork,
-                        builder: (context, patchwork, _) => patchwork
-                            ? SeriesPatchworkCover(entries: group.entries)
-                            : SeriesFanCover(entries: group.entries),
-                      ),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: SeriesTileStyleController.patchwork,
+                      builder: (context, patchwork, _) => patchwork
+                          ? SizedBox(
+                              width: _coverWidth,
+                              child: SeriesPatchworkCover(
+                                entries: group.entries,
+                              ),
+                            )
+                          // Self-sizing, and wider than _coverWidth — the
+                          // cascade needs the room the tile already has.
+                          : SeriesFanCover(entries: group.entries),
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
