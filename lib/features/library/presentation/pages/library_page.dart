@@ -19,9 +19,11 @@ import '../../domain/library_search.dart';
 import '../../domain/user_book.dart';
 import '../controllers/library_controller.dart';
 import '../library_scope.dart';
+import '../series_tile_style_controller.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/book_tile.dart';
 import '../widgets/collections_sheet.dart';
+import '../widgets/series_cover.dart';
 import 'book_detail_page.dart';
 import 'series_page.dart';
 
@@ -501,11 +503,13 @@ class _LibraryPageState extends State<LibraryPage> {
     }
 
     return [
-      if (groups.isNotEmpty) ...[
-        const SliverToBoxAdapter(child: _SeriesHeading()),
-        SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
-      ],
-      for (final shelf in shelves)
+      for (final shelf in shelves) ...[
+        // Under the reader's own shelves, above finished/did not finish —
+        // series belong with what's still in play, not above everything.
+        if (shelf.ref == _closedShelves.first.ref && groups.isNotEmpty) ...[
+          const SliverToBoxAdapter(child: _SeriesHeading()),
+          SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
+        ],
         if (!filtering || sections[shelf.ref]!.isNotEmpty) ...[
           SliverToBoxAdapter(
             child: _SectionHeading(
@@ -551,6 +555,7 @@ class _LibraryPageState extends State<LibraryPage> {
               onOpen: _open,
             ),
         ],
+      ],
     ];
   }
 }
@@ -675,9 +680,9 @@ class _BookGrid extends StatelessWidget {
 
 /// One shelf-grid tile standing in for every book of a series that's
 /// entirely shelved together — laid out exactly like [BookTile] (same
-/// cover size, same rows), so it reads as one more book on the shelf
-/// rather than a different kind of thing: a representative cover (the
-/// series' first book), the series name where a title goes, "N books"
+/// cover footprint, same rows), so it reads as one more book on the
+/// shelf rather than a different kind of thing: a [SeriesPatchworkCover]
+/// where a cover goes, the series name where a title goes, "N books"
 /// where the author goes, then the group's aggregate progress — how many
 /// are finished, the rest's average completion, and (once any is rated)
 /// their average rating. Never draggable: it represents more than one
@@ -691,7 +696,6 @@ class _SeriesGroupTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final entries = group.entries;
-    final cover = entries.first;
 
     final completions = [for (final entry in entries) ?entry.completion];
     final avgCompletion = completions.isEmpty
@@ -719,11 +723,7 @@ class _SeriesGroupTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            BookCover(
-              title: cover.book.title,
-              author: cover.book.author,
-              coverUrl: cover.displayBook.coverUrl,
-            ),
+            SeriesPatchworkCover(entries: entries),
             const SizedBox(height: AppSpacing.sm),
             Text(
               group.name,
@@ -1485,7 +1485,6 @@ class _SeriesRow extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
         itemBuilder: (context, index) {
           final group = groups[index];
-          final covers = group.entries.take(3).toList();
           return Semantics(
             button: true,
             label: '${group.name} series, ${group.summary}.',
@@ -1503,26 +1502,12 @@ class _SeriesRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      height: _coverWidth / BookCover.aspectRatio,
-                      width: _tileWidth,
-                      child: Stack(
-                        children: [
-                          for (final (i, entry)
-                              in covers.indexed.toList().reversed)
-                            Positioned(
-                              left: i * 22.0,
-                              top: i * 4.0,
-                              bottom: 0,
-                              child: SizedBox(
-                                width: _coverWidth - i * 4,
-                                child: BookCover(
-                                  title: entry.book.title,
-                                  author: entry.book.author,
-                                  coverUrl: entry.displayBook.coverUrl,
-                                ),
-                              ),
-                            ),
-                        ],
+                      width: _coverWidth,
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: SeriesTileStyleController.patchwork,
+                        builder: (context, patchwork, _) => patchwork
+                            ? SeriesPatchworkCover(entries: group.entries)
+                            : SeriesFanCover(entries: group.entries),
                       ),
                     ),
                     const SizedBox(height: AppSpacing.xs),

@@ -82,4 +82,15 @@ class BookSeriesRepository {
           .eq('id', userBookId);
     }, friendlyMessage: "We couldn't save that series.");
   }
+
+  /// Clears [userBookId]'s `series_id`/`series_position` — taking a book
+  /// out of a series without moving it anywhere else.
+  Future<void> clearSeries(String userBookId) {
+    return runSupabase<void>(() async {
+      await _client
+          .from('user_books')
+          .update({'series_id': null, 'series_position': null})
+          .eq('id', userBookId);
+    }, friendlyMessage: "We couldn't remove that series.");
+  }
 }

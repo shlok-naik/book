@@ -1287,6 +1287,33 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// Takes a shelf book out of whatever series it's filed under — the
+  /// book detail page's own way to clear it, since there is no typed
+  /// command for that. A no-op success when it wasn't in one.
+  Future<LibraryActionResult> removeFromSeries(String title) async {
+    final entry = _findByTitle(title);
+    if (entry == null) return _notOnShelf(title);
+    final before = entry.progress;
+    if (before.seriesId == null) return const LibraryActionResult.success();
+    _upsertLocal(
+      entry.copyWith(
+        progress: before.copyWith(
+          clearSeriesId: true,
+          clearSeriesPosition: true,
+        ),
+      ),
+    );
+    notifyListeners();
+    try {
+      await series.clearSeries(entry.id);
+      return const LibraryActionResult.success();
+    } on LibraryException catch (error) {
+      _upsertLocal(entry.copyWith(progress: before));
+      notifyListeners();
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
   /// `delete <book>` — removes the book from the shelf. Optimistic like
   /// the other commands: it disappears immediately, and comes back if
   /// the delete fails to persist.

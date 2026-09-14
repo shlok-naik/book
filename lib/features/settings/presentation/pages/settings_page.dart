@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -15,6 +17,7 @@ import '../../../../core/theme/theme_controller.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_sheet.dart';
 import '../../../library/presentation/library_scope.dart';
+import '../../../library/presentation/series_tile_style_controller.dart';
 import '../../../library_transfer/presentation/library_exporter.dart';
 import '../../../library_transfer/presentation/pages/import_page.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
@@ -289,6 +292,7 @@ class _ReadingSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     final goals = GoalScope.of(context);
     final goal = goals.goal;
     return SettingsSection(
@@ -306,6 +310,21 @@ class _ReadingSection extends StatelessWidget {
             AppHaptics.selection();
             showGoalSheet(context);
           },
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: SeriesTileStyleController.patchwork,
+          builder: (context, patchwork, _) => SettingsRow(
+            icon: Icons.grid_view_outlined,
+            label: 'series tiles',
+            trailing: Switch(
+              value: patchwork,
+              activeThumbColor: colors.accent,
+              onChanged: (value) {
+                AppHaptics.selection();
+                unawaited(SeriesTileStyleController.select(value));
+              },
+            ),
+          ),
         ),
       ],
     );

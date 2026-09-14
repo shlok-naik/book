@@ -803,12 +803,19 @@ void main() {
           _entry(_noCover),
         ], series: duneSeries),
       );
+      // The series row now sits below the reader's own shelves, past the
+      // fold at this viewport size.
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
+      await tester.pump();
 
       expect(find.text('series'), findsOneWidget);
       expect(find.text('2 books · 1 finished'), findsOneWidget);
+      // Under the reader's own shelves, above finished/did not finish.
       final seriesY = tester.getTopLeft(find.text('series')).dy;
-      final readingY = tester.getTopLeft(find.text('reading')).dy;
-      expect(seriesY, lessThan(readingY));
+      final toReadY = tester.getTopLeft(find.text('to read')).dy;
+      final finishedY = tester.getTopLeft(find.text('finished').first).dy;
+      expect(seriesY, greaterThan(toReadY));
+      expect(seriesY, lessThan(finishedY));
     });
 
     testWidgets('no series row when nothing is in a series', (tester) async {

@@ -33,6 +33,7 @@ import 'features/library/domain/book_details_service.dart';
 import 'features/library/domain/book_lookup_service.dart';
 import 'features/library/presentation/controllers/library_controller.dart';
 import 'features/library/presentation/library_scope.dart';
+import 'features/library/presentation/series_tile_style_controller.dart';
 import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
 import 'features/onboarding/data/onboarding_store.dart';
@@ -211,6 +212,7 @@ Future<void> _bootstrap() async {
   // longer if this fails — so it happens after everything the reader's
   // shelf actually depends on, not before.
   await AppIconController.initialize();
+  await SeriesTileStyleController.initialize();
 
   runApp(BookApp(showOnboarding: !introSeen));
 }
