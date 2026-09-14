@@ -17,6 +17,8 @@ import 'core/platform/app_icon_controller.dart';
 import 'core/platform/device_name.dart';
 import 'core/purchases/purchases_service.dart';
 import 'core/supabase/supabase_service.dart';
+import 'core/theme/app_color_theme.dart';
+import 'core/theme/app_color_theme_controller.dart';
 import 'core/theme/app_scroll_behavior.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
@@ -213,6 +215,7 @@ Future<void> _bootstrap() async {
   // shelf actually depends on, not before.
   await AppIconController.initialize();
   await SeriesTileStyleController.initialize();
+  await AppColorThemeController.initialize();
 
   runApp(BookApp(showOnboarding: !introSeen));
 }
@@ -317,52 +320,60 @@ class _BookAppState extends State<BookApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: ThemeController.mode,
-      builder: (context, themeMode, _) {
-        // The status bar sits over the app's own background, so its
-        // icons have to contrast with *that* — with the app forced to
-        // light while the phone is in dark mode, the system's own choice
-        // would render them invisible.
-        final isDark =
-            themeMode == ThemeMode.dark ||
-            (themeMode == ThemeMode.system &&
-                MediaQuery.platformBrightnessOf(context) == Brightness.dark);
+    return ValueListenableBuilder<AppColorTheme>(
+      valueListenable: AppColorThemeController.current,
+      builder: (context, colorTheme, _) {
+        return ValueListenableBuilder<ThemeMode>(
+          valueListenable: ThemeController.mode,
+          builder: (context, themeMode, _) {
+            // The status bar sits over the app's own background, so its
+            // icons have to contrast with *that* — with the app forced
+            // to light while the phone is in dark mode, the system's
+            // own choice would render them invisible.
+            final isDark =
+                themeMode == ThemeMode.dark ||
+                (themeMode == ThemeMode.system &&
+                    MediaQuery.platformBrightnessOf(context) ==
+                        Brightness.dark);
 
-        return AnnotatedRegion<SystemUiOverlayStyle>(
-          value: isDark
-              ? SystemUiOverlayStyle.light
-              : SystemUiOverlayStyle.dark,
-          child: SessionScope(
-            session: _session,
-            child: LibraryScope(
-              controller: _library,
-              child: MemoryScope(
-                controller: _memory,
-                child: GoalScope(
-                  controller: _goal,
-                  child: MaterialApp(
-                    title: 'cactus',
-                    debugShowCheckedModeBanner: false,
-                    theme: AppTheme.light,
-                    darkTheme: AppTheme.dark,
-                    themeMode: themeMode,
-                    scrollBehavior: AppScrollBehavior(),
-                    // Screen views come from each route's own name rather than
-                    // a line in every page's initState — see [AppAnalytics].
-                    navigatorObservers: AppAnalytics.navigatorObservers,
-                    // The intro is a tour, not a gate: `_bootstrap` has
-                    // already opened the session, and [WelcomePage] asks
-                    // for nothing. It shows once per install and replaces
-                    // the whole stack with [RootShell] on the way out.
-                    home: widget.showOnboarding
-                        ? const WelcomePage()
-                        : const RootShell(),
+            return AnnotatedRegion<SystemUiOverlayStyle>(
+              value: isDark
+                  ? SystemUiOverlayStyle.light
+                  : SystemUiOverlayStyle.dark,
+              child: SessionScope(
+                session: _session,
+                child: LibraryScope(
+                  controller: _library,
+                  child: MemoryScope(
+                    controller: _memory,
+                    child: GoalScope(
+                      controller: _goal,
+                      child: MaterialApp(
+                        title: 'cactus',
+                        debugShowCheckedModeBanner: false,
+                        theme: AppTheme.lightWith(colorTheme),
+                        darkTheme: AppTheme.darkWith(colorTheme),
+                        themeMode: themeMode,
+                        scrollBehavior: AppScrollBehavior(),
+                        // Screen views come from each route's own name
+                        // rather than a line in every page's initState —
+                        // see [AppAnalytics].
+                        navigatorObservers: AppAnalytics.navigatorObservers,
+                        // The intro is a tour, not a gate: `_bootstrap`
+                        // has already opened the session, and
+                        // [WelcomePage] asks for nothing. It shows once
+                        // per install and replaces the whole stack with
+                        // [RootShell] on the way out.
+                        home: widget.showOnboarding
+                            ? const WelcomePage()
+                            : const RootShell(),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );

@@ -1,6 +1,8 @@
 import 'package:book/core/platform/app_icon.dart';
 import 'package:book/core/platform/app_icon_channel.dart';
 import 'package:book/core/platform/app_icon_controller.dart';
+import 'package:book/core/theme/app_color_theme.dart';
+import 'package:book/core/theme/app_color_theme_controller.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/settings/presentation/pages/customisation_page.dart';
 import 'package:flutter/foundation.dart';
@@ -75,6 +77,7 @@ void main() {
     addTearDown(() {
       AppIconController.channel = const AppIconChannel();
       AppIconController.current.value = AppIcon.originalLight;
+      AppColorThemeController.current.value = AppColorTheme.forest;
     });
   });
 
@@ -247,6 +250,56 @@ void main() {
 
         expect(channel.setCalls, isEmpty);
         expect(AppIconController.current.value, AppIcon.originalLight);
+      });
+    });
+  });
+
+  group('themes tab', () {
+    testWidgets('opens on icons by default, themes is the second tab', (
+      tester,
+    ) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+
+        expect(find.text('icons'), findsOneWidget);
+        expect(find.text('themes'), findsOneWidget);
+        // Icons content is already on screen without switching tabs.
+        expect(find.text('main'), findsOneWidget);
+      });
+    });
+
+    testWidgets('switching to it names every theme, forest active first', (
+      tester,
+    ) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+
+        await tester.tap(find.text('themes'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('currently'), findsOneWidget);
+        // Once in the "currently" preview, once as the tile itself.
+        expect(find.text('forest'), findsNWidgets(2));
+        for (final theme in AppColorTheme.values) {
+          expect(find.text(theme.label), findsWidgets, reason: theme.label);
+        }
+      });
+    });
+
+    testWidgets('picking a theme applies it immediately, no confirmation', (
+      tester,
+    ) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+        await tester.tap(find.text('themes'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('blue'));
+        await tester.pumpAndSettle();
+
+        expect(AppColorThemeController.current.value, AppColorTheme.blue);
+        // Once in the "currently" preview, once as the tile itself.
+        expect(find.text('blue'), findsNWidgets(2));
       });
     });
   });

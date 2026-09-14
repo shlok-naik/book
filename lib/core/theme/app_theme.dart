@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'app_color_theme.dart';
 import 'app_colors.dart';
 
 /// Central Light/Dark [ThemeData] for the Mono & Teal design system.
@@ -12,8 +13,23 @@ abstract final class AppTheme {
   // color-only edit would silently keep showing the old theme until a
   // full restart. Rebuilding on every access costs nothing worth
   // noticing and keeps hot reload actually reflecting AppColors.
+  //
+  // [light]/[dark] always build the default forest accent — every
+  // existing call site (most of the test suite included) expects that
+  // without passing anything. The app itself instead calls
+  // [lightWith]/[darkWith] with the reader's own [AppColorTheme], read
+  // from `AppColorThemeController`.
   static ThemeData get light => _build(AppColors.light, Brightness.light);
   static ThemeData get dark => _build(AppColors.dark, Brightness.dark);
+
+  static ThemeData lightWith(AppColorTheme theme) => _build(
+    AppColors.light.copyWith(accent: theme.lightAccent),
+    Brightness.light,
+  );
+  static ThemeData darkWith(AppColorTheme theme) => _build(
+    AppColors.dark.copyWith(accent: theme.darkAccent),
+    Brightness.dark,
+  );
 
   static ThemeData _build(AppColors colors, Brightness brightness) {
     final base = ThemeData(brightness: brightness, useMaterial3: true);

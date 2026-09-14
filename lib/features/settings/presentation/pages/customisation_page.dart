@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemNavigator;
@@ -6,6 +8,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/platform/app_icon.dart';
 import '../../../../core/platform/app_icon_controller.dart';
+import '../../../../core/theme/app_color_theme.dart';
+import '../../../../core/theme/app_color_theme_controller.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -134,10 +138,44 @@ class _CustomisationPageState extends State<CustomisationPage> {
     }
   }
 
+  Widget _iconsTab(Brightness brightness) {
+    return ValueListenableBuilder<AppIcon>(
+      valueListenable: AppIconController.current,
+      builder: (context, current, _) {
+        return ListView(
+          padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+          children: [
+            _CurrentIcon(icon: current),
+            const SizedBox(height: AppSpacing.lg),
+            for (final (i, entry) in _groups.entries.indexed) ...[
+              // Same gap as _IconGroup puts between its own label and
+              // its icons, so a group's icons sit as far from the label
+              // above ("main") as from the next group's label below
+              // ("colours") — not the label-hugs-content,
+              // section-break-is-bigger split this used to have.
+              if (i > 0) const SizedBox(height: AppSpacing.md),
+              _IconGroup(
+                group: entry.key,
+                choices: entry.value,
+                brightness: brightness,
+                busy: _busy,
+                onSelect: _select,
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final brightness = Theme.of(context).brightness;
+    final labelStyle = GoogleFonts.jetBrainsMono(
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+    );
 
     return Scaffold(
       backgroundColor: colors.background,
@@ -149,43 +187,47 @@ class _CustomisationPageState extends State<CustomisationPage> {
             AppSpacing.xl,
             0,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SettingsHeader(title: 'customisation'),
-              const SizedBox(height: AppSpacing.lg),
-              Expanded(
-                child: ValueListenableBuilder<AppIcon>(
-                  valueListenable: AppIconController.current,
-                  builder: (context, current, _) {
-                    return ListView(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
-                      children: [
-                        _CurrentIcon(icon: current),
-                        const SizedBox(height: AppSpacing.lg),
-                        for (final (i, entry) in _groups.entries.indexed) ...[
-                          // Same gap as _IconGroup puts between its own
-                          // label and its icons, so a group's icons sit
-                          // as far from the label above ("main") as
-                          // from the next group's label below
-                          // ("colours") — not the label-hugs-content,
-                          // section-break-is-bigger split this used to
-                          // have.
-                          if (i > 0) const SizedBox(height: AppSpacing.md),
-                          _IconGroup(
-                            group: entry.key,
-                            choices: entry.value,
-                            brightness: brightness,
-                            busy: _busy,
-                            onSelect: _select,
-                          ),
-                        ],
-                      ],
-                    );
-                  },
+          // Icons first — the tab this page has always opened on, so a
+          // reader who's been here before lands exactly where they left
+          // off; themes is the new second tab, not a replacement.
+          child: DefaultTabController(
+            length: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SettingsHeader(title: 'customisation'),
+                const SizedBox(height: AppSpacing.sm),
+                // Same tab bar the library's "+" panel uses for
+                // shelves/tags/series — same colors, same face.
+                TabBar(
+                  labelColor: colors.accent,
+                  unselectedLabelColor: colors.secondaryText,
+                  indicatorColor: colors.accent,
+                  dividerColor: colors.divider,
+                  labelStyle: labelStyle,
+                  unselectedLabelStyle: labelStyle.copyWith(
+                    fontWeight: FontWeight.w400,
+                  ),
+                  onTap: (_) => AppHaptics.selection(),
+                  tabs: const [
+                    Tab(
+                      key: ValueKey('customisation-tab-icons'),
+                      text: 'icons',
+                    ),
+                    Tab(
+                      key: ValueKey('customisation-tab-themes'),
+                      text: 'themes',
+                    ),
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: AppSpacing.md),
+                Expanded(
+                  child: TabBarView(
+                    children: [_iconsTab(brightness), _ThemesTab(brightness)],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -463,6 +505,188 @@ class _IconTileState extends State<_IconTile> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The "themes" tab: an accent color for the whole app — background,
+/// surface and text stay the e-ink cream/charcoal look in both light and
+/// dark mode; only the accent (buttons, progress bars, active states,
+/// the "currently reading" ring…) changes. Laid out exactly like the
+/// icons tab: a "currently" preview above a wrapped grid of tiles, and
+/// picking one applies immediately rather than needing a confirm.
+class _ThemesTab extends StatelessWidget {
+  const _ThemesTab(this.brightness);
+
+  final Brightness brightness;
+
+  static const _crossAxisCount = 4;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<AppColorTheme>(
+      valueListenable: AppColorThemeController.current,
+      builder: (context, current, _) {
+        return ListView(
+          padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+          children: [
+            _CurrentTheme(theme: current, brightness: brightness),
+            const SizedBox(height: AppSpacing.lg),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final tileWidth =
+                    (constraints.maxWidth -
+                        AppSpacing.sm * (_crossAxisCount - 1)) /
+                    _crossAxisCount;
+                return Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.md,
+                  children: [
+                    for (final theme in AppColorTheme.values)
+                      SizedBox(
+                        width: tileWidth,
+                        child: _ThemeTile(
+                          theme: theme,
+                          brightness: brightness,
+                          selected: theme == current,
+                          onTap: () {
+                            if (theme == current) return;
+                            AppHaptics.selection();
+                            unawaited(AppColorThemeController.select(theme));
+                          },
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The color theme actually active right now — shown once, above the
+/// grid, the same way [_CurrentIcon] names the active launcher icon.
+class _CurrentTheme extends StatelessWidget {
+  const _CurrentTheme({required this.theme, required this.brightness});
+
+  final AppColorTheme theme;
+  final Brightness brightness;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return Row(
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: theme.resolve(brightness),
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'currently',
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colors.secondaryText,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              theme.label,
+              style: GoogleFonts.inter(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: colors.primaryText,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One theme's swatch and its name underneath — a filled circle in the
+/// theme's own accent (resolved for the current brightness, the same
+/// way an icon's light/dark rendering is), checked when it's the one
+/// active right now.
+class _ThemeTile extends StatelessWidget {
+  const _ThemeTile({
+    required this.theme,
+    required this.brightness,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppColorTheme theme;
+  final Brightness brightness;
+  final bool selected;
+  final VoidCallback onTap;
+
+  static const _size = 56.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final swatch = theme.resolve(brightness);
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${theme.label} theme',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: _size,
+              height: _size,
+              decoration: BoxDecoration(
+                color: swatch,
+                shape: BoxShape.circle,
+                border: selected
+                    ? Border.all(color: colors.primaryText, width: 2)
+                    : null,
+              ),
+              child: selected
+                  ? Center(
+                      child: Icon(
+                        Icons.check,
+                        color: colors.background,
+                        size: 22,
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              theme.label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: colors.secondaryText,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
