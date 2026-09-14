@@ -10,6 +10,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../logging/presentation/widgets/confirmation_pill.dart';
+import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../../../settings/presentation/widgets/settings_header.dart';
 import '../../domain/book.dart';
 import '../../domain/book_edition.dart';
@@ -23,6 +24,7 @@ import '../widgets/book_cover.dart';
 import '../widgets/detail_text_field.dart';
 import '../widgets/info_section.dart';
 import '../widgets/star_rating_input.dart';
+import '../widgets/tag_selection_sheet.dart';
 import 'editions_page.dart';
 
 /// Opens the detail page for [entry]. The one way it should be pushed, so
@@ -84,7 +86,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
   final _percent = TextEditingController();
   final _pageFocus = FocusNode();
   final _percentFocus = FocusNode();
-  final _tag = TextEditingController();
   final _comment = TextEditingController();
 
   /// The page the progress fields were last filled from, so an outside
@@ -129,7 +130,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
     _percent.dispose();
     _pageFocus.dispose();
     _percentFocus.dispose();
-    _tag.dispose();
     _comment.dispose();
     _messageTimer?.cancel();
     super.dispose();
@@ -566,19 +566,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
     final section = detail.tags;
     final tags = section.data ?? const <BookTag>[];
 
-    Future<void> submit() async {
-      final text = _tag.text;
-      if (text.trim().isEmpty) return;
-      _tag.clear();
-      await _run('save that tag', () async {
-        final result = await detail.addTag(text);
-        // Put the text back if it was refused, so a typo can be fixed
-        // rather than retyped.
-        if (!result.success && _tag.text.isEmpty) _tag.text = text;
-        return result;
-      });
-    }
-
     return InfoSection(
       title: 'tags',
       rows: [
@@ -614,23 +601,9 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 ),
                 const SizedBox(height: AppSpacing.md),
               ],
-              Row(
-                children: [
-                  Expanded(
-                    child: DetailTextField(
-                      controller: _tag,
-                      hintText: tags.isEmpty ? 'add a tag' : 'add another tag',
-                      semanticsLabel: 'New tag',
-                      maxLength: BookTag.maxLength,
-                      onSubmitted: (_) => submit(),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Add tag',
-                    onPressed: submit,
-                    icon: Icon(Icons.add, color: colors.accent),
-                  ),
-                ],
+              SoftPillButton(
+                label: 'select tags',
+                onPressed: () => showTagSelectionSheet(context, detail),
               ),
             ],
           ),

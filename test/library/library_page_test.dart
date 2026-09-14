@@ -191,6 +191,16 @@ void main() {
   Finder emptyShelf(ReadingStatus status) =>
       find.byKey(ValueKey('empty-shelf-${status.name}'));
 
+  /// Finished and did not finish start collapsed to just their heading —
+  /// expands one so a test can see what's under it.
+  Future<void> expandShelf(WidgetTester tester, String spoken) async {
+    await tester.tap(
+      find.bySemanticsLabel('Show ${spoken.toLowerCase()} books'),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+  }
+
   /// No instructional copy anywhere on the shelf — drop targets and empty
   /// shelves are signalled by outline and highlight alone.
   void expectNoPromptCopy() {
@@ -225,6 +235,10 @@ void main() {
     }
     expect(emptyShelf(ReadingStatus.reading), findsNothing);
     expect(emptyShelf(ReadingStatus.toBeRead), findsOneWidget);
+    // Finished and did not finish start collapsed; expand them to see
+    // their own empty area underneath.
+    await expandShelf(tester, 'finished');
+    await expandShelf(tester, 'did not finish');
     expect(emptyShelf(ReadingStatus.finished), findsOneWidget);
     expect(emptyShelf(ReadingStatus.dnf), findsOneWidget);
     expectNoPromptCopy();
@@ -237,7 +251,7 @@ void main() {
         tester,
         controllerFor([
           _entry(_dune, page: 120),
-          _entry(_noCover, page: 300, finished: true),
+          _entry(_noCover, toBeRead: true),
         ]),
       );
 
@@ -268,6 +282,8 @@ void main() {
   ) async {
     await pumpPage(tester, controllerFor([]));
 
+    await expandShelf(tester, 'finished');
+    await expandShelf(tester, 'did not finish');
     for (final status in ReadingStatus.values) {
       expect(emptyShelf(status), findsOneWidget, reason: status.name);
     }
@@ -304,6 +320,7 @@ void main() {
         _entry(_noCover, page: 300, finished: true),
       ]),
     );
+    await expandShelf(tester, 'finished');
 
     // The section heading and the finished book's own progress label.
     expect(find.text('finished'), findsNWidgets(2));
@@ -334,6 +351,7 @@ void main() {
       tester,
       controllerFor([_entry(_dune, page: 120), _entry(_noCover, dnf: true)]),
     );
+    await expandShelf(tester, 'did not finish');
 
     expect(emptyShelf(ReadingStatus.dnf), findsNothing);
     expect(emptyShelf(ReadingStatus.toBeRead), findsOneWidget);
@@ -345,6 +363,7 @@ void main() {
   ) async {
     final controller = controllerFor([_entry(_dune, page: 120)]);
     await pumpPage(tester, controller);
+    await expandShelf(tester, 'finished');
     expect(emptyShelf(ReadingStatus.finished), findsOneWidget);
 
     // No re-navigation, no manual refresh — just the same command the
@@ -364,6 +383,7 @@ void main() {
       tester,
       controllerFor([_entry(_dune, page: 400, finished: true, rating: 3.5)]),
     );
+    await expandShelf(tester, 'finished');
 
     // 3 full stars, 1 half, 1 outline for a 3.5 rating.
     expect(find.byIcon(Icons.star), findsNWidgets(3));
@@ -554,6 +574,7 @@ void main() {
         userBooks: repo,
       );
       await pumpPage(tester, controller);
+      await expandShelf(tester, 'finished');
       repo.failure = const NetworkException("You're offline");
 
       await dragBook(

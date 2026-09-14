@@ -30,8 +30,8 @@ import 'series_page.dart';
 /// screen reader.
 typedef _Shelf = ({ShelfRef ref, String label, String spoken});
 
-/// The built-in sections, in reading-journey order.
-const List<_Shelf> _builtInShelves = [
+/// The built-in sections a reader is actively working through, first.
+const List<_Shelf> _activeShelves = [
   (
     ref: StatusShelfRef(ReadingStatus.reading),
     label: 'reading',
@@ -42,6 +42,10 @@ const List<_Shelf> _builtInShelves = [
     label: 'to read',
     spoken: 'To read',
   ),
+];
+
+/// The built-in sections a reader is done with, last.
+const List<_Shelf> _closedShelves = [
   (
     ref: StatusShelfRef(ReadingStatus.finished),
     label: 'finished',
@@ -54,12 +58,14 @@ const List<_Shelf> _builtInShelves = [
   ),
 ];
 
-/// Every section on the page, in page order: the four built-in shelves,
-/// then the reader's own shelves oldest first.
+/// Every section on the page, in page order: reading, to read, then the
+/// reader's own shelves oldest first, then finished and did not finish —
+/// a new custom shelf lands above finished rather than at the very bottom.
 List<_Shelf> _shelvesOf(LibraryController controller) => [
-  ..._builtInShelves,
+  ..._activeShelves,
   for (final shelf in controller.shelves)
     (ref: CustomShelfRef(shelf.id), label: shelf.name, spoken: shelf.name),
+  ..._closedShelves,
 ];
 
 /// A stable key fragment for a section — `reading`, `custom-<id>`.
@@ -153,10 +159,16 @@ class _LibraryPageState extends State<LibraryPage> {
   final _searchFocus = FocusNode();
 
   /// Shelves collapsed to just their heading — in-memory only, so a fresh
-  /// visit to the library always opens every shelf again. Ignored while
-  /// searching: collapsing a shelf and then finding a match in it should
-  /// still show that match rather than hide it.
-  final _collapsed = <ShelfRef>{};
+  /// visit to the library always starts from this same default rather than
+  /// remembering a prior toggle. Finished and did not finish start closed —
+  /// a reader opens the library to see what to read next, not what's
+  /// behind them. Ignored while searching: collapsing a shelf and then
+  /// finding a match in it should still show that match rather than hide
+  /// it.
+  final _collapsed = <ShelfRef>{
+    const StatusShelfRef(ReadingStatus.finished),
+    const StatusShelfRef(ReadingStatus.dnf),
+  };
 
   void _toggleCollapsed(ShelfRef shelf) {
     AppHaptics.selection();
