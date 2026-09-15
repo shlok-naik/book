@@ -15,7 +15,11 @@ flutter test                              # run all tests
 flutter test test/library/library_controller_test.dart   # run a single test file
 flutter analyze --fatal-infos --fatal-warnings   # static analysis — must be zero issues
 dart format .                             # CI fails on unformatted code
+flutter test integration_test/app_test.dart -d <device>   # end-to-end, on a real device/emulator
 ```
+
+### Integration tests
+[integration_test/app_test.dart](integration_test/app_test.dart) runs the real compiled app on a real device or emulator — real navigation, real animations, real platform channels — unlike everything under `test/`, which runs in a headless Dart VM. Only the bottom layer (Supabase/Google Books/RevenueCat) is faked, through `BookApp`'s own test seams (see § Composition root below) — the same fakes `test/widget_test.dart` already uses. Needs a connected device/emulator to run, so it isn't part of `flutter test`'s default run or CI; run it by hand with the command above.
 
 ### Branching
 Every new feature gets its own branch off `main` (e.g. `feature/<short-name>`) — never commit new feature work directly to `main`. Bug fixes and polish for existing features may branch similarly (`fix/<short-name>`). Open a PR into `main` when the feature is ready rather than merging locally.
