@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../diagnostics/app_logger.dart';
 import '../network/connectivity_controller.dart';
+import '../supabase/postgrest_failure.dart';
 import 'pending_write.dart';
 import 'pending_write_queue.dart';
 
@@ -62,8 +63,9 @@ class SupabaseWriteExecutor implements PendingWriteExecutor {
     } on http.ClientException {
       return ReplayOutcome.unreachable;
     } on PostgrestException catch (error) {
-      final code = int.tryParse(error.code ?? '');
-      return code != null && code >= 500
+      // See [isTransientPostgrestError]: `code` is a SQLSTATE, not an HTTP
+      // status, so a constraint violation must not read as "unreachable".
+      return isTransientPostgrestError(error)
           ? ReplayOutcome.unreachable
           : ReplayOutcome.rejected;
     } on Object catch (error, stackTrace) {

@@ -118,10 +118,18 @@ class _TutorialCopy extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              const TextSpan(text: ' (did not finish) with '),
+              TextSpan(
+                text: 'move <book> dnf',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 13,
+                  color: colors.primaryText,
+                ),
+              ),
               const TextSpan(
                 text:
-                    ' (did not finish), add a comment saying why you stopped '
-                    "- so future you knows whether it's worth another try.",
+                    ', add a comment saying why you stopped - so future you '
+                    "knows whether it's worth another try.",
               ),
             ],
           ),

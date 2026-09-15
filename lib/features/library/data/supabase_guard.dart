@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/network/connectivity_controller.dart';
+import '../../../core/supabase/postgrest_failure.dart';
 import '../domain/library_exception.dart';
 
 /// Default ceiling for a single Supabase round-trip. The cache exists to
@@ -57,11 +58,11 @@ Future<T> runSupabase<T>(
       cause: error,
     );
   } on PostgrestException catch (error) {
-    // Postgrest reports transport-ish failures with a 5xx-style code;
-    // those are worth retrying, everything else (bad column, RLS denial,
-    // constraint violation) is not.
-    final code = int.tryParse(error.code ?? '');
-    if (code != null && code >= 500) {
+    // Only a server that couldn't serve the request is worth retrying (and
+    // queueing offline); a refusal — bad column, RLS denial, constraint
+    // violation — is not. See [isTransientPostgrestError]: the code is a
+    // SQLSTATE, so `23505` must not read as a 5xx.
+    if (isTransientPostgrestError(error)) {
       throw NetworkException(friendlyMessage, cause: error);
     }
     throw RemoteDataException(friendlyMessage, cause: error);

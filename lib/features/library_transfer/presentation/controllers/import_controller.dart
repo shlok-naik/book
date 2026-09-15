@@ -166,6 +166,8 @@ class ImportController extends ChangeNotifier {
     await _makeTags();
 
     try {
+      // One transaction: the new library, every row flagged `imported`, and
+      // the import time the stats page counts monthly charts and pace from.
       _imported = await transfer.replaceLibrary([
         for (final (row, book) in _matched) toImported(row, book),
       ]);
@@ -174,21 +176,6 @@ class ImportController extends ChangeNotifier {
       await _reloadQuietly();
       _fail(error.message);
       return;
-    }
-
-    // Marks every imported row and stamps the import time — the baseline
-    // the stats page counts monthly charts and pace from. Best-effort: the
-    // library itself is already replaced, and a failure here only means the
-    // imported books still count in the monthly charts, so it's logged
-    // rather than reported as a failed import.
-    try {
-      await transfer.markImported();
-    } on LibraryException catch (error) {
-      AppLogger.warning(
-        'ImportController',
-        'Could not mark the import baseline.',
-        error: error,
-      );
     }
 
     // The freshly imported rows are what `addToSeries` matches on by

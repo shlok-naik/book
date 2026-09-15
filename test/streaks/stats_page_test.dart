@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:book/core/purchases/entitlements.dart';
+import 'package:book/core/purchases/plan_controller.dart';
 import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/goals/presentation/controllers/goal_controller.dart';
@@ -99,12 +102,20 @@ class _FakeReadingEventRepository extends ReadingEventRepository {
 
 /// Tags for the stats page's pro "tags" section — every `book_tags` row.
 class _FakeNotes extends BookNotesRepository {
-  _FakeNotes([this.tags = const []]);
+  _FakeNotes([this.tags = const [], this.failure]);
 
   final List<BookTag> tags;
 
+  /// A non-LibraryException to throw from [fetchAllTags].
+  final Error? failure;
+  int fetches = 0;
+
   @override
-  Future<List<BookTag>> fetchAllTags() async => tags;
+  Future<List<BookTag>> fetchAllTags() async {
+    fetches++;
+    if (failure case final error?) throw error;
+    return tags;
+  }
 }
 
 LibraryController _controller(
@@ -112,9 +123,10 @@ LibraryController _controller(
   List<LibraryBook> books = const [],
   List<BookTag> tags = const [],
   DateTime? importedAt,
+  BookNotesRepository? notes,
 ]) {
   return LibraryController(
-    notes: _FakeNotes(tags),
+    notes: notes ?? _FakeNotes(tags),
     lookup: BookLookupService(
       cache: _EmptyCache(),
       googleBooks: GoogleBooksApiClient(
@@ -134,13 +146,14 @@ Future<GoalController> pumpJournal(
   int? goal,
   PurchasesService? purchases,
   DateTime? importedAt,
+  BookNotesRepository? notes,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.625;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  final controller = _controller(rows, books, tags, importedAt);
+  final controller = _controller(rows, books, tags, importedAt, notes);
   addTearDown(controller.dispose);
   await controller.load();
   final goals = goalControllerFor(goal: goal);
@@ -604,4 +617,88 @@ void main() {
       expect(find.text('book club'), findsOneWidget);
     });
   });
+
+  // Regression: only LibraryException was caught, so any other failure left
+  // neither tags nor an error, and build() fetched again on every rebuild.
+  testWidgets('an unexpected tag failure shows a retry instead of refetching', (
+    tester,
+  ) async {
+    final notes = _FakeNotes(const [], StateError('bad payload'));
+    await pumpJournal(tester, [], notes: notes);
+    final fetchesAfterLoad = notes.fetches;
+
+    await tester.scrollUntilVisible(
+      find.text("We couldn't load your tags."),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    // More rebuilds don't start more fetches.
+    await tester.pump();
+    await tester.pump();
+    expect(notes.fetches, fetchesAfterLoad);
+  });
+
+  // Regression: the plan was read before the entitlement request, so a slow
+  // free answer that landed after a purchase locked the page again.
+  testWidgets(
+    'a stale free entitlement answer cannot re-lock after a purchase',
+    (tester) async {
+      addTearDown(() => PlanController.isPro.value = false);
+      final answer = Completer<CustomerInfo>();
+      await pumpJournalWithoutSettling(
+        tester,
+        purchases: _SlowPurchasesService(answer.future),
+      );
+
+      // The purchase lands while the first check is still out.
+      PlanController.isPro.value = true;
+      await tester.pump();
+      answer.complete(_customerInfo(pro: false));
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.text('books per month'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('books per month'), findsOneWidget);
+    },
+  );
+}
+
+class _SlowPurchasesService extends PurchasesService {
+  _SlowPurchasesService(this.answer);
+
+  final Future<CustomerInfo> answer;
+
+  @override
+  Future<CustomerInfo> get customerInfo => answer;
+}
+
+/// [pumpJournal] without its closing settle, for a test that must act while
+/// the page's first entitlement check is still out.
+Future<void> pumpJournalWithoutSettling(
+  WidgetTester tester, {
+  required PurchasesService purchases,
+}) async {
+  tester.view.physicalSize = const Size(1080, 2400);
+  tester.view.devicePixelRatio = 2.625;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  final controller = _controller(const []);
+  addTearDown(controller.dispose);
+  await controller.load();
+  await tester.pumpWidget(
+    GoalScope(
+      controller: goalControllerFor(),
+      child: LibraryScope(
+        controller: controller,
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: StatsPage(purchases: purchases),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
 }

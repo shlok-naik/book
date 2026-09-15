@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemNavigator;
 
+import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/platform/app_icon.dart';
 import '../../../../core/platform/app_icon_controller.dart';
@@ -201,30 +202,33 @@ class _CustomisationPageState extends State<CustomisationPage> {
                 const SizedBox(height: AppSpacing.sm),
                 // Same tab bar the library's "+" panel uses for
                 // shelves/tags/series — same colors, same face.
-                TabBar(
-                  labelColor: colors.accent,
-                  unselectedLabelColor: colors.secondaryText,
-                  indicatorColor: colors.accent,
-                  dividerColor: colors.divider,
-                  labelStyle: labelStyle,
-                  unselectedLabelStyle: labelStyle.copyWith(
-                    fontWeight: FontWeight.w400,
+                // A Builder so the tap handler sees the DefaultTabController.
+                Builder(
+                  builder: (tabContext) => TabBar(
+                    labelColor: colors.accent,
+                    unselectedLabelColor: colors.secondaryText,
+                    indicatorColor: colors.accent,
+                    dividerColor: colors.divider,
+                    labelStyle: labelStyle,
+                    unselectedLabelStyle: labelStyle.copyWith(
+                      fontWeight: FontWeight.w400,
+                    ),
+                    onTap: (_) => AppHaptics.tabTapped(tabContext),
+                    tabs: const [
+                      Tab(
+                        key: ValueKey('customisation-tab-icons'),
+                        text: 'icons',
+                      ),
+                      Tab(
+                        key: ValueKey('customisation-tab-themes'),
+                        text: 'themes',
+                      ),
+                      Tab(
+                        key: ValueKey('customisation-tab-fonts'),
+                        text: 'fonts',
+                      ),
+                    ],
                   ),
-                  onTap: (_) => AppHaptics.selection(),
-                  tabs: const [
-                    Tab(
-                      key: ValueKey('customisation-tab-icons'),
-                      text: 'icons',
-                    ),
-                    Tab(
-                      key: ValueKey('customisation-tab-themes'),
-                      text: 'themes',
-                    ),
-                    Tab(
-                      key: ValueKey('customisation-tab-fonts'),
-                      text: 'fonts',
-                    ),
-                  ],
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Expanded(
@@ -563,7 +567,11 @@ class _ThemesTab extends StatelessWidget {
                           onTap: () {
                             if (theme == current) return;
                             AppHaptics.selection();
-                            unawaited(AppColorThemeController.select(theme));
+                            reportingFailure(
+                              AppColorThemeController.select(theme),
+                              source: 'CustomisationPage',
+                              message: 'Could not save the color theme.',
+                            );
                           },
                         ),
                       ),
@@ -734,7 +742,11 @@ class _FontsTab extends StatelessWidget {
                 onTap: () {
                   if (theme == current) return;
                   AppHaptics.selection();
-                  unawaited(AppFontThemeController.select(theme));
+                  reportingFailure(
+                    AppFontThemeController.select(theme),
+                    source: 'CustomisationPage',
+                    message: 'Could not save the font set.',
+                  );
                 },
               ),
             ],

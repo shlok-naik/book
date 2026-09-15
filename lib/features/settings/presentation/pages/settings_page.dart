@@ -366,7 +366,11 @@ class _ReadingSection extends StatelessWidget {
               activeThumbColor: colors.accent,
               onChanged: (value) {
                 AppHaptics.selection();
-                unawaited(SeriesTileStyleController.select(value));
+                reportingFailure(
+                  SeriesTileStyleController.select(value),
+                  source: 'SettingsPage',
+                  message: 'Could not save the series tile style.',
+                );
               },
             ),
           ),

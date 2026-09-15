@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_fonts.dart';
@@ -128,6 +129,17 @@ class _StatsPageState extends State<StatsPage> with ProGateState<StatsPage> {
     } on LibraryException catch (error) {
       if (!mounted) return;
       setState(() => _tagsError = error.message);
+    } on Object catch (error, stackTrace) {
+      // Anything else must still land as an error: left with neither tags
+      // nor an error, [build] would start this fetch again on every rebuild.
+      AppLogger.error(
+        'StatsPage',
+        'Loading tags failed unexpectedly.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      setState(() => _tagsError = "We couldn't load your tags.");
     } finally {
       _tagsLoading = false;
     }

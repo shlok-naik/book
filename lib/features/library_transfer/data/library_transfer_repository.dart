@@ -38,7 +38,11 @@ class ImportedBook {
 }
 
 /// The one write the Goodreads import makes: `replace_library`, which swaps
-/// the caller's whole library for [ImportedBook]s in a single transaction.
+/// the caller's whole library for [ImportedBook]s in a single transaction —
+/// flagging every inserted row `imported` and stamping the profile's
+/// `library_imported_at` (the stats baseline) in that same transaction, so
+/// the baseline can never be missing from, or leak past, the import itself
+/// (see `20260921000000_atomic_import_baseline.sql`).
 class LibraryTransferRepository {
   LibraryTransferRepository({SupabaseClient? client})
     : _injectedClient = client;
@@ -63,16 +67,5 @@ class LibraryTransferRepository {
       // A few thousand rows in one transaction can take a while.
       timeout: const Duration(seconds: 60),
     );
-  }
-
-  /// Marks everything now on the shelf as imported and stamps the import
-  /// time on the profile (`mark_library_imported`), returning that stamp —
-  /// the stats baseline. Called right after [replaceLibrary] succeeds; see
-  /// `20260920000000_import_baseline.sql`.
-  Future<DateTime?> markImported() {
-    return runSupabase(() async {
-      final stamp = await _client.rpc<Object?>('mark_library_imported');
-      return stamp is String ? DateTime.tryParse(stamp) : null;
-    }, friendlyMessage: "We couldn't record when you imported.");
   }
 }

@@ -9,6 +9,7 @@ import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/settings/presentation/pages/customisation_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Records what the icon grid asked for instead of touching
@@ -380,6 +381,41 @@ void main() {
         expect(AppFontThemeController.current.value, AppFontTheme.book);
         expect(find.text('book'), findsNWidgets(2));
       });
+    });
+  });
+
+  // Regression: TabBar calls onTap for the tab that's already selected, and
+  // a no-op must not buzz.
+  testWidgets('tapping the active tab gives no haptic; changing tab does', (
+    tester,
+  ) async {
+    final vibrations = <Object?>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          vibrations.add(call.arguments);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await withPlatform(TargetPlatform.iOS, () async {
+      await pumpPage(tester);
+
+      await tester.tap(find.text('icons'));
+      await tester.pumpAndSettle();
+      expect(vibrations, isEmpty);
+
+      await tester.tap(find.text('themes'));
+      await tester.pumpAndSettle();
+      expect(vibrations, hasLength(1));
     });
   });
 }

@@ -154,48 +154,59 @@ class _SeriesSelectionSheetState extends State<SeriesSelectionSheet> {
                       ),
                     )
                   else
-                    for (final one in series) ...[
-                      if (one != series.first)
-                        const SizedBox(height: AppSpacing.sm),
-                      _SeriesRow(
-                        series: one,
-                        selected: entry.seriesId == one.id,
-                        busy: _pending.contains(one.id),
-                        controller: _positionController(
-                          one.id,
-                          entry.seriesId == one.id
-                              ? entry.seriesPosition
-                              : null,
-                        ),
-                        onToggle: () => _write(() async {
-                          if (entry.seriesId == one.id) {
-                            await library.removeFromSeriesById(
-                              entry.id,
-                              seriesName: one.name,
-                            );
-                          } else {
-                            await library.addToSeriesById(
-                              entry.id,
-                              one.name,
-                              position: _typedPosition(one.id),
-                            );
-                          }
-                        }, one.id),
-                        // Editing the number of a series this book is
-                        // already in re-files it at the new number;
-                        // typed before selecting, it's just waiting.
-                        onSubmitPosition: entry.seriesId != one.id
-                            ? null
-                            : () => _write(
-                                () => library.addToSeriesById(
-                                  entry.id,
-                                  one.name,
-                                  position: _typedPosition(one.id),
-                                ),
+                    // Scrolls under the fixed heading: a Column of every
+                    // series overflowed the sheet once there were more
+                    // than fit, and the lower ones couldn't be reached.
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        padding: EdgeInsets.zero,
+                        children: [
+                          for (final one in series) ...[
+                            if (one != series.first)
+                              const SizedBox(height: AppSpacing.sm),
+                            _SeriesRow(
+                              series: one,
+                              selected: entry.seriesId == one.id,
+                              busy: _pending.contains(one.id),
+                              controller: _positionController(
                                 one.id,
+                                entry.seriesId == one.id
+                                    ? entry.seriesPosition
+                                    : null,
                               ),
+                              onToggle: () => _write(() async {
+                                if (entry.seriesId == one.id) {
+                                  await library.removeFromSeriesById(
+                                    entry.id,
+                                    seriesName: one.name,
+                                  );
+                                } else {
+                                  await library.addToSeriesById(
+                                    entry.id,
+                                    one.name,
+                                    position: _typedPosition(one.id),
+                                  );
+                                }
+                              }, one.id),
+                              // Editing the number of a series this book is
+                              // already in re-files it at the new number;
+                              // typed before selecting, it's just waiting.
+                              onSubmitPosition: entry.seriesId != one.id
+                                  ? null
+                                  : () => _write(
+                                      () => library.addToSeriesById(
+                                        entry.id,
+                                        one.name,
+                                        position: _typedPosition(one.id),
+                                      ),
+                                      one.id,
+                                    ),
+                            ),
+                          ],
+                        ],
                       ),
-                    ],
+                    ),
                 ],
               ),
             ),

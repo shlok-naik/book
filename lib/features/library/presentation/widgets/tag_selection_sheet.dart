@@ -125,18 +125,25 @@ class _TagSelectionSheetState extends State<TagSelectionSheet> {
                       ),
                     )
                   else
-                    Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.sm,
-                      children: [
-                        for (final tag in tags)
-                          _SelectableTagChip(
-                            tag: tag,
-                            selected: _applied(tag, current) != null,
-                            busy: _pending.contains(tag.id),
-                            onTap: () => _toggle(tag, _applied(tag, current)),
-                          ),
-                      ],
+                    // Scrolls under the fixed heading once there are more
+                    // tags than fit the sheet.
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.sm,
+                          children: [
+                            for (final tag in tags)
+                              _SelectableTagChip(
+                                tag: tag,
+                                selected: _applied(tag, current) != null,
+                                busy: _pending.contains(tag.id),
+                                onTap: () =>
+                                    _toggle(tag, _applied(tag, current)),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
                 ],
               ),

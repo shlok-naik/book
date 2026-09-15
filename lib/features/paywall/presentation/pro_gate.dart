@@ -57,7 +57,12 @@ mixin ProGateState<T extends StatefulWidget> on State<T> {
   void _onPlanChanged() => unawaited(refreshProStatus());
 
   Future<void> refreshProStatus() async {
-    final isPro = PlanController.isPro.value || await _hasProEntitlement();
+    // The plan is read *after* the request: a purchase that lands while a
+    // slow free-state check is still out sets the controller to pro, and a
+    // value read before the await would let that stale answer lock the
+    // page again.
+    final hasEntitlement = await _hasProEntitlement();
+    final isPro = PlanController.isPro.value || hasEntitlement;
     if (!mounted || isPro == _isProUnlocked) return;
     setState(() => _isProUnlocked = isPro);
   }

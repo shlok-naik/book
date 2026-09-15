@@ -218,6 +218,12 @@ abstract final class LogCommandParser {
   //
   // `start isbn [date]` — checked before `_startPattern`, which would
   // otherwise happily read "isbn" as a (nonexistent) book title.
+  /// Any command that takes a trailing `[date]`, ending in something shaped
+  /// like one — checked by [parse] for a date that doesn't exist.
+  static final _invalidDatePattern = RegExp(
+    r'^(start|update|finish|restart)\s.*?(\d{4}-\d{2}-\d{2})$',
+    caseSensitive: false,
+  );
   static final _startIsbnPattern = RegExp(
     r'^start\s+isbn(?:\s+(\d{4}-\d{2}-\d{2}))?$',
     caseSensitive: false,
@@ -347,6 +353,16 @@ abstract final class LogCommandParser {
     final text = input.trim();
     if (text.isEmpty) {
       return const ParsedLogCommand(message: '', recognized: false);
+    }
+
+    // A dated command whose date doesn't exist is refused outright rather
+    // than logged on whatever day the calendar rolls it over to.
+    final dated = _invalidDatePattern.firstMatch(text);
+    if (dated != null && _parseDate(dated.group(2)) == null) {
+      return ParsedLogCommand(
+        message: "${dated.group(2)} isn't a real date.",
+        recognized: false,
+      );
     }
 
     final rate = _ratePattern.firstMatch(text);
@@ -736,13 +752,25 @@ abstract final class LogCommandParser {
     'Dec',
   ];
 
-  /// Parses a `YYYY-MM-DD` regex capture into a plain calendar date, or
-  /// null if [raw] is null (no date was given) — `DateTime.parse`'s own
-  /// leniency is more than this needs, but the pattern already
-  /// guarantees the shape, so there is nothing left for it to reject.
+  /// Parses a `YYYY-MM-DD` capture into a plain calendar date, or null if
+  /// [raw] is null (no date was given) or names a day that doesn't exist.
+  ///
+  /// The components are checked exactly: `DateTime.tryParse` normalises an
+  /// out-of-range day, so `2026-02-30` used to become March 2 and log the
+  /// command on a date the reader never typed. [parse] refuses such a line
+  /// before any command is built (see [_invalidDatePattern]).
   static DateTime? _parseDate(String? raw) {
     if (raw == null) return null;
-    return DateTime.tryParse(raw);
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(raw);
+    if (match == null) return null;
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final date = DateTime(year, month, day);
+    if (date.year != year || date.month != month || date.day != day) {
+      return null;
+    }
+    return date;
   }
 
   /// " — Aug 31" for a backdated command's pill, or "" for one logged

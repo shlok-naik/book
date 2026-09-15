@@ -55,7 +55,21 @@ class OfflineLibraryCache {
 
   /// Serializes every cache write, so two quick offline commands can't
   /// interleave a read-modify-write of the same document.
+  ///
+  /// Every link recovers from its own failure ([_logPersistFailure]): a
+  /// chain that kept a failed write's error would skip every later write
+  /// for the rest of the session and surface that old error from each one —
+  /// failing library writes whose queued request had actually succeeded.
   Future<void> _chain = Future.value();
+
+  static void _logPersistFailure(Object error, StackTrace stackTrace) {
+    AppLogger.error(
+      'OfflineLibraryCache',
+      'Persisting the offline cache failed.',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 
   bool get isActive => currentUserId() == accountId;
 
@@ -243,7 +257,9 @@ class OfflineLibraryCache {
 
   Future<void> _persistShelf() {
     final snapshot = _shelf;
-    return _chain = _chain.then((_) => store.write(_shelfKey, snapshot));
+    return _chain = _chain
+        .then((_) => store.write(_shelfKey, snapshot))
+        .catchError(_logPersistFailure);
   }
 
   // --------------------------------------------------------------- events
@@ -301,7 +317,9 @@ class OfflineLibraryCache {
 
   Future<void> _persistEvents(int year) {
     final snapshot = _events[year];
-    return _chain = _chain.then((_) => store.write(_eventsKey(year), snapshot));
+    return _chain = _chain
+        .then((_) => store.write(_eventsKey(year), snapshot))
+        .catchError(_logPersistFailure);
   }
 
   static Map<String, dynamic>? _asRow(Object? value) =>

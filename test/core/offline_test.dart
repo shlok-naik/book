@@ -263,6 +263,30 @@ void main() {
     });
   });
 
+  // Regression: one failed store write left its error in the persist chain,
+  // so every later cache write in the session was skipped and rethrew it.
+  test('a failed cache write does not poison every later one', () async {
+    final store = _FlakyStore(failWrites: 1);
+    final cache = OfflineLibraryCache(
+      accountId: 'me',
+      store: store,
+      queue: PendingWriteQueue(store: MemoryOfflineStore()),
+      currentUserId: () => 'me',
+    );
+
+    await expectLater(cache.writeShelf([_shelfRow('r1')]), completes);
+    await expectLater(cache.writeShelf([_shelfRow('r2')]), completes);
+
+    final reopened = OfflineLibraryCache(
+      accountId: 'me',
+      store: store,
+      queue: PendingWriteQueue(store: MemoryOfflineStore()),
+      currentUserId: () => 'me',
+    );
+    final rows = await reopened.readShelf();
+    expect(rows!.single['id'], 'r2');
+  });
+
   group('OfflineLibraryCache', () {
     OfflineLibraryCache cache({String? user = 'me'}) => OfflineLibraryCache(
       accountId: 'me',
@@ -442,4 +466,20 @@ void main() {
       expect(PlanController.isPro.value, isTrue);
     });
   });
+}
+
+/// A store whose first [failWrites] writes throw — a full disk, say.
+class _FlakyStore extends MemoryOfflineStore {
+  _FlakyStore({required this.failWrites});
+
+  int failWrites;
+
+  @override
+  Future<void> write(String key, Object? value) async {
+    if (failWrites > 0) {
+      failWrites--;
+      throw const FileSystemException('disk full');
+    }
+    return super.write(key, value);
+  }
 }

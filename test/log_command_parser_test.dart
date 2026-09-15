@@ -481,4 +481,28 @@ void main() {
       expect(startSeries.title, 'series dune');
     });
   });
+
+  // Regression: DateTime.tryParse rolled 2026-02-30 over to March 2, so the
+  // command was logged on a day the reader never typed.
+  group('impossible dates', () {
+    for (final line in [
+      'restart Dune 2026-02-30',
+      'start Dune 2026-13-01',
+      'finish Dune 2026-04-31',
+      'update Dune 120 2026-02-29',
+      'update Dune 50% 2026-00-10',
+    ]) {
+      test('refuses "$line"', () {
+        final parsed = LogCommandParser.parse(line);
+        expect(parsed.recognized, isFalse);
+        expect(parsed.message, contains("isn't a real date"));
+      });
+    }
+
+    test('a real leap day is still fine', () {
+      final parsed = LogCommandParser.parse('finish Dune 2028-02-29');
+      expect(parsed.recognized, isTrue);
+      expect(parsed.date, DateTime(2028, 2, 29));
+    });
+  });
 }

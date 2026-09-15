@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../diagnostics/app_logger.dart';
@@ -39,6 +40,17 @@ abstract final class AppHaptics {
   /// [accepted] on purpose — this is the one the reader needs to notice
   /// without looking.
   static void rejected() => _run(HapticFeedback.heavyImpact);
+
+  /// A [TabBar]'s `onTap`: [selection] only when the tap actually changes
+  /// tab. `TabBar` calls `onTap` for the tab that's already selected too,
+  /// and tapping where you already are is not a move. [context] must be
+  /// below the [DefaultTabController] — wrap the bar in a [Builder].
+  static void tabTapped(BuildContext context) {
+    final controller = DefaultTabController.maybeOf(context);
+    // A real change starts the controller's animation before `onTap` runs;
+    // a tap on the current tab leaves it idle.
+    if (controller == null || controller.indexIsChanging) selection();
+  }
 
   static void _run(Future<void> Function() pattern) {
     if (!enabled) return;

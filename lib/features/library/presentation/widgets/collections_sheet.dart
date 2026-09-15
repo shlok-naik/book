@@ -95,28 +95,34 @@ class CollectionsSheet extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                TabBar(
-                  labelColor: colors.accent,
-                  unselectedLabelColor: colors.secondaryText,
-                  indicatorColor: colors.accent,
-                  dividerColor: colors.divider,
-                  labelStyle: labelStyle,
-                  unselectedLabelStyle: labelStyle.copyWith(
-                    fontWeight: FontWeight.w400,
+                // A Builder so the tap handler sees the DefaultTabController.
+                Builder(
+                  builder: (tabContext) => TabBar(
+                    labelColor: colors.accent,
+                    unselectedLabelColor: colors.secondaryText,
+                    indicatorColor: colors.accent,
+                    dividerColor: colors.divider,
+                    labelStyle: labelStyle,
+                    unselectedLabelStyle: labelStyle.copyWith(
+                      fontWeight: FontWeight.w400,
+                    ),
+                    onTap: (_) => AppHaptics.tabTapped(tabContext),
+                    tabs: const [
+                      Tab(
+                        key: ValueKey('collections-tab-shelves'),
+                        text: 'shelves',
+                      ),
+                      Tab(key: ValueKey('collections-tab-tags'), text: 'tags'),
+                      Tab(
+                        key: ValueKey('collections-tab-series'),
+                        text: 'series',
+                      ),
+                      Tab(
+                        key: ValueKey('collections-tab-books'),
+                        text: 'books',
+                      ),
+                    ],
                   ),
-                  onTap: (_) => AppHaptics.selection(),
-                  tabs: const [
-                    Tab(
-                      key: ValueKey('collections-tab-shelves'),
-                      text: 'shelves',
-                    ),
-                    Tab(key: ValueKey('collections-tab-tags'), text: 'tags'),
-                    Tab(
-                      key: ValueKey('collections-tab-series'),
-                      text: 'series',
-                    ),
-                    Tab(key: ValueKey('collections-tab-books'), text: 'books'),
-                  ],
                 ),
                 const Expanded(
                   child: TabBarView(
