@@ -238,9 +238,15 @@ void main() {
 
       expect(find.byType(CommandsPage), findsOneWidget);
       // The new syntax is listed, and the old one is gone.
-      expect(find.text('move <book> <shelf>'), findsOneWidget);
-      expect(find.text('add tag <tag> <book>'), findsOneWidget);
-      expect(find.text('add comment <comment> <book>'), findsOneWidget);
+      final move = find.text('move <book> <shelf>');
+      await scrollTo(tester, move);
+      expect(move, findsOneWidget);
+      final addTag = find.text('add tag <tag> <book>');
+      await scrollTo(tester, addTag);
+      expect(addTag, findsOneWidget);
+      final addComment = find.text('add comment <comment> <book>');
+      await scrollTo(tester, addComment);
+      expect(addComment, findsOneWidget);
       expect(find.textContaining('add <book> tbr'), findsNothing);
     });
 

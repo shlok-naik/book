@@ -19,6 +19,8 @@ import 'package:book/features/library/presentation/library_scope.dart';
 import 'package:book/features/library/presentation/pages/book_detail_page.dart';
 import 'package:book/features/library/presentation/pages/library_page.dart';
 import 'package:book/features/library/presentation/pages/series_page.dart';
+import 'package:book/features/library/presentation/series_tile_style_controller.dart';
+import 'package:book/features/library/presentation/widgets/series_cover.dart';
 import 'package:book/features/logging/presentation/widgets/confirmation_pill.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -886,6 +888,69 @@ void main() {
         expect(find.byKey(const ValueKey('progress-book-1')), findsNothing);
       },
     );
+
+    testWidgets(
+      'double-tapping a grouped series spreads it into its books, and '
+      'double-tapping one of those folds it back',
+      (tester) async {
+        await pumpPage(
+          tester,
+          controllerFor([
+            _entry(
+              messiah,
+              toBeRead: true,
+              seriesId: 'series-dune',
+              seriesPosition: 2,
+            ),
+            _entry(
+              dune,
+              toBeRead: true,
+              seriesId: 'series-dune',
+              seriesPosition: 1,
+            ),
+          ], series: duneSeries),
+        );
+        final grouped = find.byKey(const ValueKey('shelf-series-series-dune'));
+        expect(grouped, findsOneWidget);
+
+        await tester.tap(grouped);
+        await tester.pump(kDoubleTapMinTime);
+        await tester.tap(grouped);
+        await tester.pumpAndSettle();
+
+        expect(grouped, findsNothing);
+        final book = find.byKey(const ValueKey('progress-book-1'));
+        expect(book, findsOneWidget);
+
+        await tester.tap(book);
+        await tester.pump(kDoubleTapMinTime);
+        await tester.tap(book);
+        await tester.pumpAndSettle();
+
+        expect(grouped, findsOneWidget);
+        expect(book, findsNothing);
+      },
+    );
+
+    testWidgets('the series tiles setting swaps the fan for a patchwork', (
+      tester,
+    ) async {
+      addTearDown(() => SeriesTileStyleController.patchwork.value = false);
+      await pumpPage(
+        tester,
+        controllerFor([
+          _entry(dune, toBeRead: true, seriesId: 'series-dune'),
+          _entry(messiah, toBeRead: true, seriesId: 'series-dune'),
+        ], series: duneSeries),
+      );
+      expect(find.byType(SeriesPatchworkCover), findsNothing);
+
+      SeriesTileStyleController.patchwork.value = true;
+      await tester.pump();
+
+      // The row above the shelves and the grouped tile in "to read".
+      expect(find.byType(SeriesPatchworkCover), findsNWidgets(2));
+    });
 
     testWidgets('tapping a group opens the series page in series order', (
       tester,

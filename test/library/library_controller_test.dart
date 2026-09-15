@@ -2625,6 +2625,38 @@ void main() {
       expect(controller.tags, isEmpty);
     });
 
+    test('by id, filing and unfiling touch exactly that row when two books '
+        'share a title', () async {
+      const otherDune = Book(
+        id: 'book-dune-2',
+        googleBooksId: 'gb-dune-2',
+        title: 'Dune',
+        author: 'Someone Else',
+      );
+      // Most recently updated first — a title match would pick this one.
+      final controller = controllerWith([_entry(otherDune), _entry(_dune)]);
+      await controller.load();
+      await controller.makeSeries('dune', isPro: true);
+
+      final filed = await controller.addToSeriesById(
+        'progress-book-1',
+        'dune',
+        position: 1,
+      );
+      expect(filed.success, isTrue);
+      expect(controller.findById('progress-book-1')!.seriesId, isNotNull);
+      expect(controller.findById('progress-book-dune-2')!.seriesId, isNull);
+
+      // No series named: out of whatever series it's in.
+      final out = await controller.removeFromSeriesById('progress-book-1');
+      expect(out.success, isTrue);
+      expect(controller.findById('progress-book-1')!.seriesId, isNull);
+
+      final again = await controller.removeFromSeriesById('progress-book-1');
+      expect(again.success, isFalse);
+      expect(again.message, '"Dune" isn\'t in a series.');
+    });
+
     test(
       'remove series takes a book out, and unmaking clears every filing',
       () async {
@@ -2637,12 +2669,18 @@ void main() {
         await controller.addToSeries('Dune', 'dune', position: 1);
         await controller.addToSeries('Dune Messiah', 'dune', position: 2);
 
-        final out = await controller.removeFromSeries('Dune Messiah', 'dune');
+        final out = await controller.removeFromSeries(
+          'Dune Messiah',
+          seriesName: 'dune',
+        );
         expect(out.success, isTrue);
         expect(controller.bookForTitleEntry('Dune Messiah')!.seriesId, isNull);
         expect(series.cleared, ['progress-book-4']);
 
-        final wrong = await controller.removeFromSeries('Dune Messiah', 'dune');
+        final wrong = await controller.removeFromSeries(
+          'Dune Messiah',
+          seriesName: 'dune',
+        );
         expect(wrong.success, isFalse);
 
         final id = controller.findSeries('dune')!.id;

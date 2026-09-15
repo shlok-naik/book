@@ -1579,30 +1579,75 @@ class LibraryController extends ChangeNotifier {
     String seriesName, {
     double? position,
   }) async {
-    final String clean;
-    try {
-      clean = CollectionNames.validateSeries(seriesName);
-    } on LibraryException catch (error) {
-      return LibraryActionResult.failure(error.message);
-    }
-    final known = findSeries(clean);
-    if (known == null) {
-      return LibraryActionResult.failure(
-        'No series called "$clean" yet — make it first with make series '
-        '$clean.',
-      );
-    }
-    if (position != null &&
-        (!position.isFinite || position <= 0 || position >= 10000)) {
-      return const LibraryActionResult.failure(
-        'A series number has to be above 0 and below 10000.',
-      );
-    }
+    final checked = _seriesToFile(seriesName, position);
+    final known = checked.series;
+    if (known == null) return checked.failure!;
     // Only now, with the series known to exist: a book not on the shelf
     // yet is added to read (see [_onShelfOrAdd]).
     final resolved = await _onShelfOrAdd(title, ReadingStatus.toBeRead);
     final entry = resolved.entry;
     if (entry == null) return resolved.failure!;
+    return _fileInSeries(entry, known, position, added: resolved.added);
+  }
+
+  /// The book page's series picker — [addToSeries] for a row identified by
+  /// id, so a book sharing its title with another can't be confused for it.
+  Future<LibraryActionResult> addToSeriesById(
+    String userBookId,
+    String seriesName, {
+    double? position,
+  }) async {
+    final entry = findById(userBookId);
+    if (entry == null) return _missingById;
+    final checked = _seriesToFile(seriesName, position);
+    final known = checked.series;
+    if (known == null) return checked.failure!;
+    return _fileInSeries(entry, known, position, added: false);
+  }
+
+  /// The series [seriesName] names, once the name and [position] pass —
+  /// or the failure saying why not. An unknown series is never created.
+  ({BookSeries? series, LibraryActionResult? failure}) _seriesToFile(
+    String seriesName,
+    double? position,
+  ) {
+    final String clean;
+    try {
+      clean = CollectionNames.validateSeries(seriesName);
+    } on LibraryException catch (error) {
+      return (
+        series: null,
+        failure: LibraryActionResult.failure(error.message),
+      );
+    }
+    final known = findSeries(clean);
+    if (known == null) {
+      return (
+        series: null,
+        failure: LibraryActionResult.failure(
+          'No series called "$clean" yet — make it first with make series '
+          '$clean.',
+        ),
+      );
+    }
+    if (position != null &&
+        (!position.isFinite || position <= 0 || position >= 10000)) {
+      return (
+        series: null,
+        failure: const LibraryActionResult.failure(
+          'A series number has to be above 0 and below 10000.',
+        ),
+      );
+    }
+    return (series: known, failure: null);
+  }
+
+  Future<LibraryActionResult> _fileInSeries(
+    LibraryBook entry,
+    BookSeries known,
+    double? position, {
+    required bool added,
+  }) async {
     final before = entry.progress;
     final samePosition = before.seriesId == known.id
         ? before.seriesPosition
@@ -1624,10 +1669,10 @@ class LibraryController extends ChangeNotifier {
           ? known.name
           : '${known.name} #${BookSeries.formatPosition(newPosition)}';
       return LibraryActionResult.success(
-        resolved.added
+        added
             ? 'Added "${entry.book.title}" to read and filed it under $label'
             : 'Filed "${entry.book.title}" under $label',
-        resolved.added,
+        added,
       );
     } on LibraryException catch (error) {
       _upsertLocal(entry.copyWith(progress: before));
@@ -1792,7 +1837,7 @@ class LibraryController extends ChangeNotifier {
         :final title,
         :final name,
       ) =>
-        removeFromSeries(title, name),
+        removeFromSeries(title, seriesName: name),
     };
   }
 
@@ -1862,16 +1907,39 @@ class LibraryController extends ChangeNotifier {
   /// filed under, number and all. Refused when it isn't filed under that
   /// series. Optimistic with rollback, like [addToSeries].
   Future<LibraryActionResult> removeFromSeries(
-    String title,
-    String seriesName,
-  ) async {
+    String title, {
+    String? seriesName,
+  }) async {
     final entry = _findByTitle(title);
     if (entry == null) return _notOnShelf(title);
-    final known = findSeries(seriesName);
+    return _removeEntryFromSeries(entry, seriesName);
+  }
+
+  /// The book page's series chip and picker — [removeFromSeries] for a row
+  /// identified by id. With no [seriesName], out of whatever series it's in.
+  Future<LibraryActionResult> removeFromSeriesById(
+    String userBookId, {
+    String? seriesName,
+  }) async {
+    final entry = findById(userBookId);
+    if (entry == null) return _missingById;
+    return _removeEntryFromSeries(entry, seriesName);
+  }
+
+  Future<LibraryActionResult> _removeEntryFromSeries(
+    LibraryBook entry,
+    String? seriesName,
+  ) async {
     final before = entry.progress;
-    if (known == null || before.seriesId != known.id) {
+    final currentId = before.seriesId;
+    final known = seriesName == null
+        ? (currentId == null ? null : seriesById(currentId))
+        : findSeries(seriesName);
+    if (known == null || currentId != known.id) {
       return LibraryActionResult.failure(
-        '"${entry.book.title}" isn\'t filed under ${seriesName.trim()}.',
+        seriesName == null
+            ? '"${entry.book.title}" isn\'t in a series.'
+            : '"${entry.book.title}" isn\'t filed under ${seriesName.trim()}.',
       );
     }
     _upsertLocal(

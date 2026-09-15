@@ -20,9 +20,11 @@ import '../../domain/library_search.dart';
 import '../../domain/user_book.dart';
 import '../controllers/library_controller.dart';
 import '../library_scope.dart';
+import '../series_tile_style_controller.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/book_tile.dart';
 import '../widgets/collections_sheet.dart';
+import '../widgets/series_cover.dart';
 import 'book_detail_page.dart';
 import 'series_page.dart';
 
@@ -167,6 +169,20 @@ class _LibraryPageState extends State<LibraryPage> {
   /// queue ahead or what's behind them. Ignored while searching: collapsing a shelf and then
   /// finding a match in it should still show that match rather than hide
   /// it.
+  /// Series groups a reader has double-tapped open — in-memory only, like
+  /// [_collapsed]. A series entirely on one shelf normally shows as one
+  /// grouped tile there; double-tapping it spreads it back out into its own
+  /// book tiles (so each can be dragged elsewhere), and double-tapping any
+  /// of those books folds the group again.
+  final _expandedSeries = <String>{};
+
+  void _toggleSeriesExpanded(String groupId) {
+    AppHaptics.selection();
+    setState(() {
+      if (!_expandedSeries.add(groupId)) _expandedSeries.remove(groupId);
+    });
+  }
+
   final _collapsed = <ShelfRef>{
     const StatusShelfRef(ReadingStatus.toBeRead),
     const StatusShelfRef(ReadingStatus.finished),
@@ -490,6 +506,9 @@ class _LibraryPageState extends State<LibraryPage> {
     // while searching, since a search result is one specific book, not the
     // whole series it belongs to.
     final collapsedByShelf = <ShelfRef, List<SeriesGroup>>{};
+    // Books of a group the reader spread out, by id — each knows which
+    // group double-tapping it folds back into.
+    final expandedSeriesByEntry = <String, SeriesGroup>{};
     if (!filtering) {
       for (final group in allGroups) {
         if (group.entries.length < 2) continue;
@@ -499,7 +518,13 @@ class _LibraryPageState extends State<LibraryPage> {
           for (final entry in group.entries) controller.placementOf(entry),
         };
         if (refs.length != 1) continue;
-        (collapsedByShelf[refs.single] ??= []).add(group);
+        if (_expandedSeries.contains(group.id)) {
+          for (final entry in group.entries) {
+            expandedSeriesByEntry[entry.id] = group;
+          }
+        } else {
+          (collapsedByShelf[refs.single] ??= []).add(group);
+        }
       }
     }
 
@@ -545,6 +570,8 @@ class _LibraryPageState extends State<LibraryPage> {
             _BookGrid(
               entries: sections[shelf.ref]!,
               collapsedSeries: collapsedByShelf[shelf.ref] ?? const [],
+              expandedSeriesByEntry: expandedSeriesByEntry,
+              onToggleSeriesExpanded: _toggleSeriesExpanded,
               shelf: shelf.ref,
               shelves: shelves,
               // Finished and dropped books are shown faded, so the shelves
@@ -581,7 +608,9 @@ class _BookGrid extends StatelessWidget {
     required this.onDragEnded,
     required this.onMove,
     required this.onOpen,
+    required this.onToggleSeriesExpanded,
     this.collapsedSeries = const [],
+    this.expandedSeriesByEntry = const {},
     this.dimmed = false,
   });
 
@@ -591,6 +620,11 @@ class _BookGrid extends StatelessWidget {
   /// grouped tile in place of their individual ones. See
   /// [_LibraryPageState._buildSlivers].
   final List<SeriesGroup> collapsedSeries;
+
+  /// Books whose series the reader spread out, with the group each folds
+  /// back into. See [_LibraryPageState._expandedSeries].
+  final Map<String, SeriesGroup> expandedSeriesByEntry;
+  final ValueChanged<String> onToggleSeriesExpanded;
   final ShelfRef shelf;
 
   /// Every section on the page, in page order — where keyboard and
@@ -656,9 +690,11 @@ class _BookGrid extends StatelessWidget {
                   key: ValueKey('shelf-series-${item.id}'),
                   group: item,
                   size: Size(tileWidth, tileHeight),
+                  onDoubleTap: () => onToggleSeriesExpanded(item.id),
                 );
               }
               final (bookIndex, entry) = item as (int, LibraryBook);
+              final expandedInto = expandedSeriesByEntry[entry.id];
               return _DraggableBookTile(
                 // Keyed on the progress row so Flutter reuses the right
                 // element when a book moves between sections.
@@ -676,6 +712,9 @@ class _BookGrid extends StatelessWidget {
                 onDragEnded: onDragEnded,
                 onMove: onMove,
                 onOpen: onOpen,
+                onCollapseSeries: expandedInto == null
+                    ? null
+                    : () => onToggleSeriesExpanded(expandedInto.id),
               );
             }, childCount: items.length),
           );
@@ -691,10 +730,19 @@ class _BookGrid extends StatelessWidget {
 /// instead of that row's fixed width. Never draggable: it represents more
 /// than one shelf position at once, so there's no single place to drop it.
 class _SeriesGroupTile extends StatelessWidget {
-  const _SeriesGroupTile({super.key, required this.group, required this.size});
+  const _SeriesGroupTile({
+    super.key,
+    required this.group,
+    required this.size,
+    required this.onDoubleTap,
+  });
 
   final SeriesGroup group;
   final Size size;
+
+  /// Spreads the group back out into its own book tiles — see
+  /// [_LibraryPageState._toggleSeriesExpanded].
+  final VoidCallback onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -704,6 +752,9 @@ class _SeriesGroupTile extends StatelessWidget {
     return Semantics(
       button: true,
       label: '${group.name} series, ${group.summary}.',
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'Show its books'): onDoubleTap,
+      },
       excludeSemantics: true,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -711,6 +762,7 @@ class _SeriesGroupTile extends StatelessWidget {
           AppHaptics.selection();
           unawaited(openSeries(context, group));
         },
+        onDoubleTap: onDoubleTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -772,6 +824,27 @@ class _SeriesCoverFan extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Settings' "series tiles" switch: a patchwork of the covers instead of
+    // the fanned stack.
+    return ValueListenableBuilder<bool>(
+      valueListenable: SeriesTileStyleController.patchwork,
+      builder: (context, patchwork, _) => patchwork
+          ? SizedBox(
+              height: height,
+              width: width,
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: coverWidth,
+                  child: SeriesPatchworkCover(entries: group.entries),
+                ),
+              ),
+            )
+          : _fan(),
+    );
+  }
+
+  Widget _fan() {
     final covers = group.entries.take(3).toList();
     return SizedBox(
       height: height,
@@ -832,6 +905,7 @@ class _DraggableBookTile extends StatefulWidget {
     required this.onDragEnded,
     required this.onMove,
     required this.onOpen,
+    this.onCollapseSeries,
   });
 
   final LibraryBook entry;
@@ -847,6 +921,10 @@ class _DraggableBookTile extends StatefulWidget {
   final VoidCallback onDragEnded;
   final void Function(String id, ShelfRef shelf, int index) onMove;
   final ValueChanged<LibraryBook> onOpen;
+
+  /// Folds this book's spread-out series back into one tile; null unless
+  /// the reader spread it out. See [_LibraryPageState._expandedSeries].
+  final VoidCallback? onCollapseSeries;
 
   @override
   State<_DraggableBookTile> createState() => _DraggableBookTileState();
@@ -934,6 +1012,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => widget.onOpen(entry),
+        onDoubleTap: widget.onCollapseSeries,
         child: _tile(),
       ),
     );
@@ -1053,6 +1132,8 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
       if (!widget.isLast)
         const CustomSemanticsAction(label: 'Move later'): () =>
             _moveWithinShelf(1),
+      const CustomSemanticsAction(label: 'Collapse series'):
+          ?widget.onCollapseSeries,
     };
   }
 }

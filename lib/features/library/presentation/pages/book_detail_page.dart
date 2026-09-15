@@ -11,7 +11,6 @@ import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../logging/presentation/widgets/confirmation_pill.dart';
-import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../../../settings/presentation/widgets/settings_header.dart';
 import '../../domain/book.dart';
 import '../../domain/book_edition.dart';
@@ -24,6 +23,7 @@ import '../library_scope.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/detail_text_field.dart';
 import '../widgets/info_section.dart';
+import '../widgets/series_selection_sheet.dart';
 import '../widgets/star_rating_input.dart';
 import '../widgets/tag_selection_sheet.dart';
 import 'editions_page.dart';
@@ -395,6 +395,8 @@ class _BookDetailPageState extends State<BookDetailPage> {
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
+        _seriesSection(entry, library),
+        const SizedBox(height: AppSpacing.lg),
         _tagsSection(detail),
         const SizedBox(height: AppSpacing.lg),
         _commentsSection(entry, detail),
@@ -653,53 +655,82 @@ class _BookDetailPageState extends State<BookDetailPage> {
     );
   }
 
+  Widget _seriesSection(LibraryBook entry, LibraryController library) {
+    final seriesId = entry.seriesId;
+    final label = library.seriesLabelFor(entry);
+
+    return InfoSection(
+      title: 'series',
+      rows: [
+        _ActionRow(
+          label: 'add series',
+          onTap: () => showSeriesSelectionSheet(context, entry.id),
+        ),
+        if (seriesId != null && label != null)
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                _RemovableChip(
+                  label: label,
+                  onRemove: () => _run(
+                    'remove that series',
+                    () => library.removeFromSeriesById(entry.id),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _tagsSection(BookDetailController detail) {
     final colors = context.colors;
     final section = detail.tags;
     final tags = section.data ?? const <BookTag>[];
+    final showsList =
+        (section.isLoading && !section.hasData) ||
+        (section.error != null && !section.hasData) ||
+        tags.isNotEmpty;
 
     return InfoSection(
       title: 'tags',
       rows: [
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (section.isLoading && !section.hasData)
-                _Hint('loading tags…', colors: colors)
-              else if (section.error != null && !section.hasData)
-                _Retry(
-                  message: section.error!,
-                  onRetry: detail.loadTags,
-                  colors: colors,
-                )
-              else if (tags.isNotEmpty) ...[
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    for (final tag in tags)
-                      _TagChip(
-                        tag: tag,
-                        onRemove: BookDetailController.isPending(tag.id)
-                            ? null
-                            : () => _run(
-                                'remove that tag',
-                                () => detail.removeTag(tag.id),
-                              ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-              ],
-              SoftPillButton(
-                label: 'select tags',
-                onPressed: () => showTagSelectionSheet(context, detail),
-              ),
-            ],
-          ),
+        _ActionRow(
+          label: 'add tags',
+          onTap: () => showTagSelectionSheet(context, detail),
         ),
+        if (showsList)
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: section.isLoading && !section.hasData
+                ? _Hint('loading tags…', colors: colors)
+                : section.error != null && !section.hasData
+                ? _Retry(
+                    message: section.error!,
+                    onRetry: detail.loadTags,
+                    colors: colors,
+                  )
+                : Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: [
+                      for (final tag in tags)
+                        _TagChip(
+                          tag: tag,
+                          onRemove: BookDetailController.isPending(tag.id)
+                              ? null
+                              : () => _run(
+                                  'remove that tag',
+                                  () => detail.removeTag(tag.id),
+                                ),
+                        ),
+                    ],
+                  ),
+          ),
       ],
     );
   }
@@ -1442,6 +1473,60 @@ class _TagChip extends StatelessWidget {
   }
 }
 
+/// [_TagChip]'s own look, generalised to any label — used for the single
+/// series chip, where there's no `BookTag`-shaped row to carry.
+class _RemovableChip extends StatelessWidget {
+  const _RemovableChip({required this.label, required this.onRemove});
+
+  final String label;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Opacity(
+      opacity: onRemove == null ? 0.5 : 1,
+      child: Container(
+        padding: const EdgeInsets.only(left: AppSpacing.md),
+        decoration: BoxDecoration(
+          color: colors.accent.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: context.fonts.interface(
+                fontSize: 13,
+                color: colors.primaryText,
+              ),
+            ),
+            Semantics(
+              container: true,
+              button: true,
+              label: 'Remove $label',
+              excludeSemantics: true,
+              child: InkResponse(
+                onTap: onRemove,
+                radius: 16,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  child: Icon(
+                    Icons.close,
+                    size: 14,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CommentRow extends StatelessWidget {
   const _CommentRow({
     required this.comment,
@@ -1642,6 +1727,49 @@ class _BlurbState extends State<_Blurb> {
           ],
         );
       },
+    );
+  }
+}
+
+/// A row that opens something — the same shape as settings' own
+/// `SettingsRow` (label, chevron), but with no leading icon: these sit
+/// inside an already-titled [InfoSection] ("tags", "series"), so an icon
+/// would repeat what the caption already says.
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.md,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: context.fonts.body(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: colors.primaryText,
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: colors.secondaryText),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

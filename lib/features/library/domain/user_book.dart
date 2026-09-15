@@ -109,11 +109,11 @@ class UserBook {
   bool get isFinished => status == ReadingStatus.finished;
 
   /// `clearFinishedAt`/`clearShelfPosition`/`clearOwnedEdition`/
-  /// `clearShelfId`/`clearSeriesPosition` exist because a plain `null`
-  /// argument can't be told apart from "not given" — and each of those
-  /// genuinely needs to go back to null (a book moved off the finished
-  /// shelf, a book moved into a new section, an edition deselected, a
-  /// series re-filed with no number).
+  /// `clearShelfId`/`clearSeriesId`/`clearSeriesPosition` exist because a
+  /// plain `null` argument can't be told apart from "not given" — and
+  /// each of those genuinely needs to go back to null (a book moved off
+  /// the finished shelf, a book moved into a new section, an edition
+  /// deselected, a series re-filed with no number or removed outright).
   UserBook copyWith({
     int? currentPage,
     ReadingStatus? status,

@@ -21,8 +21,10 @@ class CommandsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final free = CommandCatalog.free;
-    final pro = CommandCatalog.all.where((c) => c.proOnly).toList();
+    final byCategory = <CommandCategory, List<CommandReference>>{};
+    for (final command in CommandCatalog.all) {
+      (byCategory[command.category] ??= []).add(command);
+    }
 
     return Scaffold(
       backgroundColor: colors.background,
@@ -53,16 +55,17 @@ class CommandsPage extends StatelessWidget {
                         color: colors.secondaryText,
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.lg),
-                    SettingsSection(
-                      title: 'everyone',
-                      rows: [for (final command in free) _CommandRow(command)],
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    SettingsSection(
-                      title: 'cactus pro — written for you from a sentence',
-                      rows: [for (final command in pro) _CommandRow(command)],
-                    ),
+                    for (final category in CommandCategory.values)
+                      if (byCategory[category] case final commands?) ...[
+                        const SizedBox(height: AppSpacing.lg),
+                        SettingsSection(
+                          title: category.label,
+                          rows: [
+                            for (final command in commands)
+                              _CommandRow(command),
+                          ],
+                        ),
+                      ],
                   ],
                 ),
               ),

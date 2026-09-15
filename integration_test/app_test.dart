@@ -62,7 +62,7 @@ class _InMemoryUserBookRepository extends UserBookRepository {
   Future<List<LibraryBook>> fetchLibrary() async => const [];
 
   @override
-  Future<StartOutcome> start(String bookId) async {
+  Future<StartOutcome> start(String bookId, {DateTime? startedAt}) async {
     final isNew = _started.add(bookId);
     return StartOutcome(
       UserBook(

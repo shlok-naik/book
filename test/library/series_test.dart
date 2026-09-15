@@ -63,6 +63,14 @@ class _FakeSeries extends BookSeriesRepository {
     calls.add((userBookId, seriesId, position));
   }
 
+  final cleared = <String>[];
+
+  @override
+  Future<void> clearSeries(String userBookId) async {
+    if (failure != null) throw failure!;
+    cleared.add(userBookId);
+  }
+
   /// The reader's own series list — what `add series` requires.
   final mine = <BookSeries>[];
 

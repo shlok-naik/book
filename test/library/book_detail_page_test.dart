@@ -25,7 +25,6 @@ import 'package:book/features/library/presentation/pages/editions_page.dart';
 import 'package:book/features/library/presentation/widgets/book_cover.dart';
 import 'package:book/features/library/presentation/widgets/info_section.dart';
 import 'package:book/features/library/presentation/widgets/tag_selection_sheet.dart';
-import 'package:book/features/paywall/presentation/widgets/soft_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -597,7 +596,7 @@ void main() {
     await pumpDetail(tester);
     // A button below the fold isn't built (so has no semantics node)
     // until the list scrolls to it.
-    final button = find.widgetWithText(SoftPillButton, 'select tags');
+    final button = find.text('add tags');
     await scrollTo(tester, button);
     await tester.tap(button);
     await tester.pumpAndSettle();
