@@ -28,6 +28,7 @@ import 'core/theme/app_font_theme.dart';
 import 'core/theme/app_font_theme_controller.dart';
 import 'core/theme/app_scroll_behavior.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/bundled_fonts.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/widgets/startup_failure_page.dart';
 import 'features/goals/presentation/controllers/goal_controller.dart';
@@ -69,6 +70,8 @@ Future<void> main() async {
 
 Future<void> _bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Fonts ship with the app; never download one (see [BundledFonts]).
+  BundledFonts.configure();
 
   FlutterError.onError = (details) {
     AppLogger.error(

@@ -79,6 +79,9 @@ flutter:
     - .env
     - assets/app_icons/
     - assets/app_icons/round/
+    # Every typeface, bundled so nothing is fetched at runtime — see
+    # lib/core/theme/bundled_fonts.dart.
+    - assets/google_fonts/
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
