@@ -127,6 +127,7 @@ class _SeriesRow extends StatelessWidget {
                 title: book.title,
                 author: book.author,
                 coverUrl: book.coverUrl,
+                isbn: book.isbn13 ?? book.isbn10,
               ),
             ),
             const SizedBox(width: AppSpacing.md),

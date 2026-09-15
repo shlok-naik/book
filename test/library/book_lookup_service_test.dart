@@ -215,6 +215,37 @@ void main() {
       expect(book.googleBooksId, 'gb-dune');
     });
 
+    test(
+      'among equally good matches, prefers the volume with a cover',
+      () async {
+        final payload = jsonEncode({
+          'items': [
+            {
+              'id': 'gb-bare',
+              'volumeInfo': {
+                'title': 'Dune',
+                'authors': ['Frank Herbert'],
+              },
+            },
+            {
+              'id': 'gb-jacket',
+              'volumeInfo': {
+                'title': 'Dune',
+                'authors': ['Frank Herbert'],
+                'imageLinks': {'thumbnail': 'http://books.google.com/dune.jpg'},
+              },
+            },
+          ],
+        });
+        final service = serviceWith((_) async => http.Response(payload, 200));
+
+        final book = await service.findOrFetch('dune');
+
+        expect(book.googleBooksId, 'gb-jacket');
+        expect(book.coverUrl, 'https://books.google.com/dune.jpg');
+      },
+    );
+
     test('reports no results as BookNotFoundException', () async {
       final service = serviceWith(
         (_) async => http.Response(jsonEncode({'totalItems': 0}), 200),

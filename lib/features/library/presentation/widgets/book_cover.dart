@@ -18,6 +18,7 @@ class BookCover extends StatelessWidget {
     required this.title,
     required this.author,
     this.coverUrl,
+    this.isbn,
     this.dimmed = false,
     this.rereadCount = 0,
   });
@@ -25,6 +26,10 @@ class BookCover extends StatelessWidget {
   final String title;
   final String author;
   final String? coverUrl;
+
+  /// The book's ISBN, when known — where a cover comes from when Google
+  /// has none (see [CoverImage]).
+  final String? isbn;
 
   /// Finished books are shown slightly faded, so the in-progress shelf
   /// stays the visually dominant one.
@@ -37,49 +42,17 @@ class BookCover extends StatelessWidget {
 
   static const aspectRatio = 2 / 3;
 
-  /// Physical pixels to decode a cover at for [constraints] — rounded up to
-  /// a 64px step so a few pixels' difference between two places a cover is
-  /// shown (a tile, a series fan) shares one decoded image instead of two.
-  /// Null (decode at full size) when the width isn't bounded.
-  static int? _decodeWidth(BuildContext context, BoxConstraints constraints) {
-    final width = constraints.maxWidth;
-    if (!width.isFinite || width <= 0) return null;
-    final physical = width * MediaQuery.devicePixelRatioOf(context);
-    return ((physical / 64).ceil() * 64).clamp(64, 2048);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final url = coverUrl;
-
     final cover = Opacity(
       opacity: dimmed ? 0.55 : 1,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppRadius.sm),
-        child: url == null || url.isEmpty
-            ? _CoverPlaceholder(title: title, author: author)
-            : LayoutBuilder(
-                builder: (context, constraints) => Image.network(
-                  url,
-                  fit: BoxFit.cover,
-                  // Decoded at the size it's drawn, not the file's own: a
-                  // grid of full-resolution covers held every one of them
-                  // in memory at full size and decoded them on the raster
-                  // thread while scrolling.
-                  cacheWidth: _decodeWidth(context, constraints),
-                  // A failed download (offline, dead link, 403) falls
-                  // back to the placeholder instead of Flutter's default
-                  // broken-image icon.
-                  errorBuilder: (context, _, _) =>
-                      _CoverPlaceholder(title: title, author: author),
-                  // Hold the placeholder while bytes are in flight so
-                  // the tile never flashes empty.
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return _CoverPlaceholder(title: title, author: author);
-                  },
-                ),
-              ),
+        child: CoverImage(
+          coverUrl: coverUrl,
+          isbn: isbn,
+          placeholder: _CoverPlaceholder(title: title, author: author),
+        ),
       ),
     );
 
@@ -202,6 +175,102 @@ class _CoverPlaceholder extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A cover picture, trying each place one might come from in turn and
+/// showing [placeholder] while loading and when none works:
+///
+/// 1. the cover URL cached from Google Books, then
+/// 2. Open Library's cover for the ISBN.
+///
+/// Google has no thumbnail for plenty of volumes (most `…ACAAJ` records),
+/// and its image endpoint sometimes refuses a request outright; either
+/// used to leave a placeholder where a real cover exists. Open Library's
+/// `default=false` answers 404 rather than a blank image when it has
+/// nothing, so a miss falls through to the placeholder instead of drawing
+/// an empty rectangle. Only the ISBN is sent — never anything the reader
+/// typed.
+class CoverImage extends StatefulWidget {
+  const CoverImage({
+    super.key,
+    required this.coverUrl,
+    required this.isbn,
+    required this.placeholder,
+    this.fit = BoxFit.cover,
+  });
+
+  final String? coverUrl;
+  final String? isbn;
+  final Widget placeholder;
+  final BoxFit fit;
+
+  /// Where to look, in order. Public for tests.
+  static List<String> candidates(String? coverUrl, String? isbn) {
+    final digits = isbn?.replaceAll(RegExp('[^0-9Xx]'), '');
+    return [
+      if (coverUrl != null && coverUrl.isNotEmpty) coverUrl,
+      if (digits != null && (digits.length == 10 || digits.length == 13))
+        'https://covers.openlibrary.org/b/isbn/$digits-M.jpg?default=false',
+    ];
+  }
+
+  /// Physical pixels to decode a cover at for [constraints] — rounded up to
+  /// a 64px step so a few pixels' difference between two places a cover is
+  /// shown (a tile, a series fan) shares one decoded image instead of two.
+  /// Null (decode at full size) when the width isn't bounded.
+  static int? _decodeWidth(BuildContext context, BoxConstraints constraints) {
+    final width = constraints.maxWidth;
+    if (!width.isFinite || width <= 0) return null;
+    final physical = width * MediaQuery.devicePixelRatioOf(context);
+    return ((physical / 64).ceil() * 64).clamp(64, 2048);
+  }
+
+  @override
+  State<CoverImage> createState() => _CoverImageState();
+}
+
+class _CoverImageState extends State<CoverImage> {
+  /// Which of [CoverImage.candidates] is being tried.
+  int _attempt = 0;
+
+  @override
+  void didUpdateWidget(CoverImage old) {
+    super.didUpdateWidget(old);
+    if (old.coverUrl != widget.coverUrl || old.isbn != widget.isbn) {
+      _attempt = 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final urls = CoverImage.candidates(widget.coverUrl, widget.isbn);
+    if (_attempt >= urls.length) return widget.placeholder;
+
+    return LayoutBuilder(
+      builder: (context, constraints) => Image.network(
+        urls[_attempt],
+        // Keyed so a fallback is a fresh image, not the failed one reused.
+        key: ValueKey(urls[_attempt]),
+        fit: widget.fit,
+        // Decoded at the size it's drawn, not the file's own.
+        cacheWidth: CoverImage._decodeWidth(context, constraints),
+        errorBuilder: (context, _, _) {
+          // Try the next source after this frame; the placeholder holds
+          // the tile's footprint meanwhile.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _attempt < urls.length) {
+              setState(() => _attempt++);
+            }
+          });
+          return widget.placeholder;
+        },
+        // Hold the placeholder while bytes are in flight so the tile never
+        // flashes empty.
+        loadingBuilder: (context, child, progress) =>
+            progress == null ? child : widget.placeholder,
       ),
     );
   }

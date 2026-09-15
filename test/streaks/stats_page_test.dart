@@ -472,6 +472,61 @@ void main() {
     });
   });
 
+  // Regression: the pace legend was a Row, and on a narrow phone
+  // "you · steady pace … 3 behind" ran off the right edge.
+  testWidgets('the pace legend wraps instead of overflowing a narrow phone', (
+    tester,
+  ) async {
+    final year = DateTime.now().year;
+    final overflows = <String>[];
+    final previous = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('overflowed')) {
+        overflows.add(details.exceptionAsString());
+      } else {
+        previous?.call(details);
+      }
+    };
+    addTearDown(() => FlutterError.onError = previous);
+
+    await pumpJournal(
+      tester,
+      [],
+      goal: 40,
+      books: [
+        for (var i = 1; i <= 3; i++)
+          LibraryBook(
+            book: Book(
+              id: 'b$i',
+              googleBooksId: 'g$i',
+              title: 'Book $i',
+              author: 'Someone',
+              pageCount: 100,
+            ),
+            progress: UserBook(
+              id: 'u$i',
+              bookId: 'b$i',
+              currentPage: 100,
+              status: ReadingStatus.finished,
+              finishedAt: DateTime(year, 1, i),
+            ),
+          ),
+      ],
+    );
+    // A 320-wide phone, then let the page lay out again.
+    tester.view.physicalSize = const Size(640, 1400);
+    tester.view.devicePixelRatio = 2;
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('steady pace'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('steady pace'), findsOneWidget);
+    expect(overflows, isEmpty);
+  });
+
   group('pro gate', () {
     testWidgets('there is no journal any more, on either plan', (tester) async {
       await pumpJournal(tester, [

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/formatting/numbers.dart';
@@ -44,22 +46,14 @@ class BookTile extends StatelessWidget {
             entry.book.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: context.fonts.bookTitle(
-              fontSize: 14,
-              height: 1.2,
-              fontWeight: FontWeight.w600,
-              color: colors.primaryText,
-            ),
+            style: titleStyle(context, colors.primaryText),
           ),
           const SizedBox(height: 2),
           Text(
             entry.book.author,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: context.fonts.body(
-              fontSize: 11,
-              color: colors.secondaryText,
-            ),
+            style: subtitleStyle(context, colors.secondaryText),
           ),
           const SizedBox(height: AppSpacing.sm),
           if (completion != null) ...[
@@ -72,9 +66,11 @@ class BookTile extends StatelessWidget {
           ],
           Text(
             _progressLabel(),
-            style: context.fonts.interface(
-              fontSize: 11,
-              color: entry.isFinished ? colors.accent : colors.secondaryText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: labelStyle(
+              context,
+              entry.isFinished ? colors.accent : colors.secondaryText,
             ),
           ),
           // Only ever *set* on a finished book, but it survives a move off
@@ -86,6 +82,61 @@ class BookTile extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// A tile's title — two lines at most. Shared with the grouped series
+  /// tile, and with [textExtent], so what's measured is what's drawn.
+  static TextStyle titleStyle(BuildContext context, Color color) =>
+      context.fonts.bookTitle(
+        fontSize: 14,
+        height: 1.2,
+        fontWeight: FontWeight.w600,
+        color: color,
+      );
+
+  /// The author (or "N books") line.
+  static TextStyle subtitleStyle(BuildContext context, Color color) =>
+      context.fonts.body(fontSize: 11, color: color);
+
+  /// The progress label and the rating's number.
+  static TextStyle labelStyle(BuildContext context, Color color) =>
+      context.fonts.interface(fontSize: 11, color: color);
+
+  /// How tall everything under the cover can get: a two-line title, the
+  /// author, the progress bar and label, and a rating row — measured in the
+  /// reader's actual fonts and text size.
+  ///
+  /// The grid sizes every cell to the cover plus this. It used to be a
+  /// fixed 86px, which the real fonts' line heights, or a phone's larger
+  /// text setting, overflowed at the bottom of every rated tile.
+  static double textExtent(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    double lines(TextStyle style, int count) {
+      final painter = TextPainter(
+        text: TextSpan(text: List.filled(count, 'Ag').join('\n'), style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: count,
+      )..layout();
+      final height = painter.height;
+      painter.dispose();
+      return height;
+    }
+
+    const ink = Color(0x00000000);
+    final label = lines(labelStyle(context, ink), 1);
+    return AppSpacing.sm +
+        lines(titleStyle(context, ink), 2) +
+        2 +
+        lines(subtitleStyle(context, ink), 1) +
+        AppSpacing.sm +
+        _ProgressBar._height +
+        AppSpacing.xs +
+        label +
+        2 +
+        math.max(_StarRating._size, label) +
+        // Rounding between the measurement and the laid-out columns.
+        2;
   }
 
   /// The whole tile as one sentence. Deliberately not the same string as
@@ -157,10 +208,7 @@ class _StarRating extends StatelessWidget {
           Icon(_iconFor(i), size: _size, color: color),
         ],
         const SizedBox(width: AppSpacing.xs),
-        Text(
-          _formatRating(rating),
-          style: context.fonts.interface(fontSize: 11, color: color),
-        ),
+        Text(_formatRating(rating), style: BookTile.labelStyle(context, color)),
       ],
     );
   }

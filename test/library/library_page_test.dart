@@ -20,6 +20,7 @@ import 'package:book/features/library/presentation/pages/book_detail_page.dart';
 import 'package:book/features/library/presentation/pages/library_page.dart';
 import 'package:book/features/library/presentation/pages/series_page.dart';
 import 'package:book/features/library/presentation/series_tile_style_controller.dart';
+import 'package:book/features/library/presentation/widgets/book_cover.dart';
 import 'package:book/features/library/presentation/widgets/series_cover.dart';
 import 'package:book/features/logging/presentation/widgets/confirmation_pill.dart';
 import 'package:flutter/gestures.dart';
@@ -204,11 +205,15 @@ void main() {
     await tester.pump();
     await tester.pump();
     if (openToRead) {
-      final toggle = find.bySemanticsLabel('Show to read books');
-      if (toggle.evaluate().isNotEmpty) {
-        await tester.tap(toggle);
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 200));
+      // Everything but reading starts closed; most tests are about what's
+      // inside "to read" and the series row, so open both when present.
+      for (final label in ['Show to read books', 'Show series']) {
+        final toggle = find.bySemanticsLabel(label);
+        if (toggle.evaluate().isNotEmpty) {
+          await tester.tap(toggle);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 200));
+        }
       }
     }
   }
@@ -301,6 +306,37 @@ void main() {
       expect(find.text('Dune'), findsWidgets);
     },
   );
+
+  testWidgets('only reading starts open — custom shelves and the series row '
+      'start closed too', (tester) async {
+    await pumpPage(
+      tester,
+      controllerFor(
+        [
+          _entry(_dune, page: 120),
+          _entry(_noCover, toBeRead: true, shelfId: 'shelf-summer'),
+        ],
+        collections: FakeCollectionsRepository(
+          shelves: const [Shelf(id: 'shelf-summer', name: 'summer reads')],
+        ),
+      ),
+      openToRead: false,
+    );
+
+    expect(find.bySemanticsLabel('Hide reading books'), findsOneWidget);
+    for (final closed in [
+      'Show to read books',
+      'Show summer reads books',
+      'Show finished books',
+      'Show did not finish books',
+    ]) {
+      expect(find.bySemanticsLabel(closed), findsOneWidget, reason: closed);
+    }
+    // The book on the custom shelf is hidden until that shelf is opened.
+    expect(find.text('Pale Fire'), findsNothing);
+    await expandShelf(tester, 'summer reads');
+    expect(find.text('Pale Fire'), findsWidgets);
+  });
 
   testWidgets('to read starts closed, like finished and did not finish', (
     tester,
@@ -819,9 +855,8 @@ void main() {
     final duneSeries = _StubSeries()
       ..mine.add(const BookSeries(id: 'series-dune', name: 'Dune'));
 
-    testWidgets('books in a series show as one group above the shelves', (
-      tester,
-    ) async {
+    testWidgets('books in a series show as one group, in a row under to read '
+        'that starts closed', (tester) async {
       await pumpPage(
         tester,
         controllerFor([
@@ -839,13 +874,22 @@ void main() {
           ),
           _entry(_noCover),
         ], series: duneSeries),
+        openToRead: false,
       );
 
       expect(find.text('series'), findsOneWidget);
+      // Closed until opened.
+      expect(find.text('2 books · 1 finished'), findsNothing);
+      await tester.tap(find.bySemanticsLabel('Show series'));
+      await tester.pumpAndSettle();
       expect(find.text('2 books · 1 finished'), findsOneWidget);
+
+      // Under "to read", above "finished".
       final seriesY = tester.getTopLeft(find.text('series')).dy;
-      final readingY = tester.getTopLeft(find.text('reading')).dy;
-      expect(seriesY, lessThan(readingY));
+      final toReadY = tester.getTopLeft(find.text('to read')).dy;
+      final finishedY = tester.getTopLeft(find.text('finished').first).dy;
+      expect(seriesY, greaterThan(toReadY));
+      expect(seriesY, lessThan(finishedY));
     });
 
     testWidgets('no series row when nothing is in a series', (tester) async {
@@ -932,25 +976,48 @@ void main() {
       },
     );
 
-    testWidgets('the series tiles setting swaps the fan for a patchwork', (
-      tester,
-    ) async {
-      addTearDown(() => SeriesTileStyleController.patchwork.value = false);
-      await pumpPage(
-        tester,
-        controllerFor([
-          _entry(dune, toBeRead: true, seriesId: 'series-dune'),
-          _entry(messiah, toBeRead: true, seriesId: 'series-dune'),
-        ], series: duneSeries),
-      );
-      expect(find.byType(SeriesPatchworkCover), findsNothing);
+    testWidgets(
+      'the series tiles setting swaps only the row between fan and patchwork',
+      (tester) async {
+        addTearDown(() => SeriesTileStyleController.patchwork.value = false);
+        await pumpPage(
+          tester,
+          controllerFor([
+            _entry(dune, toBeRead: true, seriesId: 'series-dune'),
+            _entry(messiah, toBeRead: true, seriesId: 'series-dune'),
+          ], series: duneSeries),
+        );
+        final row = find.byKey(const ValueKey('series-series-dune'));
+        final grouped = find.byKey(const ValueKey('shelf-series-series-dune'));
+        Finder patchworkIn(Finder f) =>
+            find.descendant(of: f, matching: find.byType(SeriesPatchworkCover));
 
-      SeriesTileStyleController.patchwork.value = true;
-      await tester.pump();
+        // The grouped tile on the shelf is always a patchwork; the row starts
+        // on the original fan.
+        expect(patchworkIn(grouped), findsOneWidget);
+        expect(patchworkIn(row), findsNothing);
+        expect(
+          find.descendant(of: row, matching: find.byType(SeriesFanCover)),
+          findsOneWidget,
+        );
 
-      // The row above the shelves and the grouped tile in "to read".
-      expect(find.byType(SeriesPatchworkCover), findsNWidgets(2));
-    });
+        SeriesTileStyleController.patchwork.value = true;
+        await tester.pump();
+
+        // The switch changes only the row.
+        expect(patchworkIn(row), findsOneWidget);
+        expect(patchworkIn(grouped), findsOneWidget);
+
+        // A grouped tile's patchwork is one cover's size: the tile's full
+        // width at the 2:3 book ratio, exactly like a book's own cover.
+        final patch = tester.getSize(patchworkIn(grouped));
+        expect(patch.width, closeTo(tester.getSize(grouped).width, 0.5));
+        expect(
+          patch.width / patch.height,
+          closeTo(BookCover.aspectRatio, 0.01),
+        );
+      },
+    );
 
     testWidgets('tapping a group opens the series page in series order', (
       tester,
@@ -1062,6 +1129,13 @@ void main() {
       Navigator.of(tester.element(find.text('make & remove'))).pop();
       await tester.pumpAndSettle();
 
+      // A new shelf starts closed, like every shelf but reading.
+      await tester.scrollUntilVisible(
+        find.bySemanticsLabel('Show summer reads books'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await expandShelf(tester, 'summer reads');
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey('empty-shelf-custom-shelf-1')),
         200,
@@ -1254,5 +1328,45 @@ void main() {
       expect(labels, contains('Move to summer reads'));
       semantics.dispose();
     });
+  });
+
+  // Regression: tiles had a fixed 86px under the cover, which a two-line
+  // title plus a rating overflowed with real fonts or larger phone text.
+  testWidgets('rated tiles with long titles fit their cells at 1.3x text', (
+    tester,
+  ) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    const long = Book(
+      id: 'book-long',
+      googleBooksId: 'gb-long',
+      title: 'Atomic Habits: An Easy and Proven Way to Build Good Habits',
+      author: 'James Clear',
+      pageCount: 320,
+    );
+    final overflows = <String>[];
+    final previous = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('overflowed')) {
+        overflows.add(details.exceptionAsString());
+      } else {
+        previous?.call(details);
+      }
+    };
+    addTearDown(() => FlutterError.onError = previous);
+
+    await pumpPage(
+      tester,
+      controllerFor([
+        _entry(_dune, page: 120),
+        _entry(long, finished: true, rating: 4.5),
+        _entry(_noCover, finished: true, rating: 3),
+      ]),
+    );
+    await expandShelf(tester, 'finished');
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.textContaining('Atomic Habits'), findsWidgets);
+    expect(overflows, isEmpty);
   });
 }

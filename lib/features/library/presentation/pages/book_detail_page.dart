@@ -102,6 +102,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
   bool _openingEditions = false;
 
   String? _message;
+  ConfirmationTone _messageTone = ConfirmationTone.neutral;
   Timer? _messageTimer;
 
   @override
@@ -149,11 +150,22 @@ class _BookDetailPageState extends State<BookDetailPage> {
       AppHaptics.rejected();
     }
     final message = result.message;
-    if (message != null) _showMessage(message);
+    if (message != null) {
+      _showMessage(
+        message,
+        result.success ? ConfirmationTone.success : ConfirmationTone.failure,
+      );
+    }
   }
 
-  void _showMessage(String message) {
-    setState(() => _message = message);
+  void _showMessage(
+    String message, [
+    ConfirmationTone tone = ConfirmationTone.neutral,
+  ]) {
+    setState(() {
+      _message = message;
+      _messageTone = tone;
+    });
     _messageTimer?.cancel();
     _messageTimer = Timer(_messageLifetime, () {
       if (mounted) setState(() => _message = null);
@@ -196,7 +208,12 @@ class _BookDetailPageState extends State<BookDetailPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      if (mounted) _showMessage("We couldn't open the editions. Try again.");
+      if (mounted) {
+        _showMessage(
+          "We couldn't open the editions. Try again.",
+          ConfirmationTone.failure,
+        );
+      }
     } finally {
       _openingEditions = false;
     }
@@ -347,7 +364,10 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                   child: Semantics(
                     liveRegion: true,
-                    child: ConfirmationPill(message: message),
+                    child: ConfirmationPill(
+                      message: message,
+                      tone: _messageTone,
+                    ),
                   ),
                 ),
             ],
@@ -1137,6 +1157,7 @@ class _Heading extends StatelessWidget {
                 title: book.title,
                 author: book.author,
                 coverUrl: book.coverUrl,
+                isbn: book.isbn13 ?? book.isbn10,
                 rereadCount: entry.rereadCount,
               ),
             ),

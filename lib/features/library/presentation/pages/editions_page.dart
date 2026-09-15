@@ -79,6 +79,7 @@ class _EditionsPageState extends State<EditionsPage> {
   String? _saving;
 
   String? _message;
+  ConfirmationTone _messageTone = ConfirmationTone.neutral;
   Timer? _messageTimer;
 
   @override
@@ -103,8 +104,14 @@ class _EditionsPageState extends State<EditionsPage> {
     super.dispose();
   }
 
-  void _showMessage(String message) {
-    setState(() => _message = message);
+  void _showMessage(
+    String message, [
+    ConfirmationTone tone = ConfirmationTone.neutral,
+  ]) {
+    setState(() {
+      _message = message;
+      _messageTone = tone;
+    });
     _messageTimer?.cancel();
     _messageTimer = Timer(_messageLifetime, () {
       if (mounted) setState(() => _message = null);
@@ -144,10 +151,14 @@ class _EditionsPageState extends State<EditionsPage> {
       _showMessage(
         result.message ??
             (owned ? 'Cleared your edition' : 'Saved your edition'),
+        ConfirmationTone.success,
       );
     } else {
       AppHaptics.rejected();
-      _showMessage(result.message ?? "We couldn't save which edition you own.");
+      _showMessage(
+        result.message ?? "We couldn't save which edition you own.",
+        ConfirmationTone.failure,
+      );
     }
   }
 
@@ -185,7 +196,10 @@ class _EditionsPageState extends State<EditionsPage> {
                   padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                   child: Semantics(
                     liveRegion: true,
-                    child: ConfirmationPill(message: message),
+                    child: ConfirmationPill(
+                      message: message,
+                      tone: _messageTone,
+                    ),
                   ),
                 ),
             ],
@@ -394,6 +408,7 @@ class _EditionCoverState extends State<_EditionCover> {
                       title: edition.title,
                       author: edition.author,
                       coverUrl: edition.coverUrl,
+                      isbn: edition.isbn13 ?? edition.isbn10,
                     ),
                   ),
                   if (widget.owned || widget.saving)

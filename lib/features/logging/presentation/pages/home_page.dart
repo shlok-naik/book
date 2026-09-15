@@ -88,7 +88,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       widget.aiParser ?? const EdgeFunctionCommandParser();
 
   String? _message;
+  ConfirmationTone _messageTone = ConfirmationTone.neutral;
+
   Timer? _messageTimer;
+
+  /// A backed-out command is neither taken nor refused — a neutral note.
+  static ConfirmationTone _toneOf(
+    ({bool success, bool cancelled, String message}) result,
+  ) => result.cancelled
+      ? ConfirmationTone.neutral
+      : result.success
+      ? ConfirmationTone.success
+      : ConfirmationTone.failure;
 
   /// Whether the on-screen keyboard is up — what decides whether the
   /// currently-reading card, the goal and the streak show (see [build]).
@@ -301,7 +312,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final result = await _runCommand(command);
     if (!mounted) return CommandOutcome.rejected;
     if (!result.cancelled) _feedback(success: result.success);
-    _showMessage(result.message);
+    _showMessage(result.message, _toneOf(result));
     if (result.cancelled) return CommandOutcome.dismissed;
     return result.success ? CommandOutcome.accepted : CommandOutcome.rejected;
   }
@@ -370,6 +381,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         error is AiCommandException
             ? error.message
             : "Couldn't reach the AI right now — try again in a moment.",
+        ConfirmationTone.failure,
       );
       return CommandOutcome.rejected;
     }
@@ -418,7 +430,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final result = await _runCommand(instruction.text);
       if (!mounted) return;
       if (!result.cancelled) _feedback(success: result.success);
-      _showMessage(result.message);
+      _showMessage(result.message, _toneOf(result));
 
       setState(() {
         instruction.state = result.success
@@ -748,8 +760,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   /// Puts [message] in the pill and (re)starts its fade-in / lifetime /
   /// fade-out cycle.
-  void _showMessage(String message) {
-    setState(() => _message = message);
+  void _showMessage(
+    String message, [
+    ConfirmationTone tone = ConfirmationTone.neutral,
+  ]) {
+    setState(() {
+      _message = message;
+      _messageTone = tone;
+    });
     _messageOpacity.forward(from: 0);
     _messageTimer?.cancel();
     _messageTimer = Timer(_messageLifetime, () async {
@@ -863,7 +881,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ConfirmationPill(message: message),
+                            ConfirmationPill(
+                              message: message,
+                              tone: _messageTone,
+                            ),
                             const SizedBox(height: AppSpacing.xs),
                           ],
                         )

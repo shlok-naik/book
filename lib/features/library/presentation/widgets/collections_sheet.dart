@@ -576,6 +576,8 @@ class _BooksTabState extends State<_BooksTab>
                       title: entry.displayBook.title,
                       author: entry.displayBook.author,
                       coverUrl: entry.displayBook.coverUrl,
+                      isbn:
+                          entry.displayBook.isbn13 ?? entry.displayBook.isbn10,
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),

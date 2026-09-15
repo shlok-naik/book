@@ -136,15 +136,28 @@ class BookLookupService {
   /// but happily puts a study guide above the novel. Prefer an exact
   /// case-insensitive title match, then a title that starts with the
   /// query, then fall back to the API's own first choice.
+  ///
+  /// Within each of those tiers, a volume *with a cover* wins over one
+  /// without: Google often lists a coverless record (a bare ISBN entry)
+  /// ahead of the same book with its jacket, and whichever is picked here
+  /// is what every reader of that book sees on their shelf.
   GoogleBook _bestMatch(List<GoogleBook> results, String query) {
     final needle = query.toLowerCase();
-
-    for (final book in results) {
-      if (book.title.toLowerCase() == needle) return book;
-    }
-    for (final book in results) {
-      if (book.title.toLowerCase().startsWith(needle)) return book;
+    final tiers = <bool Function(GoogleBook)>[
+      (book) => book.title.toLowerCase() == needle,
+      (book) => book.title.toLowerCase().startsWith(needle),
+      (_) => true,
+    ];
+    for (final inTier in tiers) {
+      final matches = results.where(inTier);
+      if (matches.isEmpty) continue;
+      return matches.where(_hasCover).firstOrNull ?? matches.first;
     }
     return results.first;
+  }
+
+  static bool _hasCover(GoogleBook book) {
+    final url = book.thumbnailUrl;
+    return url != null && url.isNotEmpty;
   }
 }

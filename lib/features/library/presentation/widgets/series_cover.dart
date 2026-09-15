@@ -84,17 +84,11 @@ class _Patch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-    final url = entry.displayBook.coverUrl;
-    if (url == null || url.isEmpty) {
-      return ColoredBox(color: colors.surface);
-    }
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      errorBuilder: (context, _, _) => ColoredBox(color: colors.surface),
-      loadingBuilder: (context, child, progress) =>
-          progress == null ? child : ColoredBox(color: colors.surface),
+    final book = entry.displayBook;
+    return CoverImage(
+      coverUrl: book.coverUrl,
+      isbn: book.isbn13 ?? book.isbn10,
+      placeholder: ColoredBox(color: context.colors.surface),
     );
   }
 }
@@ -136,6 +130,7 @@ class SeriesFanCover extends StatelessWidget {
                   title: entry.book.title,
                   author: entry.book.author,
                   coverUrl: entry.displayBook.coverUrl,
+                  isbn: entry.displayBook.isbn13 ?? entry.displayBook.isbn10,
                 ),
               ),
             ),

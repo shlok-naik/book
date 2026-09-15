@@ -737,7 +737,14 @@ void main() {
         find.text('Saved your edition — now page 60 of 200'),
         findsOneWidget,
       );
-      expect(find.byIcon(Icons.check), findsOneWidget);
+      // One owned mark on the covers (the success note has its own check).
+      expect(
+        find.descendant(
+          of: find.byType(SliverGrid),
+          matching: find.byIcon(Icons.check),
+        ),
+        findsOneWidget,
+      );
 
       await tester.tap(ebook);
       await tester.pumpAndSettle();

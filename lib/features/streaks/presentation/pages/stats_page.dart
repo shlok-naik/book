@@ -867,22 +867,55 @@ class _PaceChart extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (goal != null) ...[
-            Row(
+            // A Wrap, not a Row: on a narrow phone or with larger text the
+            // legend and the pace label don't fit one line, and a Row ran
+            // off the right edge. On one line the label still sits right.
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                _LegendSwatch(color: colors.accent),
-                const SizedBox(width: 6),
-                Text(
-                  'you',
-                  style: _legendStyle(context, colors, colors.primaryText),
+                Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.xs,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _LegendSwatch(color: colors.accent),
+                        const SizedBox(width: 6),
+                        Text(
+                          'you',
+                          style: _legendStyle(
+                            context,
+                            colors,
+                            colors.primaryText,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _LegendSwatch(
+                          color: colors.secondaryText,
+                          dashed: true,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'steady pace',
+                          style: _legendStyle(
+                            context,
+                            colors,
+                            colors.secondaryText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                const SizedBox(width: AppSpacing.md),
-                _LegendSwatch(color: colors.secondaryText, dashed: true),
-                const SizedBox(width: 6),
-                Text(
-                  'steady pace',
-                  style: _legendStyle(context, colors, colors.secondaryText),
-                ),
-                const Spacer(),
                 Text(
                   goal.paceLabel(DateTime.now()),
                   style: _legendStyle(context, colors, colors.accent),

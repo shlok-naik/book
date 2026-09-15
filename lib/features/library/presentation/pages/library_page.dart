@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/feedback/app_haptics.dart';
+import '../../../../core/formatting/numbers.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
@@ -155,22 +156,15 @@ class _LibraryPageState extends State<LibraryPage> {
   double _autoScrollVelocity = 0;
 
   String? _message;
+  ConfirmationTone _messageTone = ConfirmationTone.neutral;
   Timer? _messageTimer;
 
   bool _searching = false;
   final _searchText = TextEditingController();
   final _searchFocus = FocusNode();
 
-  /// Shelves collapsed to just their heading — in-memory only, so a fresh
-  /// visit to the library always starts from this same default rather than
-  /// remembering a prior toggle. To read, finished and did not finish start
-  /// closed —
-  /// a reader opens the library to see what they're reading now, not the
-  /// queue ahead or what's behind them. Ignored while searching: collapsing a shelf and then
-  /// finding a match in it should still show that match rather than hide
-  /// it.
   /// Series groups a reader has double-tapped open — in-memory only, like
-  /// [_collapsed]. A series entirely on one shelf normally shows as one
+  /// [_openSections]. A series entirely on one shelf normally shows as one
   /// grouped tile there; double-tapping it spreads it back out into its own
   /// book tiles (so each can be dragged elsewhere), and double-tapping any
   /// of those books folds the group again.
@@ -183,16 +177,22 @@ class _LibraryPageState extends State<LibraryPage> {
     });
   }
 
-  final _collapsed = <ShelfRef>{
-    const StatusShelfRef(ReadingStatus.toBeRead),
-    const StatusShelfRef(ReadingStatus.finished),
-    const StatusShelfRef(ReadingStatus.dnf),
-  };
+  /// Marks the series row in [_openSections] — it collapses like a shelf
+  /// but isn't one, so it has no [ShelfRef].
+  static const _seriesRow = 'series';
 
-  void _toggleCollapsed(ShelfRef shelf) {
+  /// What's showing more than its heading right now: [ShelfRef]s and the
+  /// [_seriesRow]. In-memory only, so every visit starts from the same
+  /// default — **only reading open**. Every other section, the reader's own
+  /// shelves and the series row included, starts closed: a reader opens the
+  /// library to see what they're reading now. Ignored while searching, so a
+  /// match inside a closed section still shows.
+  final _openSections = <Object>{const StatusShelfRef(ReadingStatus.reading)};
+
+  void _toggleOpen(Object section) {
     AppHaptics.selection();
     setState(() {
-      if (!_collapsed.add(shelf)) _collapsed.remove(shelf);
+      if (!_openSections.add(section)) _openSections.remove(section);
     });
   }
 
@@ -207,7 +207,12 @@ class _LibraryPageState extends State<LibraryPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      if (mounted) _showMessage("We couldn't open that. Try again.");
+      if (mounted) {
+        _showMessage(
+          "We couldn't open that. Try again.",
+          ConfirmationTone.failure,
+        );
+      }
     }
   }
 
@@ -218,9 +223,17 @@ class _LibraryPageState extends State<LibraryPage> {
 
   String get _query => _searchText.text.trim();
 
+  /// Google Fonts arrive after the first frame, and real fonts measure
+  /// differently from the fallback — rebuild so the grid's measured tile
+  /// height ([BookTile.textExtent]) follows them.
+  void _fontsChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    PaintingBinding.instance.systemFonts.addListener(_fontsChanged);
     // Deferred to after the first frame: load() notifies synchronously
     // to raise its loading flag, and notifying mid-build is illegal.
     // Skipped when the shelf already loaded (the shell loads it at launch,
@@ -235,6 +248,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   void dispose() {
+    PaintingBinding.instance.systemFonts.removeListener(_fontsChanged);
     _autoScroll?.cancel();
     _messageTimer?.cancel();
     _searchText.dispose();
@@ -377,7 +391,12 @@ class _LibraryPageState extends State<LibraryPage> {
     } else if (message != null) {
       AppHaptics.rejected();
     }
-    if (message != null) _showMessage(message);
+    if (message != null) {
+      _showMessage(
+        message,
+        result.success ? ConfirmationTone.success : ConfirmationTone.failure,
+      );
+    }
   }
 
   Future<void> _open(LibraryBook entry) async {
@@ -390,12 +409,23 @@ class _LibraryPageState extends State<LibraryPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      if (mounted) _showMessage("We couldn't open that book. Try again.");
+      if (mounted) {
+        _showMessage(
+          "We couldn't open that book. Try again.",
+          ConfirmationTone.failure,
+        );
+      }
     }
   }
 
-  void _showMessage(String message) {
-    setState(() => _message = message);
+  void _showMessage(
+    String message, [
+    ConfirmationTone tone = ConfirmationTone.neutral,
+  ]) {
+    setState(() {
+      _message = message;
+      _messageTone = tone;
+    });
     _messageTimer?.cancel();
     _messageTimer = Timer(_messageLifetime, () {
       if (mounted) setState(() => _message = null);
@@ -451,7 +481,11 @@ class _LibraryPageState extends State<LibraryPage> {
                 // without the reader having to go looking for it.
                 child: Semantics(
                   liveRegion: true,
-                  child: ConfirmationPill(message: message),
+                  child: ConfirmationPill(
+                    message: message,
+                    tone: _messageTone,
+                    floating: true,
+                  ),
                 ),
               ),
           ],
@@ -536,12 +570,12 @@ class _LibraryPageState extends State<LibraryPage> {
       ];
     }
 
+    bool closed(Object section) =>
+        !filtering && !_openSections.contains(section);
+    final seriesClosed = closed(_seriesRow);
+
     return [
-      if (groups.isNotEmpty) ...[
-        const SliverToBoxAdapter(child: _SeriesHeading()),
-        SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
-      ],
-      for (final shelf in shelves)
+      for (final shelf in shelves) ...[
         if (!filtering || sections[shelf.ref]!.isNotEmpty) ...[
           SliverToBoxAdapter(
             child: _SectionHeading(
@@ -549,13 +583,13 @@ class _LibraryPageState extends State<LibraryPage> {
               shelf: shelf,
               count: sections[shelf.ref]!.length,
               dragging: dragging,
-              collapsed: _collapsed.contains(shelf.ref) && !filtering,
-              onToggleCollapse: () => _toggleCollapsed(shelf.ref),
+              collapsed: closed(shelf.ref),
+              onToggleCollapse: () => _toggleOpen(shelf.ref),
               // Dropping on a heading puts the book first in that section.
               onAccept: (id) => _move(id, shelf.ref, 0),
             ),
           ),
-          if (_collapsed.contains(shelf.ref) && !filtering)
+          if (closed(shelf.ref))
             const SliverToBoxAdapter(child: SizedBox.shrink())
           else if (sections[shelf.ref]! case final entries when entries.isEmpty)
             SliverToBoxAdapter(
@@ -589,6 +623,19 @@ class _LibraryPageState extends State<LibraryPage> {
               onOpen: _open,
             ),
         ],
+        // The series row sits directly under "to read".
+        if (shelf.ref == const StatusShelfRef(ReadingStatus.toBeRead) &&
+            groups.isNotEmpty) ...[
+          SliverToBoxAdapter(
+            child: _SeriesHeading(
+              collapsed: seriesClosed,
+              onToggleCollapse: () => _toggleOpen(_seriesRow),
+            ),
+          ),
+          if (!seriesClosed)
+            SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
+        ],
+      ],
     ];
   }
 }
@@ -643,10 +690,6 @@ class _BookGrid extends StatelessWidget {
 
   static const _maxTileWidth = 150.0;
 
-  /// Room under the cover for title, author, bar, and label. Fixed so
-  /// tiles line up; the text inside ellipsizes to fit.
-  static const textExtent = 86.0;
-
   @override
   Widget build(BuildContext context) {
     final groupedIds = {
@@ -674,6 +717,10 @@ class _BookGrid extends StatelessWidget {
           final width = constraints.crossAxisExtent - AppSpacing.xl * 2;
           final columns = (width / _maxTileWidth).ceil().clamp(2, 5);
           final tileWidth = (width - AppSpacing.md * (columns - 1)) / columns;
+          // Room under the cover for title, author, bar, label and rating,
+          // measured in the reader's fonts and text size so every tile —
+          // books and grouped series alike — lines up without overflowing.
+          final textExtent = BookTile.textExtent(context);
           final tileHeight = tileWidth / BookCover.aspectRatio + textExtent;
 
           return SliverGrid(
@@ -689,7 +736,6 @@ class _BookGrid extends StatelessWidget {
                 return _SeriesGroupTile(
                   key: ValueKey('shelf-series-${item.id}'),
                   group: item,
-                  size: Size(tileWidth, tileHeight),
                   onDoubleTap: () => onToggleSeriesExpanded(item.id),
                 );
               }
@@ -705,6 +751,7 @@ class _BookGrid extends StatelessWidget {
                 shelf: shelf,
                 shelves: shelves,
                 size: Size(tileWidth, tileHeight),
+                textExtent: textExtent,
                 dimmed: dimmed,
                 canDrag: canDrag,
                 onDragStarted: onDragStarted,
@@ -725,20 +772,24 @@ class _BookGrid extends StatelessWidget {
 }
 
 /// One shelf-grid tile standing in for every book of a series that's
-/// entirely shelved together — the same fan-of-covers treatment
-/// [_SeriesRow] uses above the shelves, sized to the grid's own tile
-/// instead of that row's fixed width. Never draggable: it represents more
-/// than one shelf position at once, so there's no single place to drop it.
+/// entirely shelved together — laid out exactly like [BookTile] (same cover
+/// footprint, same rows), so it reads as one more book on the shelf rather
+/// than a different kind of thing: a [SeriesPatchworkCover] the size of a
+/// cover where a cover goes, the series name where a title goes, "N books"
+/// where the author goes, then the group's aggregate progress — how many
+/// are finished, the rest's average completion, and (once any is rated)
+/// their average rating. Always a patchwork, whatever settings' "series
+/// tiles" switch says — that switch is only for the series row. Never
+/// draggable: it represents more than one shelf position at once, so
+/// there's no single place to drop it.
 class _SeriesGroupTile extends StatelessWidget {
   const _SeriesGroupTile({
     super.key,
     required this.group,
-    required this.size,
     required this.onDoubleTap,
   });
 
   final SeriesGroup group;
-  final Size size;
 
   /// Spreads the group back out into its own book tiles — see
   /// [_LibraryPageState._toggleSeriesExpanded].
@@ -747,7 +798,20 @@ class _SeriesGroupTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final coverHeight = size.width / BookCover.aspectRatio;
+    final entries = group.entries;
+
+    final completions = [for (final entry in entries) ?entry.completion];
+    final avgCompletion = completions.isEmpty
+        ? null
+        : completions.reduce((a, b) => a + b) / completions.length;
+
+    final ratings = [
+      for (final entry in entries)
+        if (entry.isFinished && entry.rating != null) entry.rating!,
+    ];
+    final avgRating = ratings.isEmpty
+        ? null
+        : ratings.reduce((a, b) => a + b) / ratings.length;
 
     return Semantics(
       button: true,
@@ -762,111 +826,120 @@ class _SeriesGroupTile extends StatelessWidget {
           AppHaptics.selection();
           unawaited(openSeries(context, group));
         },
+        // Spreads the group back out into its own book tiles, so each can
+        // be dragged to another shelf on its own.
         onDoubleTap: onDoubleTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _SeriesCoverFan(
-              group: group,
-              width: size.width,
-              height: coverHeight,
-              coverWidth: size.width * 0.6,
-              step: size.width * 0.18,
-            ),
-            const SizedBox(height: AppSpacing.xs),
+            SeriesPatchworkCover(entries: entries),
+            const SizedBox(height: AppSpacing.sm),
             Text(
               group.name,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: context.fonts.interface(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: colors.primaryText,
-              ),
+              style: BookTile.titleStyle(context, colors.primaryText),
             ),
+            const SizedBox(height: 2),
             Text(
-              group.summary,
+              '${entries.length} books',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: context.fonts.interface(
-                fontSize: 11,
-                color: colors.secondaryText,
+              style: BookTile.subtitleStyle(context, colors.secondaryText),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            if (avgCompletion != null) ...[
+              _GroupProgressBar(
+                value: avgCompletion,
+                color: colors.accent,
+                track: colors.divider,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+            ],
+            Text(
+              _progressLabel(group, avgCompletion),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: BookTile.labelStyle(
+                context,
+                group.finished == entries.length
+                    ? colors.accent
+                    : colors.secondaryText,
               ),
             ),
+            if (avgRating != null) ...[
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.star, size: 12, color: colors.accent),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    '${formatCompactNumber(avgRating)} avg',
+                    style: BookTile.labelStyle(context, colors.accent),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
     );
   }
+
+  static String _progressLabel(SeriesGroup group, double? avgCompletion) {
+    final total = group.entries.length;
+    if (group.finished == total) return 'all finished';
+    final percent = avgCompletion == null
+        ? null
+        : (avgCompletion * 100).round();
+    return percent == null
+        ? '${group.finished}/$total finished'
+        : '${group.finished}/$total finished · $percent% avg';
+  }
 }
 
-/// Up to three of a series' covers fanned left to right, the first on top —
-/// shared by the series row above the shelves and a series grouped into one
-/// shelf tile, so the two can never drift apart.
-class _SeriesCoverFan extends StatelessWidget {
-  const _SeriesCoverFan({
-    required this.group,
-    required this.width,
-    required this.height,
-    required this.coverWidth,
-    required this.step,
+/// [BookTile]'s hairline progress bar, for a grouped series tile.
+class _GroupProgressBar extends StatelessWidget {
+  const _GroupProgressBar({
+    required this.value,
+    required this.color,
+    required this.track,
   });
 
-  final SeriesGroup group;
-  final double width;
-  final double height;
+  final double value;
+  final Color color;
+  final Color track;
 
-  /// The front cover's width; each one behind is 4px narrower.
-  final double coverWidth;
-
-  /// How far right each cover behind sits from the one in front.
-  final double step;
+  static const _height = 3.0;
 
   @override
   Widget build(BuildContext context) {
-    // Settings' "series tiles" switch: a patchwork of the covers instead of
-    // the fanned stack.
-    return ValueListenableBuilder<bool>(
-      valueListenable: SeriesTileStyleController.patchwork,
-      builder: (context, patchwork, _) => patchwork
-          ? SizedBox(
-              height: height,
-              width: width,
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: SizedBox(
-                  width: coverWidth,
-                  child: SeriesPatchworkCover(entries: group.entries),
-                ),
-              ),
-            )
-          : _fan(),
-    );
-  }
-
-  Widget _fan() {
-    final covers = group.entries.take(3).toList();
-    return SizedBox(
-      height: height,
-      width: width,
-      child: Stack(
-        children: [
-          for (final (i, entry) in covers.indexed.toList().reversed)
-            Positioned(
-              left: i * step,
-              top: i * 4.0,
-              bottom: 0,
-              child: SizedBox(
-                width: coverWidth - i * 4,
-                child: BookCover(
-                  title: entry.book.title,
-                  author: entry.book.author,
-                  coverUrl: entry.displayBook.coverUrl,
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth * value.clamp(0.0, 1.0);
+        return Stack(
+          children: [
+            Container(
+              height: _height,
+              decoration: BoxDecoration(
+                color: track,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
               ),
             ),
-        ],
-      ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              height: _height,
+              width: width,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -898,6 +971,7 @@ class _DraggableBookTile extends StatefulWidget {
     required this.shelf,
     required this.shelves,
     required this.size,
+    required this.textExtent,
     required this.dimmed,
     required this.canDrag,
     required this.onDragStarted,
@@ -914,6 +988,10 @@ class _DraggableBookTile extends StatefulWidget {
   final ShelfRef shelf;
   final List<_Shelf> shelves;
   final Size size;
+
+  /// The grid's measured room under the cover — where the focus ring and
+  /// the insertion bar stop, so they frame the cover only.
+  final double textExtent;
   final bool dimmed;
   final bool canDrag;
   final ValueChanged<String> onDragStarted;
@@ -964,6 +1042,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
       author: widget.entry.book.author,
       // The owned edition's cover when the reader picked one.
       coverUrl: widget.entry.displayBook.coverUrl,
+      isbn: widget.entry.displayBook.isbn13 ?? widget.entry.displayBook.isbn10,
       dimmed: widget.dimmed,
       rereadCount: widget.entry.rereadCount,
     ),
@@ -1086,7 +1165,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
                 left: -3,
                 top: -3,
                 right: -3,
-                bottom: _BookGrid.textExtent - 3,
+                bottom: widget.textExtent - 3,
                 child: IgnorePointer(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -1099,7 +1178,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
             if (hover != null)
               Positioned(
                 top: 0,
-                bottom: _BookGrid.textExtent,
+                bottom: widget.textExtent,
                 left: hover ? null : -AppSpacing.sm - 1.5,
                 right: hover ? -AppSpacing.sm - 1.5 : null,
                 child: Container(
@@ -1220,29 +1299,10 @@ class _SectionHeading extends StatelessWidget {
               // are what take up room on a long shelf, not the heading, so
               // this is what a reader taps to get a whole shelf out of the
               // way without leaving the page.
-              Semantics(
-                button: true,
-                label: collapsed
-                    ? 'Show ${shelf.spoken.toLowerCase()} books'
-                    : 'Hide ${shelf.spoken.toLowerCase()} books',
-                excludeSemantics: true,
-                child: SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: InkResponse(
-                    onTap: onToggleCollapse,
-                    radius: 16,
-                    child: AnimatedRotation(
-                      duration: const Duration(milliseconds: 150),
-                      turns: collapsed ? -0.25 : 0,
-                      child: Icon(
-                        Icons.expand_more,
-                        size: 20,
-                        color: colors.secondaryText,
-                      ),
-                    ),
-                  ),
-                ),
+              _CollapseToggle(
+                collapsed: collapsed,
+                spoken: '${shelf.spoken.toLowerCase()} books',
+                onTap: onToggleCollapse,
               ),
             ],
           ),
@@ -1464,26 +1524,90 @@ class _SearchField extends StatelessWidget {
   }
 }
 
+/// The series row's heading — the same face, spacing and collapse chevron
+/// as a shelf's [_SectionHeading], without its drop target (a book can't be
+/// dropped into a series by dragging).
 class _SeriesHeading extends StatelessWidget {
-  const _SeriesHeading();
+  const _SeriesHeading({
+    required this.collapsed,
+    required this.onToggleCollapse,
+  });
+
+  final bool collapsed;
+  final VoidCallback onToggleCollapse;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        AppSpacing.xs,
+        AppSpacing.xl,
+        AppSpacing.sm,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Semantics(
+              header: true,
+              child: Text(
+                'series',
+                style: context.fonts.interface(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: context.colors.secondaryText,
+                ),
+              ),
+            ),
+          ),
+          _CollapseToggle(
+            key: const ValueKey('series-row-toggle'),
+            collapsed: collapsed,
+            spoken: 'series',
+            onTap: onToggleCollapse,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The chevron that opens or closes a section — pointing down while open,
+/// right while closed.
+class _CollapseToggle extends StatelessWidget {
+  const _CollapseToggle({
+    super.key,
+    required this.collapsed,
+    required this.spoken,
+    required this.onTap,
+  });
+
+  final bool collapsed;
+
+  /// What it shows or hides, for a screen reader — "to read books".
+  final String spoken;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      header: true,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.xl,
-          AppSpacing.xs,
-          AppSpacing.xl,
-          AppSpacing.sm,
-        ),
-        child: Text(
-          'series',
-          style: context.fonts.interface(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: context.colors.secondaryText,
+      button: true,
+      label: collapsed ? 'Show $spoken' : 'Hide $spoken',
+      excludeSemantics: true,
+      child: SizedBox(
+        width: 32,
+        height: 32,
+        child: InkResponse(
+          onTap: onTap,
+          radius: 16,
+          child: AnimatedRotation(
+            duration: const Duration(milliseconds: 150),
+            turns: collapsed ? -0.25 : 0,
+            child: Icon(
+              Icons.expand_more,
+              size: 20,
+              color: context.colors.secondaryText,
+            ),
           ),
         ),
       ),
@@ -1530,12 +1654,20 @@ class _SeriesRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _SeriesCoverFan(
-                      group: group,
-                      width: _tileWidth,
-                      height: _coverWidth / BookCover.aspectRatio,
-                      coverWidth: _coverWidth,
-                      step: 22,
+                    // Settings' "series tiles" switch: a patchwork at one
+                    // cover's width, or the original fanned stack.
+                    ValueListenableBuilder<bool>(
+                      valueListenable: SeriesTileStyleController.patchwork,
+                      builder: (context, patchwork, _) => patchwork
+                          ? SizedBox(
+                              width: _coverWidth,
+                              child: SeriesPatchworkCover(
+                                entries: group.entries,
+                              ),
+                            )
+                          // Self-sizing, and wider than _coverWidth — the
+                          // cascade needs the room the tile already has.
+                          : SeriesFanCover(entries: group.entries),
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
