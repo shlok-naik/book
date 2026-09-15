@@ -1,3 +1,4 @@
+import 'package:book/core/purchases/plan_controller.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/memory/data/memory_repository.dart';
 import 'package:book/features/memory/domain/memory.dart';
@@ -67,6 +68,12 @@ Future<void> pumpMemoryPage(
 }
 
 void main() {
+  // Every test below is about the journal itself, which is cactus pro —
+  // the free plan's locked preview is covered in intro_offer_test.dart,
+  // alongside the rest of the Memory tab's gating.
+  setUp(() => PlanController.isPro.value = true);
+  tearDown(() => PlanController.isPro.value = false);
+
   testWidgets('lists every saved memory, book title and note together', (
     tester,
   ) async {

@@ -17,6 +17,51 @@ import 'user_book.dart';
 // See `supabase/migrations/20260916000000_standalone_collections.sql` for the
 // storage side.
 
+/// The three kinds of collection a reader makes — the library "+" panel's
+/// tabs, in order, and what `remove shelf|tag|series` acts on.
+enum CollectionKind { shelves, tags, series }
+
+/// What a `remove shelf|tag|series` line resolves to, once the collections
+/// that exist can say where the collection's name ends and a book's title
+/// begins — see `LibraryController.resolveRemoval`.
+sealed class CollectionRemoval {
+  const CollectionRemoval({required this.kind, required this.name});
+
+  final CollectionKind kind;
+
+  /// The collection's own stored name.
+  final String name;
+}
+
+/// Unmake the collection itself — `remove shelf summer reads`, no book
+/// named. Destructive for every book in it, so the add tab confirms first.
+final class UnmakeCollection extends CollectionRemoval {
+  const UnmakeCollection({
+    required super.kind,
+    required super.name,
+    required this.id,
+    required this.bookCount,
+  });
+
+  final String id;
+
+  /// How many shelf books the collection holds (always 0 for a tag — tag
+  /// membership isn't held on the shelf rows).
+  final int bookCount;
+}
+
+/// Take one book out of the collection — `remove shelf summer reads dune`.
+final class RemoveFromCollection extends CollectionRemoval {
+  const RemoveFromCollection({
+    required super.kind,
+    required super.name,
+    required this.title,
+  });
+
+  /// The book as typed; the library resolves it.
+  final String title;
+}
+
 /// A shelf the reader made with `make shelf` — one row of `shelves`.
 ///
 /// Custom shelves sit *alongside* the four built-in ones, which are not rows

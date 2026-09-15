@@ -13,7 +13,11 @@ enum ReadingEventType {
   addToBeRead,
 
   /// `add <book> dnf`.
-  dnf;
+  dnf,
+
+  /// `restart <book>` — a finished book put back on the reading shelf for
+  /// another pass.
+  restart;
 
   /// Column value stored in Supabase. Lowercase, matches the name for
   /// every other value — kept as a string (not an int) so the table

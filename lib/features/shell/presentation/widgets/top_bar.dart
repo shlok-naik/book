@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/widgets/offline_indicator.dart';
 import '../../../settings/presentation/pages/settings_page.dart';
 
 /// The header every top-level page wears: the page's own name on the
@@ -22,6 +23,9 @@ import '../../../settings/presentation/pages/settings_page.dart';
 /// *right* edge lands on the page's right padding for the same reason.
 ///
 /// Pages keep their own horizontal padding; this adds none.
+///
+/// Left of the gear sits [OfflineIndicator] — nothing while online, a
+/// crossed-out cloud while the app is working offline.
 class TopBar extends StatelessWidget {
   const TopBar({super.key, required this.title, this.trailing});
 
@@ -47,7 +51,7 @@ class TopBar extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
                 color: colors.primaryText,
@@ -56,6 +60,9 @@ class TopBar extends StatelessWidget {
           ),
           ?trailing,
           if (trailing != null) const SizedBox(width: AppSpacing.sm),
+          // Just left of the gear, on every tab; takes no room at all
+          // while online — see [OfflineIndicator].
+          const OfflineIndicator(),
           _SettingsButton(color: colors.secondaryText),
         ],
       ),

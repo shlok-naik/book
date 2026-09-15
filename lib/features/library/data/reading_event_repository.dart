@@ -1,6 +1,9 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/offline/pending_write.dart';
+import '../domain/library_exception.dart';
 import '../domain/reading_event.dart';
+import 'offline_library_cache.dart';
 import 'supabase_guard.dart';
 
 /// Reads and writes the Supabase `reading_events` table — one row per
@@ -10,10 +13,19 @@ import 'supabase_guard.dart';
 /// Like `UserBookRepository`, every row belongs to the one signed-in
 /// reader; `user_id` is never set by the app itself, RLS and the column
 /// default handle it.
+///
+/// With an [offline] cache injected, the journal keeps working without a
+/// connection the same way the shelf does (see `UserBookRepository`): a
+/// logged event is queued and added to the cached year, a fetch answers
+/// from that cache, and a title's history can be cleared offline too.
 class ReadingEventRepository {
-  ReadingEventRepository({SupabaseClient? client}) : _injectedClient = client;
+  ReadingEventRepository({SupabaseClient? client, this.offline})
+    : _injectedClient = client;
 
   final SupabaseClient? _injectedClient;
+
+  /// Null means online-only.
+  final OfflineLibraryCache? offline;
 
   SupabaseClient get _client => _injectedClient ?? Supabase.instance.client;
 
@@ -41,17 +53,60 @@ class ReadingEventRepository {
     required String title,
     DateTime? occurredAt,
     double? value,
-  }) {
-    return runSupabase<void>(() async {
-      await _client.from(_table).insert({
-        'action': type.wireValue,
-        'title': title,
-        if (occurredAt != null)
-          'occurred_at': occurredAt.toUtc().toIso8601String(),
-        'value': ?value,
-      });
-    }, friendlyMessage: "We couldn't record that.");
+  }) async {
+    final values = <String, Object?>{
+      'action': type.wireValue,
+      'title': title,
+      if (occurredAt != null)
+        'occurred_at': occurredAt.toUtc().toIso8601String(),
+      'value': ?value,
+    };
+    final offline = this.offline;
+    if (offline != null && await offline.mustQueueWrite()) {
+      await _queueLog(offline, values);
+      offline.syncSoon();
+      return;
+    }
+    try {
+      await runSupabase<void>(() async {
+        await _client.from(_table).insert(values);
+      }, friendlyMessage: "We couldn't record that.");
+      // Kept in the cached year too, so the journal still has it if the
+      // connection drops before the next full fetch.
+      await offline?.appendEvent(_localRow(values));
+    } on NetworkException {
+      if (offline == null || !offline.isActive) rethrow;
+      await _queueLog(offline, values);
+    }
   }
+
+  Future<void> _queueLog(
+    OfflineLibraryCache offline,
+    Map<String, Object?> values,
+  ) async {
+    // An offline event must carry its own time: replayed later without
+    // one, the column default would stamp it with the moment it synced.
+    final stamped = {
+      ...values,
+      'occurred_at':
+          values['occurred_at'] ?? DateTime.now().toUtc().toIso8601String(),
+    };
+    await offline.appendEvent(_localRow(stamped));
+    await offline.enqueue(
+      PendingInsert(
+        id: offline.newWriteId(),
+        createdAt: DateTime.now().toUtc(),
+        table: _table,
+        values: stamped,
+      ),
+    );
+  }
+
+  static Map<String, dynamic> _localRow(Map<String, Object?> values) => {
+    ...values,
+    'occurred_at':
+        values['occurred_at'] ?? DateTime.now().toUtc().toIso8601String(),
+  };
 
   /// Every event in [year], oldest first — enough for the streaks page
   /// to group into days and pick a symbol for each.
@@ -61,19 +116,42 @@ class ReadingEventRepository {
   /// day. Querying a plain UTC year here would clip or leak boundary
   /// events for any reader not on UTC (e.g. a late Dec 31 local event
   /// with a UTC timestamp already in `year + 1`).
-  Future<List<ReadingEvent>> fetchForYear(int year) {
-    return runSupabase(() async {
-      final start = DateTime(year).toUtc().toIso8601String();
-      final end = DateTime(year + 1).toUtc().toIso8601String();
-      final rows = await _client
-          .from(_table)
-          .select()
-          .gte('occurred_at', start)
-          .lt('occurred_at', end)
-          .order('occurred_at');
+  Future<List<ReadingEvent>> fetchForYear(int year) async {
+    final offline = this.offline;
+    if (offline != null && offline.isActive) {
+      final pending = await offline.drainBeforeRead();
+      if (pending || offline.shouldQueue) {
+        final cached = await offline.readEvents(year);
+        if (cached != null) return _parseEvents(cached);
+      }
+    }
 
-      return [for (final row in rows) ?ReadingEvent.fromRow(row)];
-    }, friendlyMessage: "We couldn't load your streak history.");
+    try {
+      final rows = await runSupabase(() {
+        final start = DateTime(year).toUtc().toIso8601String();
+        final end = DateTime(year + 1).toUtc().toIso8601String();
+        return _client
+            .from(_table)
+            .select()
+            .gte('occurred_at', start)
+            .lt('occurred_at', end)
+            .order('occurred_at');
+      }, friendlyMessage: "We couldn't load your streak history.");
+      await offline?.writeEvents(year, rows);
+      return _parseEvents(rows);
+    } on NetworkException {
+      final cached = await offline?.readEvents(year);
+      if (cached == null) rethrow;
+      return _parseEvents(cached);
+    }
+  }
+
+  /// Oldest first, like the query — a cached year has locally appended
+  /// rows at the end, which may be backdated.
+  static List<ReadingEvent> _parseEvents(List<Map<String, dynamic>> rows) {
+    final events = [for (final row in rows) ?ReadingEvent.fromRow(row)];
+    events.sort((a, b) => a.occurredAt.compareTo(b.occurredAt));
+    return events;
   }
 
   /// Erases every row logged against [title] — what `delete <book>`
@@ -82,9 +160,37 @@ class ReadingEventRepository {
   /// comment), so removing the book from the shelf removes its whole
   /// story here too, rather than leaving a trail of "started"/"read up
   /// to page..." lines for a book that no longer exists.
-  Future<void> deleteForTitle(String title) {
-    return runSupabase<void>(() async {
-      await _client.from(_table).delete().eq('title', title);
-    }, friendlyMessage: "We couldn't clear that book's history.");
+  Future<void> deleteForTitle(String title) async {
+    final offline = this.offline;
+    if (offline != null && await offline.mustQueueWrite()) {
+      await _queueDeleteForTitle(offline, title);
+      offline.syncSoon();
+      return;
+    }
+    try {
+      await runSupabase<void>(() async {
+        await _client.from(_table).delete().eq('title', title);
+      }, friendlyMessage: "We couldn't clear that book's history.");
+      await offline?.removeEventsForTitle(title);
+    } on NetworkException {
+      if (offline == null || !offline.isActive) rethrow;
+      await _queueDeleteForTitle(offline, title);
+    }
+  }
+
+  Future<void> _queueDeleteForTitle(
+    OfflineLibraryCache offline,
+    String title,
+  ) async {
+    await offline.removeEventsForTitle(title);
+    await offline.enqueue(
+      PendingDelete(
+        id: offline.newWriteId(),
+        createdAt: DateTime.now().toUtc(),
+        table: _table,
+        column: 'title',
+        value: title,
+      ),
+    );
   }
 }

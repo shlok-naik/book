@@ -48,6 +48,7 @@ class BookDetailController extends ChangeNotifier {
     required this.details,
     required this.notes,
     required this.findTag,
+    this.onTagsChanged,
   }) : _book = DetailSection(data: book);
 
   final String userBookId;
@@ -59,6 +60,11 @@ class BookDetailController extends ChangeNotifier {
   /// tags; making one is `make tag` or the library's "+" panel, so an
   /// unknown name is refused here rather than created.
   final ReaderTag? Function(String name) findTag;
+
+  /// Called once a tag add or removal has actually persisted —
+  /// `LibraryController.notifyTagsChanged` in the app, so tag counts
+  /// elsewhere stay current. Never called for a write that rolled back.
+  final VoidCallback? onTagsChanged;
 
   /// Starts as the shelf's own copy of the book, so the page has a title,
   /// cover and (often) a blurb from the very first frame; [load] replaces
@@ -188,6 +194,7 @@ class BookDetailController extends ChangeNotifier {
         ],
       );
       _notify();
+      onTagsChanged?.call();
       return LibraryActionResult.success('Tagged ${saved.tag}');
     } on LibraryException catch (error) {
       _tags = DetailSection(
@@ -207,6 +214,9 @@ class BookDetailController extends ChangeNotifier {
       // Still being saved — there is no row to delete yet.
       return const LibraryActionResult.failure('That tag is still saving.');
     }
+    final index = before.indexWhere((t) => t.id == tagId);
+    if (index == -1) return const LibraryActionResult.success();
+    final removed = before[index];
     _tags = DetailSection(
       data: [
         for (final t in before)
@@ -216,9 +226,12 @@ class BookDetailController extends ChangeNotifier {
     _notify();
     try {
       await notes.removeTag(tagId);
+      onTagsChanged?.call();
       return const LibraryActionResult.success();
     } on LibraryException catch (error) {
-      _tags = DetailSection(data: before);
+      _tags = DetailSection(
+        data: _reinserted(_tags.data ?? const [], removed, index),
+      );
       _notify();
       return LibraryActionResult.failure(error.message);
     }
@@ -302,7 +315,14 @@ class BookDetailController extends ChangeNotifier {
       _notify();
       return const LibraryActionResult.success('Comment updated');
     } on LibraryException catch (error) {
-      _comments = DetailSection(data: before);
+      // Only this comment goes back — anything else that changed while the
+      // edit was out (a new comment saved) stays.
+      _comments = DetailSection(
+        data: [
+          for (final c in _comments.data ?? const <BookComment>[])
+            c.id == commentId ? original : c,
+        ],
+      );
       _notify();
       return LibraryActionResult.failure(error.message);
     }
@@ -313,6 +333,9 @@ class BookDetailController extends ChangeNotifier {
       return const LibraryActionResult.failure('That comment is still saving.');
     }
     final before = _comments.data ?? const <BookComment>[];
+    final index = before.indexWhere((c) => c.id == commentId);
+    if (index == -1) return const LibraryActionResult.success();
+    final removed = before[index];
     _comments = DetailSection(
       data: [
         for (final c in before)
@@ -324,10 +347,24 @@ class BookDetailController extends ChangeNotifier {
       await notes.deleteComment(commentId);
       return const LibraryActionResult.success('Comment deleted');
     } on LibraryException catch (error) {
-      _comments = DetailSection(data: before);
+      _comments = DetailSection(
+        data: _reinserted(_comments.data ?? const [], removed, index),
+      );
       _notify();
       return LibraryActionResult.failure(error.message);
     }
+  }
+
+  /// [current] with [item] put back at [index] (or the end, if the list
+  /// has since shrunk) — the rollback for a removal that failed.
+  ///
+  /// Rolls back just that one item rather than restoring a snapshot of the
+  /// whole list taken before the removal: a snapshot also erased anything
+  /// that landed while the removal was out, such as a tag added a moment
+  /// later that really did save.
+  static List<T> _reinserted<T>(List<T> current, T item, int index) {
+    if (current.contains(item)) return current;
+    return [...current]..insert(index.clamp(0, current.length), item);
   }
 
   static const _pendingPrefix = '_pending_';

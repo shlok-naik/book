@@ -75,7 +75,7 @@ void main() {
     await tester.tap(find.text('continue'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('close'));
+    await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
 
     // The paywall is a pitch here too, not a gate — closing it (rather

@@ -60,4 +60,21 @@ class FakeCollectionsRepository extends CollectionsRepository {
     tags.add(tag);
     return tag;
   }
+
+  final deletedShelves = <String>[];
+  final deletedTags = <String>[];
+
+  @override
+  Future<void> deleteShelf(String id) async {
+    if (failure != null) throw failure!;
+    shelves.removeWhere((s) => s.id == id);
+    deletedShelves.add(id);
+  }
+
+  @override
+  Future<void> deleteTag(String id) async {
+    if (failure != null) throw failure!;
+    tags.removeWhere((t) => t.id == id);
+    deletedTags.add(id);
+  }
 }

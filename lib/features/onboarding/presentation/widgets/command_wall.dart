@@ -45,12 +45,15 @@ class CommandWall extends StatelessWidget {
       'rate Circe 5',
       'finish 1984',
     ],
+    // No `move` anywhere on this wall: the tutorial teaches the four
+    // commands a first-time reader needs, and shelving is left for the
+    // commands page to explain once they have books to shelve.
     [
-      'move Middlemarch tbr',
-      'make shelf summer reads',
-      'move The Bell Jar finished',
-      'move Piranesi "summer reads"',
-      'move Beloved dnf',
+      'update Piranesi 45%',
+      'finish Middlemarch',
+      'rate The Bell Jar 4',
+      'update Beloved 60%',
+      'finish Emma',
     ],
   ];
 

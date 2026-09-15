@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../widgets/command_wall.dart';
+import '../widgets/tier_label.dart';
 import 'tags_comments_tutorial_page.dart';
 import 'tutorial_step_page.dart';
 
@@ -24,6 +25,7 @@ class AddBookTutorialPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return TutorialStepPage(
       topContent: const CommandWall(),
+      tier: OnboardingTier.free,
       heading: 'log books as you read them',
       description: const _TutorialCopy(),
       onContinue: () => Navigator.of(context).push(
@@ -44,7 +46,6 @@ const _commands = [
   'update <book> <page number>',
   'finish <book>',
   'rate <book> <number of stars>',
-  'move <book> <tbr, reading, finished, dnf or your own shelf>',
 ];
 
 class _TutorialCopy extends StatelessWidget {

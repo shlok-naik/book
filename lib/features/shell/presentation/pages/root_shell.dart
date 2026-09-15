@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../library/presentation/library_scope.dart';
@@ -28,8 +28,13 @@ import '../widgets/bottom_switcher.dart';
 /// lived there, or for the rare reader whose [IntroOfferStore] write
 /// never landed. Either way it never brings the popup up unprompted
 /// more than once. Every later route to it is one the reader chose —
-/// the "get cactus pro" row in settings, a pro-only command, or tapping
-/// the Memory tab on the free plan (see [_selectTab]).
+/// the "get cactus pro" row in settings, a pro-only command, or tapping a
+/// locked preview (the Memory tab's, the stats page's).
+///
+/// The Memory tab itself is no longer gated here: it always opens, and
+/// `MemoryPage` shows a free reader a locked preview of what the tab
+/// holds rather than the shell throwing a paywall over whichever tab they
+/// were on — see `MemoryPage`.
 class RootShell extends StatefulWidget {
   const RootShell({super.key, this.introOffer, this.purchases});
 
@@ -50,11 +55,6 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   int _index = 3;
 
   static const _memoryIndex = 0;
-  static const _addIndex = 3;
-
-  /// True while the Memory tab's entitlement check or paywall is up, so a
-  /// second tap can't stack another paywall on top of the first.
-  bool _checkingMemoryAccess = false;
 
   late final IntroOfferStore _introOffer =
       widget.introOffer ?? const IntroOfferStore();
@@ -63,11 +63,19 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
       widget.purchases ?? const PurchasesService();
 
   late final _pages = [
-    const MemoryPage(),
+    MemoryPage(purchases: widget.purchases),
     StatsPage(purchases: widget.purchases),
     const LibraryPage(),
-    const HomePage(),
+    HomePage(onOpenMemory: () => _selectTab(_memoryIndex)),
   ];
+
+  /// Tabs that have been opened at least once. A tab is built the first
+  /// time it's shown and kept alive after, rather than all four at launch:
+  /// the stats and memory tabs each start their own fetches and entitlement
+  /// checks on mount (the year's journal a second time, alongside the add
+  /// tab's streak), and every mounted tab rebuilds on every shelf change
+  /// whether it's visible or not.
+  late final _visited = <int>{_index};
 
   /// Reloads are skipped when the app was only away briefly.
   static const _staleAfter = Duration(minutes: 1);
@@ -77,11 +85,14 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    PlanController.isPro.addListener(_onPlanChanged);
     // Post-frame: the popup is a route push, and there is no navigator
     // to push onto until this shell has actually been mounted under one.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // The add tab shows the currently-reading book and goal progress from
+      // the shelf, so the shelf loads at launch whichever tab mounts first.
+      final library = LibraryScope.read(context);
+      if (!library.hasLoaded) unawaited(library.load());
       unawaited(_maybeShowIntroOffer());
     });
   }
@@ -103,63 +114,17 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    PlanController.isPro.removeListener(_onPlanChanged);
     super.dispose();
   }
 
-  /// A reader who loses pro while looking at the Memory tab (the debug
-  /// plan toggle, today) is moved off it rather than left on a page the
-  /// free plan doesn't include.
-  void _onPlanChanged() {
-    if (!PlanController.isPro.value && _index == _memoryIndex && mounted) {
-      setState(() => _index = _addIndex);
-    }
-  }
-
-  /// Switches tabs, except that the Memory tab is a cactus pro page: on
-  /// the free plan, tapping it opens the paywall instead, and the reader
-  /// stays on the tab they were on.
-  ///
-  /// Access is decided the way the rest of the app decides it —
-  /// [PlanController.isPro] first, which is what gates `remember` and
-  /// `recommend` on the add tab — and then, for a reader it says is free,
-  /// the real RevenueCat entitlement, so a paying subscriber is never
-  /// shown a paywall for a page they bought. If that check itself fails
-  /// (offline, store unavailable) the paywall shows: from there a
-  /// subscriber can restore, whereas silently opening a pro page for
-  /// everyone whenever the store is unreachable would not be a gate at all.
-  ///
-  /// If the reader buys pro from that paywall, they land on Memory.
-  Future<void> _selectTab(int next) async {
-    if (next != _memoryIndex || PlanController.isPro.value) {
-      setState(() => _index = next);
-      return;
-    }
-    if (_checkingMemoryAccess) return;
-    _checkingMemoryAccess = true;
-    try {
-      if (await _hasProEntitlement()) {
-        if (mounted) setState(() => _index = _memoryIndex);
-        return;
-      }
-      if (!mounted) return;
-      await showPaywallPopup(context, purchases: widget.purchases);
-      if (mounted && await _hasProEntitlement()) {
-        setState(() => _index = _memoryIndex);
-      }
-    } finally {
-      _checkingMemoryAccess = false;
-    }
-  }
-
-  Future<bool> _hasProEntitlement() async {
-    try {
-      return _purchases.isPro(await _purchases.customerInfo);
-    } on Object {
-      // Includes an SDK that was never configured — see the doc comment on
-      // [_selectTab] for why an unknown entitlement means "not pro" here.
-      return false;
-    }
+  /// Switches tabs. Every tab opens for every reader — the pro-only ones
+  /// gate their own contents (see the class doc).
+  void _selectTab(int next) {
+    if (!mounted || next == _index) return;
+    setState(() {
+      _index = next;
+      _visited.add(next);
+    });
   }
 
   /// Shows the paywall once per install, to readers who don't already
@@ -195,7 +160,17 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
 
     return Stack(
       children: [
-        IndexedStack(index: _index, children: _pages),
+        IndexedStack(
+          index: _index,
+          children: [
+            for (final (i, page) in _pages.indexed)
+              // Hidden tabs keep their state but stop animating.
+              TickerMode(
+                enabled: i == _index,
+                child: _visited.contains(i) ? page : const SizedBox.shrink(),
+              ),
+          ],
+        ),
         Positioned(
           left: AppSpacing.lg,
           right: AppSpacing.lg,
@@ -205,14 +180,11 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                BottomSwitcher(
-                  index: _index,
-                  onChanged: (i) => unawaited(_selectTab(i)),
-                ),
+                BottomSwitcher(index: _index, onChanged: _selectTab),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
                   'cactus',
-                  style: GoogleFonts.jetBrainsMono(
+                  style: context.fonts.interface(
                     fontSize: 15,
                     color: colors.secondaryText,
                   ),

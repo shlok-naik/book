@@ -1,6 +1,10 @@
 import 'package:book/core/platform/app_icon.dart';
 import 'package:book/core/platform/app_icon_channel.dart';
 import 'package:book/core/platform/app_icon_controller.dart';
+import 'package:book/core/theme/app_color_theme.dart';
+import 'package:book/core/theme/app_color_theme_controller.dart';
+import 'package:book/core/theme/app_font_theme.dart';
+import 'package:book/core/theme/app_font_theme_controller.dart';
 import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/settings/presentation/pages/customisation_page.dart';
 import 'package:flutter/foundation.dart';
@@ -75,6 +79,8 @@ void main() {
     addTearDown(() {
       AppIconController.channel = const AppIconChannel();
       AppIconController.current.value = AppIcon.originalLight;
+      AppColorThemeController.current.value = AppColorTheme.forest;
+      AppFontThemeController.current.value = AppFontTheme.original;
     });
   });
 
@@ -247,6 +253,132 @@ void main() {
 
         expect(channel.setCalls, isEmpty);
         expect(AppIconController.current.value, AppIcon.originalLight);
+      });
+    });
+  });
+
+  group('themes tab', () {
+    testWidgets('opens on icons by default, themes is the second tab', (
+      tester,
+    ) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+
+        expect(find.text('icons'), findsOneWidget);
+        expect(find.text('themes'), findsOneWidget);
+        // Icons content is already on screen without switching tabs.
+        expect(find.text('main'), findsOneWidget);
+      });
+    });
+
+    testWidgets('switching to it names every theme, forest active first', (
+      tester,
+    ) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+
+        await tester.tap(find.text('themes'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('currently'), findsOneWidget);
+        // Once in the "currently" preview, once as the tile itself.
+        expect(find.text('forest'), findsNWidgets(2));
+        for (final theme in AppColorTheme.values) {
+          expect(find.text(theme.label), findsWidgets, reason: theme.label);
+        }
+        // A screen reader can pick one, not just find it.
+        expect(
+          tester.getSemantics(find.bySemanticsLabel('blue theme')),
+          matchesSemantics(
+            label: 'blue theme',
+            isButton: true,
+            hasSelectedState: true,
+            hasTapAction: true,
+          ),
+        );
+      });
+    });
+
+    testWidgets('picking a theme applies it immediately, no confirmation', (
+      tester,
+    ) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+        await tester.tap(find.text('themes'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('blue'));
+        await tester.pumpAndSettle();
+
+        expect(AppColorThemeController.current.value, AppColorTheme.blue);
+        // Once in the "currently" preview, once as the tile itself.
+        expect(find.text('blue'), findsNWidgets(2));
+      });
+    });
+  });
+
+  group('fonts tab', () {
+    testWidgets('is the third tab, listing every font set with original '
+        'active', (tester) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+        expect(find.text('fonts'), findsOneWidget);
+
+        await tester.tap(find.text('fonts'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('currently'), findsOneWidget);
+        // Once in the "currently" preview, once as the tile itself.
+        expect(find.text('original'), findsNWidgets(2));
+        for (final theme in AppFontTheme.values) {
+          expect(
+            find.byKey(ValueKey('font-${theme.name}')),
+            findsOneWidget,
+            reason: theme.label,
+          );
+        }
+        expect(
+          tester.getSemantics(find.byKey(const ValueKey('font-original'))),
+          matchesSemantics(
+            label: 'original fonts',
+            isButton: true,
+            isSelected: true,
+            hasSelectedState: true,
+            hasTapAction: true,
+          ),
+        );
+      });
+    });
+
+    testWidgets('each tile previews its own fonts, not the active ones', (
+      tester,
+    ) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+        await tester.tap(find.text('fonts'));
+        await tester.pumpAndSettle();
+
+        final title = tester.widget<Text>(
+          find.descendant(
+            of: find.byKey(const ValueKey('font-typewriter')),
+            matching: find.text('Dune'),
+          ),
+        );
+        expect(title.style!.fontFamily, startsWith('SpecialElite'));
+      });
+    });
+
+    testWidgets('picking a font set applies it immediately', (tester) async {
+      await withPlatform(TargetPlatform.iOS, () async {
+        await pumpPage(tester);
+        await tester.tap(find.text('fonts'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey('font-book')));
+        await tester.pumpAndSettle();
+
+        expect(AppFontThemeController.current.value, AppFontTheme.book);
+        expect(find.text('book'), findsNWidgets(2));
       });
     });
   });

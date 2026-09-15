@@ -2,28 +2,26 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
-import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../goals/domain/reading_goal.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_progress_view.dart';
+import '../../../library/domain/book_note.dart';
+import '../../../library/domain/library_exception.dart';
 import '../../../library/domain/reading_event.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
+import '../../../paywall/presentation/pro_gate.dart';
+import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
+import '../../domain/reading_heatmap.dart';
 import '../../domain/reading_stats.dart';
 import '../controllers/streaks_controller.dart';
-
-/// Gap between one day's entries and the next day's label.
-const _daySpacing = AppSpacing.lg;
-
-/// Gap between one entry and the next inside the same day.
-const _entrySpacing = AppSpacing.sm;
 
 /// How many genres get their own row before the rest fold into "other".
 const _topGenres = 5;
@@ -62,20 +60,21 @@ const _monthNames = [
 String _monthName(int index) => _monthNames[index];
 
 /// The stats tab: the yearly reading goal first (read-only here — a goal is
-/// only ever changed from settings), then numbers about the shelf (books
-/// and pages read), four charts (books finished per month, pages read per
-/// month, pace toward the goal, and how the shelf breaks down), then genres
-/// and the reading journal — every command read back as the line it was
-/// typed as, grouped under the day it happened, newest day first.
+/// only ever changed from settings), then the basic tier free readers keep
+/// — books/pages read, the reading-days heatmap and how the shelf breaks
+/// down — then the deeper insights cactus pro unlocks: three charts (books
+/// finished per month, pages read per month, pace toward the goal), genres
+/// and tags. There is no journal any more; a book's own start and finish
+/// dates live on its book page instead.
 ///
-/// Everything but the journal is free and comes straight from
-/// [ReadingStats] over the books `LibraryController` already holds, so it
-/// updates the moment a command lands; only the journal needs the year of
-/// `reading_events` [StreaksController] loads — and only the journal is
-/// cactus pro. A free reader sees every chart but a faded, inert preview
-/// where the journal would be (see [_LockedJournal]), the same
-/// discoverability-without-access treatment settings gives "themes and
-/// icons".
+/// The shelf numbers come straight from [ReadingStats] over the books
+/// `LibraryController` already holds (and its import date, the baseline an
+/// imported library's stats count from), so they update the moment a
+/// command lands; the heatmap additionally needs the year of
+/// `reading_events` [StreaksController] loads. A free reader sees a faded,
+/// inert preview where the charts, genres and tags would be (see
+/// [_LockedInsights]) — the same discoverability-without-access treatment
+/// settings gives "themes and icons".
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key, this.purchases});
 
@@ -87,7 +86,13 @@ class StatsPage extends StatefulWidget {
   State<StatsPage> createState() => _StatsPageState();
 }
 
-class _StatsPageState extends State<StatsPage> {
+class _StatsPageState extends State<StatsPage> with ProGateState<StatsPage> {
+  @override
+  PurchasesService? get purchasesOverride => widget.purchases;
+
+  @override
+  PaywallFeature get paywallFeature => PaywallFeature.readingUnlocked;
+
   /// Built lazily in [didChangeDependencies], not [initState] — it needs
   /// [LibraryScope.of], which isn't safe to call until this widget is in
   /// the tree.
@@ -96,26 +101,36 @@ class _StatsPageState extends State<StatsPage> {
   StreamSubscription<ReadingEvent>? _eventSubscription;
   StreamSubscription<String>? _clearedSubscription;
   StreamSubscription<void>? _resetSubscription;
+  StreamSubscription<void>? _tagsSubscription;
 
-  late final PurchasesService _purchases =
-      widget.purchases ?? const PurchasesService();
+  /// Every `book_tags` row, for the pro "tags" section — null until the
+  /// first fetch lands. Fetched only once the page is unlocked (a free
+  /// reader's preview uses invented rows, see [_LockedInsights]) and
+  /// refetched whenever [LibraryController.tagsChanged] or a library
+  /// reset says it went stale; counted against the live shelf in [build].
+  List<BookTag>? _allTags;
+  bool _tagsLoading = false;
+  String? _tagsError;
 
-  /// Whether the journal is unlocked. Fails closed — unknown (not yet
-  /// checked, or the store unreachable) reads the same as "no", so a
-  /// slow or offline entitlement check never leaks the journal to a
-  /// free reader for even a moment.
-  bool _isPro = false;
-
-  /// True while a tap on the locked journal has a paywall or entitlement
-  /// check in flight, so a second tap can't stack another paywall on
-  /// top of the first.
-  bool _checkingJournalAccess = false;
-
-  @override
-  void initState() {
-    super.initState();
-    PlanController.isPro.addListener(_onPlanChanged);
-    unawaited(_refreshProStatus());
+  /// Fetches [_allTags]. Deliberately writes [_tagsLoading] without
+  /// `setState` before the first await, so [build] may call it — nothing
+  /// visible changes until the fetch resolves.
+  Future<void> _loadTags() async {
+    if (_tagsLoading) return;
+    _tagsLoading = true;
+    try {
+      final tags = await LibraryScope.read(context).notes.fetchAllTags();
+      if (!mounted) return;
+      setState(() {
+        _allTags = tags;
+        _tagsError = null;
+      });
+    } on LibraryException catch (error) {
+      if (!mounted) return;
+      setState(() => _tagsError = error.message);
+    } finally {
+      _tagsLoading = false;
+    }
   }
 
   @override
@@ -128,66 +143,44 @@ class _StatsPageState extends State<StatsPage> {
     controller.load(DateTime.now().year);
     _eventSubscription = library.loggedEvents.listen(controller.applyEvent);
     _clearedSubscription = library.clearedTitles.listen(controller.removeTitle);
-    _resetSubscription = library.resets.listen(
-      (_) => unawaited(controller.reload(DateTime.now().year)),
-    );
+    _resetSubscription = library.resets.listen((_) {
+      unawaited(controller.reload(DateTime.now().year));
+      if (_allTags != null) unawaited(_loadTags());
+    });
+    _tagsSubscription = library.tagsChanged.listen((_) {
+      if (_allTags != null || _tagsError != null) unawaited(_loadTags());
+    });
   }
 
   @override
   void dispose() {
-    PlanController.isPro.removeListener(_onPlanChanged);
     _eventSubscription?.cancel();
     _clearedSubscription?.cancel();
     _resetSubscription?.cancel();
+    _tagsSubscription?.cancel();
     _controller?.dispose();
     super.dispose();
   }
 
-  void _onPlanChanged() => unawaited(_refreshProStatus());
-
-  /// [PlanController.isPro] first — the same debug override `HomePage`
-  /// checks before gating `remember`/`recommend` — then, for a reader it
-  /// says is free, the real RevenueCat entitlement.
-  Future<void> _refreshProStatus() async {
-    final isPro = PlanController.isPro.value || await _hasProEntitlement();
-    if (!mounted) return;
-    setState(() => _isPro = isPro);
-  }
-
-  Future<bool> _hasProEntitlement() async {
-    try {
-      return _purchases.isPro(await _purchases.customerInfo);
-    } on Object {
-      // Includes an SDK that was never configured — see [_refreshProStatus]
-      // for why an unknown entitlement means "not pro" here.
-      return false;
-    }
-  }
-
-  /// Opens the paywall from the locked journal preview, then rechecks
-  /// entitlement — a reader who just bought pro sees the journal unlock
-  /// immediately rather than needing to leave the page and come back.
-  Future<void> _unlockJournal() async {
-    if (_checkingJournalAccess) return;
-    setState(() => _checkingJournalAccess = true);
-    try {
-      await showPaywallPopup(context, purchases: widget.purchases);
-      if (mounted) await _refreshProStatus();
-    } finally {
-      if (mounted) setState(() => _checkingJournalAccess = false);
-    }
-  }
-
-  /// The floating bottom bar's total footprint — see bottom_switcher.dart.
-  static const _barFootprint = 108.0;
+  /// The floating bottom bar's footprint — see [BottomSwitcher.pageFootprint].
+  static const _barFootprint = BottomSwitcher.pageFootprint;
 
   @override
   Widget build(BuildContext context) {
     final year = DateTime.now().year;
     final controller = _controller;
-    final stats = ReadingStats.from(LibraryScope.of(context).books);
+    final library = LibraryScope.of(context);
+    final stats = ReadingStats.forShelf(
+      library.books,
+      importedAt: library.importedAt,
+    );
     final goals = GoalScope.of(context);
     final goalError = goals.errorMessage;
+    if (isProUnlocked && _allTags == null && _tagsError == null) {
+      unawaited(_loadTags());
+    }
+    final allTags = _allTags;
+    final tagError = _tagsError;
 
     return Scaffold(
       body: SafeArea(
@@ -215,36 +208,11 @@ class _StatsPageState extends State<StatsPage> {
                 const SizedBox(height: AppSpacing.xl),
                 _StatGrid(stats: stats),
                 const SizedBox(height: AppSpacing.xl),
-                const _Heading('books per month'),
+                // Free on every plan: reading days are the same thing the
+                // add tab's streak already shows, just a whole year of it.
+                const _Heading('reading days'),
                 const SizedBox(height: AppSpacing.md),
-                _ActivityChart(stats: stats),
-                const SizedBox(height: AppSpacing.xl),
-                const _Heading('pages per month'),
-                const SizedBox(height: AppSpacing.md),
-                _PagesChart(stats: stats),
-                const SizedBox(height: AppSpacing.xl),
-                const _Heading('pace'),
-                const SizedBox(height: AppSpacing.md),
-                _PaceChart(stats: stats, goal: stats.goalProgress(goals.goal)),
-                const SizedBox(height: AppSpacing.xl),
-                const _Heading('your shelf'),
-                const SizedBox(height: AppSpacing.md),
-                _ShelfDonut(stats: stats),
-                if (stats.genres.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.xl),
-                  const _Heading('genres'),
-                  const SizedBox(height: AppSpacing.md),
-                  _Genres(genres: stats.genres),
-                ],
-                const SizedBox(height: AppSpacing.xl),
-                const _Heading('journal'),
-                const SizedBox(height: AppSpacing.md),
-                if (!_isPro)
-                  _LockedJournal(
-                    busy: _checkingJournalAccess,
-                    onTap: _unlockJournal,
-                  )
-                else if (controller != null)
+                if (controller != null)
                   AnimatedBuilder(
                     animation: controller,
                     builder: (context, _) {
@@ -255,8 +223,61 @@ class _StatsPageState extends State<StatsPage> {
                           onRetry: () => controller.load(year),
                         );
                       }
-                      return _Journal(controller: controller);
+                      // Nothing until the year has loaded: an empty grid
+                      // would read as "you haven't read at all" for a beat.
+                      if (controller.isLoading) {
+                        return const SizedBox.shrink();
+                      }
+                      return _ReadingHeatmapView(
+                        heatmap: ReadingHeatmap.fromCounts(
+                          year,
+                          controller.activityByDay,
+                          today: DateTime.now(),
+                        ),
+                      );
                     },
+                  ),
+                const SizedBox(height: AppSpacing.xl),
+                const _Heading('your shelf'),
+                const SizedBox(height: AppSpacing.md),
+                _ShelfDonut(stats: stats),
+                const SizedBox(height: AppSpacing.xl),
+                if (isProUnlocked) ...[
+                  const _Heading('books per month'),
+                  const SizedBox(height: AppSpacing.md),
+                  _ActivityChart(stats: stats),
+                  const SizedBox(height: AppSpacing.xl),
+                  const _Heading('pages per month'),
+                  const SizedBox(height: AppSpacing.md),
+                  _PagesChart(stats: stats),
+                  const SizedBox(height: AppSpacing.xl),
+                  const _Heading('pace'),
+                  const SizedBox(height: AppSpacing.md),
+                  _PaceChart(
+                    stats: stats,
+                    goal: stats.goalProgress(goals.goal),
+                  ),
+                  if (stats.genres.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.xl),
+                    const _Heading('genres'),
+                    const SizedBox(height: AppSpacing.md),
+                    _CountBars.genres(stats.genres),
+                  ],
+                  const SizedBox(height: AppSpacing.xl),
+                  const _Heading('tags'),
+                  const SizedBox(height: AppSpacing.md),
+                  if (tagError != null && allTags == null)
+                    _LoadFailure(message: tagError, onRetry: _loadTags)
+                  else if (allTags != null)
+                    _TagCounts(
+                      counts: ReadingStats.tagCounts(allTags, library.books),
+                    ),
+                ] else
+                  _LockedInsights(
+                    stats: stats,
+                    goal: stats.goalProgress(goals.goal),
+                    busy: unlockBusy,
+                    onTap: unlockPro,
                   ),
               ],
             ),
@@ -278,7 +299,7 @@ class _Heading extends StatelessWidget {
       header: true,
       child: Text(
         text,
-        style: GoogleFonts.jetBrainsMono(
+        style: context.fonts.interface(
           fontSize: 16,
           fontWeight: FontWeight.w600,
           color: context.colors.secondaryText,
@@ -375,7 +396,7 @@ class _Tile extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 12,
                 color: colors.secondaryText,
               ),
@@ -386,7 +407,7 @@ class _Tile extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 value,
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 26,
                   fontWeight: FontWeight.w600,
                   color: colors.primaryText,
@@ -398,7 +419,7 @@ class _Tile extends StatelessWidget {
               detail,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 11,
                 height: 1.3,
                 color: colors.secondaryText,
@@ -433,7 +454,7 @@ class _ActivityChart extends StatelessWidget {
     if (most == 0) {
       return Text(
         'nothing finished in ${stats.year} yet.',
-        style: GoogleFonts.jetBrainsMono(
+        style: context.fonts.interface(
           fontSize: 13,
           color: colors.secondaryText,
         ),
@@ -482,7 +503,7 @@ class _ActivityChart extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       _monthInitials[i],
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 11,
                         fontWeight: i == currentMonth
                             ? FontWeight.w600
@@ -522,7 +543,7 @@ class _PagesChart extends StatelessWidget {
     if (most == 0) {
       return Text(
         'no pages logged in ${stats.year} yet.',
-        style: GoogleFonts.jetBrainsMono(
+        style: context.fonts.interface(
           fontSize: 13,
           color: colors.secondaryText,
         ),
@@ -579,7 +600,7 @@ class _MonthLabels extends StatelessWidget {
             child: Text(
               _monthInitials[i],
               textAlign: TextAlign.center,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 11,
                 fontWeight: i == currentMonth
                     ? FontWeight.w600
@@ -600,12 +621,23 @@ class _LineSeries {
   const _LineSeries({
     required this.values,
     required this.color,
+    this.xs,
     this.dashed = false,
     this.filled = false,
     this.strokeWidth = 2.5,
+    this.dots = true,
   });
 
   final List<double?> values;
+
+  /// Where each value sits across the chart, 0..1 — for a series plotted at
+  /// real dates (the pace chart after an import) rather than one point per
+  /// month. Null spaces [values] evenly, as every monthly series does. Same
+  /// length as [values] when given.
+  final List<double>? xs;
+
+  /// Whether a solid line marks each point with a dot.
+  final bool dots;
   final Color color;
   final bool dashed;
   final bool filled;
@@ -633,12 +665,13 @@ class _LineChartPainter extends CustomPainter {
       final points = <Offset?>[
         for (var i = 0; i < line.values.length; i++)
           if (line.values[i] case final value?)
-            Offset(
-              line.values.length == 1
-                  ? 0
-                  : size.width * i / (line.values.length - 1),
-              size.height * (1 - (value / maxY).clamp(0.0, 1.0)),
-            )
+            Offset(switch (line.xs) {
+              final xs? => size.width * xs[i].clamp(0.0, 1.0),
+              _ =>
+                line.values.length == 1
+                    ? 0
+                    : size.width * i / (line.values.length - 1),
+            }, size.height * (1 - (value / maxY).clamp(0.0, 1.0)))
           else
             null,
       ];
@@ -663,7 +696,7 @@ class _LineChartPainter extends CustomPainter {
         previous = point;
       }
 
-      if (!line.dashed) {
+      if (!line.dashed && line.dots) {
         final dotPaint = Paint()..color = line.color;
         for (final point in points) {
           if (point != null) {
@@ -780,6 +813,14 @@ class _PaceChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final baseline = stats.paceBaseline;
+    if (baseline != null) {
+      return _PaceSinceImport(
+        stats: stats,
+        goal: this.goal,
+        baseline: baseline,
+      );
+    }
     final colors = context.colors;
     final goal = this.goal;
     final currentMonth =
@@ -795,10 +836,13 @@ class _PaceChart extends StatelessWidget {
       for (var i = 0; i < 12; i++) i < currentMonth ? cumulative[i] : null,
     ];
 
-    if (running == 0 && goal == null) {
+    // Nothing finished this year means there is no line worth drawing — a
+    // flat zero under a dashed "steady pace" only reads as a chart of
+    // falling behind. Just say so, whether or not a goal is set.
+    if (running == 0) {
       return Text(
-        'finish a book to start tracking your pace.',
-        style: GoogleFonts.jetBrainsMono(
+        'no books read in ${stats.year} yet.',
+        style: context.fonts.interface(
           fontSize: 13,
           color: colors.secondaryText,
         ),
@@ -827,18 +871,21 @@ class _PaceChart extends StatelessWidget {
               children: [
                 _LegendSwatch(color: colors.accent),
                 const SizedBox(width: 6),
-                Text('you', style: _legendStyle(colors, colors.primaryText)),
+                Text(
+                  'you',
+                  style: _legendStyle(context, colors, colors.primaryText),
+                ),
                 const SizedBox(width: AppSpacing.md),
                 _LegendSwatch(color: colors.secondaryText, dashed: true),
                 const SizedBox(width: 6),
                 Text(
                   'steady pace',
-                  style: _legendStyle(colors, colors.secondaryText),
+                  style: _legendStyle(context, colors, colors.secondaryText),
                 ),
                 const Spacer(),
                 Text(
                   goal.paceLabel(DateTime.now()),
-                  style: _legendStyle(colors, colors.accent),
+                  style: _legendStyle(context, colors, colors.accent),
                 ),
               ],
             ),
@@ -874,8 +921,198 @@ class _PaceChart extends StatelessWidget {
     );
   }
 
-  static TextStyle _legendStyle(AppColors colors, Color color) =>
-      GoogleFonts.jetBrainsMono(fontSize: 12, color: color);
+  static TextStyle _legendStyle(
+    BuildContext context,
+    AppColors colors,
+    Color color,
+  ) => context.fonts.interface(fontSize: 12, color: color);
+}
+
+/// [_PaceChart] for a library imported this year. Imported history isn't
+/// reading done in cactus, so pace starts at the import instead of January:
+///
+/// * a thin **baseline** line runs across the chart at the number of books
+///   already finished this year when the import happened — above the x axis
+///   whenever that's more than zero;
+/// * **you** starts on that line at the import date and steps up at each
+///   book finished since, at its real date, to today — relative to the
+///   baseline, not to the start of a month;
+/// * **steady pace** (with a goal) runs from the baseline at the import to
+///   the goal at year end, which is also what [ReadingGoal.paceLabel] now
+///   measures against.
+class _PaceSinceImport extends StatelessWidget {
+  const _PaceSinceImport({
+    required this.stats,
+    required this.goal,
+    required this.baseline,
+  });
+
+  final ReadingStats stats;
+  final ReadingGoal? goal;
+  final PaceBaseline baseline;
+
+  static const _chartHeight = 120.0;
+
+  /// [date]'s position across [year], 0 (Jan 1) to 1 (the end of Dec 31).
+  static double _fractionOfYear(DateTime date, int year) {
+    final local = date.toLocal();
+    final start = DateTime(year);
+    final end = DateTime(year + 1);
+    return (local.difference(start).inMinutes / end.difference(start).inMinutes)
+        .clamp(0.0, 1.0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final goal = this.goal;
+    final now = DateTime.now();
+    final base = baseline.books.toDouble();
+    final since = stats.finishesAfterBaseline;
+    final total = base + since.length;
+
+    if (total == 0 && goal == null) {
+      return Text(
+        'no books read in ${stats.year} yet.',
+        style: context.fonts.interface(
+          fontSize: 13,
+          color: colors.secondaryText,
+        ),
+      );
+    }
+
+    final startX = _fractionOfYear(baseline.at, stats.year);
+    final todayX = _fractionOfYear(now, stats.year);
+    final xs = <double>[startX];
+    final values = <double?>[base];
+    for (final (i, finished) in since.indexed) {
+      final x = _fractionOfYear(finished, stats.year);
+      // A step: level up to the finish, then up by one book at it.
+      xs
+        ..add(x)
+        ..add(x);
+      values
+        ..add(base + i)
+        ..add(base + i + 1);
+    }
+    if (todayX > xs.last) {
+      xs.add(todayX);
+      values.add(total);
+    }
+
+    final maxY = math.max(goal?.goal.toDouble() ?? 0, total);
+    final dateLabel =
+        '${baseline.at.toLocal().month}.${baseline.at.toLocal().day}';
+    final paceLabel = goal?.paceLabel(now);
+
+    return Semantics(
+      label:
+          'Reading pace since your import on $dateLabel: '
+          '${baseline.books} ${baseline.books == 1 ? 'book' : 'books'} '
+          'already read this year, ${since.length} finished since'
+          '${goal == null ? '' : ', goal ${goal.goal}, $paceLabel'}.',
+      excludeSemantics: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _legend(
+                context,
+                colors,
+                colors.accent,
+                'you',
+                colors.primaryText,
+              ),
+              if (goal != null)
+                _legend(
+                  context,
+                  colors,
+                  colors.secondaryText,
+                  'steady pace',
+                  colors.secondaryText,
+                  dashed: true,
+                ),
+              _legend(
+                context,
+                colors,
+                colors.divider,
+                'imported $dateLabel · ${baseline.books}',
+                colors.secondaryText,
+              ),
+              if (paceLabel != null)
+                Text(
+                  paceLabel,
+                  style: context.fonts.interface(
+                    fontSize: 12,
+                    color: colors.accent,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            height: _chartHeight,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _LineChartPainter(
+                series: [
+                  _LineSeries(
+                    values: [base, base],
+                    xs: const [0, 1],
+                    color: colors.divider,
+                    strokeWidth: 2,
+                    dots: false,
+                  ),
+                  if (goal != null)
+                    _LineSeries(
+                      values: [base, goal.goal.toDouble()],
+                      xs: [startX, 1],
+                      color: colors.secondaryText,
+                      dashed: true,
+                      strokeWidth: 1.5,
+                    ),
+                  _LineSeries(
+                    values: values,
+                    xs: xs,
+                    color: colors.accent,
+                    dots: false,
+                  ),
+                ],
+                maxY: maxY <= 0 ? 1 : maxY,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _MonthLabels(currentMonth: now.month - 1),
+        ],
+      ),
+    );
+  }
+
+  static Widget _legend(
+    BuildContext context,
+    AppColors colors,
+    Color swatch,
+    String text,
+    Color textColor, {
+    bool dashed = false,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _LegendSwatch(color: swatch, dashed: dashed),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: context.fonts.interface(fontSize: 12, color: textColor),
+        ),
+      ],
+    );
+  }
 }
 
 /// The current shelf, as a donut: reading, to read, finished, and did not
@@ -915,7 +1152,7 @@ class _ShelfDonut extends StatelessWidget {
     if (total == 0) {
       return Text(
         'nothing on your shelf yet.',
-        style: GoogleFonts.jetBrainsMono(
+        style: context.fonts.interface(
           fontSize: 13,
           color: colors.secondaryText,
         ),
@@ -953,7 +1190,7 @@ class _ShelfDonut extends StatelessWidget {
                   children: [
                     Text(
                       '$total',
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 24,
                         fontWeight: FontWeight.w600,
                         color: colors.primaryText,
@@ -961,7 +1198,7 @@ class _ShelfDonut extends StatelessWidget {
                     ),
                     Text(
                       total == 1 ? 'book' : 'books',
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 11,
                         color: colors.secondaryText,
                       ),
@@ -996,7 +1233,7 @@ class _ShelfDonut extends StatelessWidget {
                             child: Text(
                               s.label,
                               overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.jetBrainsMono(
+                              style: context.fonts.interface(
                                 fontSize: 13,
                                 color: colors.primaryText,
                               ),
@@ -1004,7 +1241,7 @@ class _ShelfDonut extends StatelessWidget {
                           ),
                           Text(
                             '${s.count}',
-                            style: GoogleFonts.jetBrainsMono(
+                            style: context.fonts.interface(
                               fontSize: 13,
                               color: colors.secondaryText,
                             ),
@@ -1082,20 +1319,28 @@ class _DonutPainter extends CustomPainter {
       oldDelegate.background != background;
 }
 
-/// The top genres as labelled bars scaled to the most common one, with the
-/// long tail folded into "other".
-class _Genres extends StatelessWidget {
-  const _Genres({required this.genres});
+/// The top rows (genres, or tags) as labelled bars scaled to the most
+/// common one, with the long tail folded into "other".
+class _CountBars extends StatelessWidget {
+  const _CountBars({required this.rows});
 
-  final List<GenreCount> genres;
+  _CountBars.genres(List<GenreCount> genres)
+    : this(rows: [for (final g in genres) (label: g.genre, books: g.books)]);
+
+  _CountBars.tags(List<TagCount> tags)
+    : this(rows: [for (final t in tags) (label: t.tag, books: t.books)]);
+
+  /// Already sorted, most books first.
+  final List<({String label, int books})> rows;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final rest = genres.skip(_topGenres).fold(0, (sum, g) => sum + g.books);
-    final rows = <GenreCount>[
-      ...genres.take(_topGenres),
-      if (rest > 0) (genre: 'other', books: rest),
+    final all = this.rows;
+    final rest = all.skip(_topGenres).fold(0, (sum, g) => sum + g.books);
+    final rows = <({String label, int books})>[
+      ...all.take(_topGenres),
+      if (rest > 0) (label: 'other', books: rest),
     ];
     final most = rows.fold(1, (best, g) => g.books > best ? g.books : best);
 
@@ -1106,7 +1351,7 @@ class _Genres extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: Semantics(
               label:
-                  '${row.genre}: ${row.books} '
+                  '${row.label}: ${row.books} '
                   '${row.books == 1 ? 'book' : 'books'}',
               excludeSemantics: true,
               child: Row(
@@ -1114,9 +1359,9 @@ class _Genres extends StatelessWidget {
                   SizedBox(
                     width: 130,
                     child: Text(
-                      row.genre,
+                      row.label,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 13,
                         color: colors.primaryText,
                       ),
@@ -1142,7 +1387,7 @@ class _Genres extends StatelessWidget {
                     child: Text(
                       '${row.books}',
                       textAlign: TextAlign.right,
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 13,
                         color: colors.secondaryText,
                       ),
@@ -1157,71 +1402,33 @@ class _Genres extends StatelessWidget {
   }
 }
 
-/// The list itself: one date label per day with something logged,
-/// newest first, each followed by its entries in the order they
-/// actually happened.
-class _Journal extends StatelessWidget {
-  const _Journal({required this.controller});
+/// What a free reader sees in place of the trend charts and genres: the
+/// real [_ActivityChart]/[_PagesChart]/[_PaceChart]/[_Genres], faded and
+/// inert — a shape isn't an identifying detail the way a journal line's
+/// title/date is, so unlike [_LockedJournal] this previews the reader's
+/// own data rather than invented rows — plus a line naming the way out.
+/// Same "faded, never hidden" tap-to-unlock treatment as [_LockedJournal]
+/// and settings' `_CustomisationSection`.
+const _previewTags = <TagCount>[
+  (tag: 'favourites', books: 6),
+  (tag: 'book club', books: 4),
+  (tag: 'cosy', books: 2),
+];
 
-  final StreaksController controller;
+class _LockedInsights extends StatelessWidget {
+  const _LockedInsights({
+    required this.stats,
+    required this.goal,
+    required this.busy,
+    required this.onTap,
+  });
 
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    // Built up front, not left to `_DayEntries` to discover, because a
-    // day whose only command was `delete` renders nothing — and that
-    // has to count as "nothing logged" too, not a blank gap followed by
-    // silence.
-    final days = [
-      for (final day in controller.days)
-        if (_DayEntries.linesFor(controller.eventsFor(day)) case final lines
-            when lines.isNotEmpty)
-          (date: day, lines: lines),
-    ];
+  final ReadingStats stats;
 
-    if (days.isEmpty) {
-      return Text(
-        controller.isLoading ? '' : 'nothing logged yet — start a book.',
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: 14,
-          color: colors.secondaryText,
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final (i, day) in days.indexed) ...[
-          if (i > 0) const SizedBox(height: _daySpacing),
-          _DayEntries(date: day.date, lines: day.lines),
-        ],
-      ],
-    );
-  }
-}
-
-/// What a free reader sees where the journal would be: the same
-/// [_DayEntries] the real journal renders, faded and inert, over invented
-/// entries rather than the reader's own — so the preview never leaks a
-/// real title or date to a reader who hasn't unlocked it — plus a line
-/// naming the way out. The whole block is one tap target, the same
-/// visible-but-locked treatment `_CustomisationSection` (settings' "themes
-/// and icons" row) gives a pro feature: faded rather than hidden, so a
-/// free reader knows the journal exists before they ever pay for it.
-class _LockedJournal extends StatelessWidget {
-  const _LockedJournal({required this.busy, required this.onTap});
-
+  /// From `stats.goalProgress(goals.goal)` — null with no goal set.
+  final ReadingGoal? goal;
   final bool busy;
   final VoidCallback onTap;
-
-  static final _preview = [
-    (date: DateTime(2026, 9, 12), lines: const ['started The Hobbit']),
-    (
-      date: DateTime(2026, 9, 10),
-      lines: const ['read up to page 140 in Dune', 'rated Dune 4.5 stars'],
-    ),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -1229,8 +1436,8 @@ class _LockedJournal extends StatelessWidget {
     return Semantics(
       button: true,
       label:
-          'Reading journal, locked. Upgrade to cactus pro to unlock. '
-          'Double tap to upgrade.',
+          'Reading trends, genres and tags, locked. Upgrade to cactus '
+          'pro to unlock. Double tap to upgrade.',
       excludeSemantics: true,
       child: GestureDetector(
         onTap: busy ? null : onTap,
@@ -1244,18 +1451,38 @@ class _LockedJournal extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final (i, day) in _preview.indexed) ...[
-                      if (i > 0) const SizedBox(height: _daySpacing),
-                      _DayEntries(date: day.date, lines: day.lines),
+                    const _Heading('books per month'),
+                    const SizedBox(height: AppSpacing.md),
+                    _ActivityChart(stats: stats),
+                    const SizedBox(height: AppSpacing.xl),
+                    const _Heading('pages per month'),
+                    const SizedBox(height: AppSpacing.md),
+                    _PagesChart(stats: stats),
+                    const SizedBox(height: AppSpacing.xl),
+                    const _Heading('pace'),
+                    const SizedBox(height: AppSpacing.md),
+                    _PaceChart(stats: stats, goal: goal),
+                    if (stats.genres.isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.xl),
+                      const _Heading('genres'),
+                      const SizedBox(height: AppSpacing.md),
+                      _CountBars.genres(stats.genres),
                     ],
+                    const SizedBox(height: AppSpacing.xl),
+                    const _Heading('tags'),
+                    const SizedBox(height: AppSpacing.md),
+                    // Invented, like [_LockedJournal]'s rows: a tag is
+                    // the reader's own words, unlike a chart's shape.
+                    const _TagCounts(counts: _previewTags),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'cactus pro unlocks your full reading journal — tap to upgrade',
-              style: GoogleFonts.jetBrainsMono(
+              'cactus pro unlocks your reading trends, genres and tags — '
+              'tap to upgrade',
+              style: context.fonts.interface(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: colors.accent,
@@ -1268,103 +1495,225 @@ class _LockedJournal extends StatelessWidget {
   }
 }
 
-/// One day's date label, then every already-resolved [lines] entry —
-/// see [linesFor], which decides what's worth journaling.
-class _DayEntries extends StatelessWidget {
-  const _DayEntries({required this.date, required this.lines});
+/// The "tags" section: how many books carry each of the reader's tags, as
+/// the same labelled bars genres use. Without any tag on any book it says
+/// how to start rather than drawing an empty chart.
+class _TagCounts extends StatelessWidget {
+  const _TagCounts({required this.counts});
 
-  final DateTime date;
-  final List<String> lines;
+  final List<TagCount> counts;
 
-  /// The journal lines [events] produce, in order — skipping `delete`,
-  /// which isn't a moment worth journaling. Never empty for a day
-  /// that's actually worth rendering; `_Journal` uses that to decide
-  /// which days to keep.
-  static List<String> linesFor(List<ReadingEvent> events) => [
-    for (final event in events) ?_lineFor(event),
-  ];
+  @override
+  Widget build(BuildContext context) {
+    if (counts.isEmpty) {
+      return Text(
+        'no tagged books yet — try add tag <tag> <book>.',
+        style: context.fonts.interface(
+          fontSize: 13,
+          color: context.colors.secondaryText,
+        ),
+      );
+    }
+    return _CountBars.tags(counts);
+  }
+}
+
+/// A year of reading days as twelve small month calendars, three to a
+/// row — each day a square shaded by how much was logged on it
+/// ([ReadingHeatmap.levelFor]). Month blocks rather than one long 53-week
+/// strip: at phone width a year-long strip leaves every square a few
+/// pixels wide, where a month block keeps them large enough to read and
+/// labels each month outright.
+///
+/// Days still to come are left empty rather than drawn as "nothing
+/// logged", and today carries an outline. One semantics node summarises
+/// the whole year — reading 365 squares aloud would help nobody.
+class _ReadingHeatmapView extends StatelessWidget {
+  const _ReadingHeatmapView({required this.heatmap});
+
+  final ReadingHeatmap heatmap;
+
+  static const _monthsPerRow = 3;
+  static const _cellGap = 2.0;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final busiest = heatmap.busiestMonth;
+    final days = heatmap.readingDays;
+    final summary = days == 0
+        ? 'nothing logged in ${heatmap.year} yet.'
+        : '$days ${days == 1 ? 'day' : 'days'} read in ${heatmap.year}'
+              '${busiest == null ? '' : ' · most in ${_monthName(busiest - 1).toLowerCase()}'}';
+
+    return Semantics(
+      label: days == 0
+          ? 'Reading days: nothing logged in ${heatmap.year} yet.'
+          : 'Reading days: $days in ${heatmap.year}'
+                '${busiest == null ? '' : ', most in ${_monthNames[busiest - 1]}'}.',
+      excludeSemantics: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            summary,
+            style: context.fonts.interface(
+              fontSize: 13,
+              color: colors.secondaryText,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final monthWidth =
+                  (constraints.maxWidth - AppSpacing.md * (_monthsPerRow - 1)) /
+                  _monthsPerRow;
+              return Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  for (var month = 1; month <= 12; month++)
+                    SizedBox(
+                      width: monthWidth,
+                      child: _HeatmapMonth(heatmap: heatmap, month: month),
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const _HeatmapLegend(),
+        ],
+      ),
+    );
+  }
+
+  /// Fill for a square at [level] — the accent at rising strength, and the
+  /// divider (a faint but present square) for a past day with nothing.
+  static Color cellColor(AppColors colors, int level) {
+    if (level <= 0) return colors.divider.withValues(alpha: 0.6);
+    const alphas = [0.3, 0.5, 0.75, 1.0];
+    return colors.accent.withValues(alpha: alphas[level - 1]);
+  }
+}
+
+/// One month of [_ReadingHeatmapView]: its initial, then a Monday-first
+/// seven-column grid of day squares.
+class _HeatmapMonth extends StatelessWidget {
+  const _HeatmapMonth({required this.heatmap, required this.month});
+
+  final ReadingHeatmap heatmap;
+  final int month;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final isCurrentMonth =
+        heatmap.today.year == heatmap.year && heatmap.today.month == month;
+    final blanks = heatmap.leadingBlanks(month);
+    final length = heatmap.daysInMonth(month);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          _dateLabel(date),
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: colors.secondaryText,
+          _monthName(month - 1).toLowerCase(),
+          style: context.fonts.interface(
+            fontSize: 11,
+            fontWeight: isCurrentMonth ? FontWeight.w600 : FontWeight.w400,
+            color: isCurrentMonth ? colors.accent : colors.secondaryText,
           ),
         ),
-        const SizedBox(height: _entrySpacing),
-        for (final (i, line) in lines.indexed) ...[
-          if (i > 0) const SizedBox(height: _entrySpacing),
-          // Same face and size `CommandInput`/`InstructionRow` use on
-          // the "+" tab — a logged day is meant to read exactly like
-          // the command that produced it.
-          Text(
-            line,
-            style: GoogleFonts.jetBrainsMono(
-              fontSize: 16,
-              height: 1.5,
-              color: colors.primaryText,
-            ),
-          ),
-        ],
+        const SizedBox(height: 4),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final cell =
+                (constraints.maxWidth - _ReadingHeatmapView._cellGap * 6) / 7;
+            return Wrap(
+              spacing: _ReadingHeatmapView._cellGap,
+              runSpacing: _ReadingHeatmapView._cellGap,
+              children: [
+                for (var i = 0; i < blanks; i++)
+                  SizedBox(width: cell, height: cell),
+                for (var day = 1; day <= length; day++)
+                  _HeatmapCell(
+                    size: cell,
+                    date: DateTime(heatmap.year, month, day),
+                    heatmap: heatmap,
+                  ),
+              ],
+            );
+          },
+        ),
       ],
     );
   }
+}
 
-  /// `m.d.yy`, no leading zeros — a plain, diary-style date rather than
-  /// a spelled-out one.
-  static String _dateLabel(DateTime date) {
-    final year = (date.year % 100).toString().padLeft(2, '0');
-    return '${date.month}.${date.day}.$year';
-  }
+class _HeatmapCell extends StatelessWidget {
+  const _HeatmapCell({
+    required this.size,
+    required this.date,
+    required this.heatmap,
+  });
 
-  /// The journal line one [event] earns, or null for a type (`delete`)
-  /// that isn't part of the story. Reads back almost verbatim what was
-  /// typed on the "+" tab, using [ReadingEvent.value] for the number a
-  /// command carried — the page an `update` reached, or the rating a
-  /// `rate` gave.
-  static String? _lineFor(ReadingEvent event) {
-    final title = event.title ?? 'a book';
-    switch (event.type) {
-      case ReadingEventType.start:
-        return 'started $title';
-      case ReadingEventType.update:
-        final page = event.value;
-        return page == null
-            ? 'read $title'
-            : 'read up to page ${page.toInt()} in $title';
-      case ReadingEventType.finish:
-        return 'finished $title';
-      case ReadingEventType.rate:
-        final rating = event.value;
-        return rating == null
-            ? 'rated $title'
-            : 'rated $title ${_formatStars(rating)} ${_starWord(rating)}';
-      case ReadingEventType.delete:
-        return null;
-      case ReadingEventType.addToBeRead:
-        return 'added $title to read';
-      case ReadingEventType.dnf:
-        return 'did not finish $title';
+  final double size;
+  final DateTime date;
+  final ReadingHeatmap heatmap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    if (heatmap.isFuture(date)) {
+      return SizedBox(width: size, height: size);
     }
+    final isToday = date == heatmap.today;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: _ReadingHeatmapView.cellColor(colors, heatmap.levelFor(date)),
+        borderRadius: BorderRadius.circular(size * 0.25),
+        border: isToday
+            ? Border.all(color: colors.primaryText, width: 1)
+            : null,
+      ),
+    );
   }
+}
 
-  /// Drops a trailing ".0" ("5" rather than "5.0") but keeps a real half
-  /// ("4.5") — mirrors `LibraryController._formatStars`.
-  static String _formatStars(double rating) {
-    return rating == rating.roundToDouble()
-        ? rating.toInt().toString()
-        : rating.toStringAsFixed(1);
+/// "less ▢▢▢▢▢ more" — the key to [_ReadingHeatmapView]'s shading.
+class _HeatmapLegend extends StatelessWidget {
+  const _HeatmapLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final style = context.fonts.interface(
+      fontSize: 11,
+      color: colors.secondaryText,
+    );
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        Text('less', style: style),
+        const SizedBox(width: 6),
+        for (var level = 0; level <= ReadingHeatmap.maxLevel; level++) ...[
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: _ReadingHeatmapView.cellColor(colors, level),
+              borderRadius: BorderRadius.circular(2.5),
+            ),
+          ),
+          const SizedBox(width: 3),
+        ],
+        const SizedBox(width: 3),
+        Text('more', style: style),
+      ],
+    );
   }
-
-  static String _starWord(double rating) => rating == 1 ? 'star' : 'stars';
 }
 
 /// What the stats page shows instead of a section when it could not
@@ -1385,7 +1734,7 @@ class _LoadFailure extends StatelessWidget {
       children: [
         Text(
           message,
-          style: GoogleFonts.inter(
+          style: context.fonts.body(
             fontSize: 14,
             height: 1.5,
             color: colors.secondaryText,
@@ -1397,7 +1746,7 @@ class _LoadFailure extends StatelessWidget {
           behavior: HitTestBehavior.opaque,
           child: Text(
             'try again',
-            style: GoogleFonts.jetBrainsMono(
+            style: context.fonts.interface(
               fontSize: 14,
               fontWeight: FontWeight.w600,
               color: colors.accent,

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/auth/session_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
@@ -215,7 +215,7 @@ class _EmailSheetState extends State<_EmailSheet> {
         children: [
           Text(
             _title,
-            style: GoogleFonts.jetBrainsMono(
+            style: context.fonts.interface(
               fontSize: 18,
               fontWeight: FontWeight.w600,
               color: colors.primaryText,
@@ -229,7 +229,7 @@ class _EmailSheetState extends State<_EmailSheet> {
                 ? 'that email already has a cactus library. we sent it a code '
                       '— sign in, then choose which library to keep.'
                 : 'check your email for the code.',
-            style: GoogleFonts.inter(
+            style: context.fonts.body(
               fontSize: 14,
               height: 1.5,
               color: colors.secondaryText,
@@ -254,7 +254,7 @@ class _EmailSheetState extends State<_EmailSheet> {
             const SizedBox(height: AppSpacing.md),
             Text(
               error,
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 13,
                 color: colors.secondaryText,
               ),
@@ -292,7 +292,7 @@ class _SheetField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final style = GoogleFonts.inter(fontSize: 15, color: colors.primaryText);
+    final style = context.fonts.body(fontSize: 15, color: colors.primaryText);
 
     return TextField(
       controller: controller,

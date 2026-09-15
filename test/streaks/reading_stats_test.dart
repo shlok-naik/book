@@ -1,5 +1,6 @@
 import 'package:book/features/goals/domain/reading_goal.dart';
 import 'package:book/features/library/domain/book.dart';
+import 'package:book/features/library/domain/book_note.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/streaks/domain/reading_stats.dart';
@@ -134,6 +135,115 @@ void main() {
     });
   });
 
+  group('import baseline', () {
+    LibraryBook imported(String title, DateTime finishedAt) {
+      final book = _book(
+        title,
+        ReadingStatus.finished,
+        pages: 100,
+        page: 100,
+        finishedAt: finishedAt,
+      );
+      return book.copyWith(
+        progress: UserBook(
+          id: book.progress.id,
+          bookId: book.progress.bookId,
+          currentPage: 100,
+          status: ReadingStatus.finished,
+          finishedAt: finishedAt,
+          imported: true,
+        ),
+      );
+    }
+
+    final importedAt = DateTime(2026, 6, 15);
+
+    test('imported history stays out of the monthly charts, but still '
+        'counts in the totals', () {
+      final stats = ReadingStats.from(
+        [
+          imported('Old', DateTime(2026, 2, 1)),
+          // Imported, then finished again after the import: counts.
+          imported('Reread', DateTime(2026, 6, 20)),
+          _book(
+            'Dune',
+            ReadingStatus.finished,
+            pages: 400,
+            page: 400,
+            finishedAt: DateTime(2026, 6, 25),
+          ),
+        ],
+        now: now,
+        importedAt: importedAt,
+      );
+
+      expect(stats.booksThisYear, 3);
+      expect(stats.pagesThisYear, 600);
+      expect(stats.booksByMonth[1], 0, reason: 'February was imported');
+      expect(stats.booksByMonth[5], 2);
+      expect(stats.pagesByMonth[5], 500);
+    });
+
+    test('an import this year becomes the pace baseline', () {
+      final stats = ReadingStats.from(
+        [
+          imported('A', DateTime(2026, 1, 10)),
+          imported('B', DateTime(2026, 3, 10)),
+          imported('Last year', DateTime(2025, 3, 10)),
+          _book(
+            'Dune',
+            ReadingStatus.finished,
+            finishedAt: DateTime(2026, 6, 25),
+          ),
+        ],
+        now: now,
+        importedAt: importedAt,
+      );
+
+      expect(stats.paceBaseline!.books, 2);
+      expect(stats.paceBaseline!.at, importedAt);
+      expect(stats.finishesAfterBaseline, [DateTime(2026, 6, 25)]);
+      expect(stats.goalProgress(12)!.baseline, same(stats.paceBaseline));
+    });
+
+    test('an import in an earlier year sets no baseline', () {
+      final stats = ReadingStats.from(
+        [imported('Old', DateTime(2025, 2, 1))],
+        now: now,
+        importedAt: DateTime(2025, 12, 1),
+      );
+      expect(stats.paceBaseline, isNull);
+      expect(stats.finishesAfterBaseline, isEmpty);
+    });
+
+    test('imported books with no import date known still stay out of the '
+        'months', () {
+      final stats = ReadingStats.from([
+        imported('Old', DateTime(2026, 2, 1)),
+      ], now: now);
+      expect(stats.booksByMonth[1], 0);
+      expect(stats.paceBaseline, isNull);
+    });
+
+    test('pace counts from the baseline, not from January', () {
+      final goal = ReadingGoal(
+        goal: 12,
+        finished: 6,
+        year: 2026,
+        baseline: PaceBaseline(at: DateTime(2026, 7, 1), books: 6),
+      );
+      // At the import: exactly the baseline is expected — on track, where a
+      // January start would also have said so, but…
+      expect(goal.expectedBy(DateTime(2026, 7, 1)), 6);
+      // …halfway through what's left of the year, 9 are expected (6 + half
+      // of the remaining 6), so still 6 finished is 3 behind.
+      expect(goal.expectedBy(DateTime(2026, 10, 1, 12)), 9);
+      expect(goal.paceLabel(DateTime(2026, 10, 1, 12)), '3 behind');
+      // Before the import nothing beyond the baseline is expected.
+      expect(goal.expectedBy(DateTime(2026, 3, 1)), 6);
+    });
+  });
+
   group('ReadingGoal', () {
     test('pace against a steady year', () {
       const goal = ReadingGoal(goal: 12, finished: 6, year: 2026);
@@ -182,6 +292,89 @@ void main() {
       };
       expect(StreakMath.longest(days), 3);
       expect(StreakMath.longest({}), 0);
+    });
+  });
+
+  group('ReadingStats.tagCounts', () {
+    BookTag tag(String bookTitle, String name, {int day = 1}) => BookTag(
+      id: '$bookTitle-$name-$day',
+      userBookId: 'u-$bookTitle',
+      tag: name,
+      createdAt: DateTime.utc(2026, 1, day),
+    );
+
+    final shelf = [
+      _book('Dune', ReadingStatus.reading),
+      _book('Emma', ReadingStatus.finished),
+      _book('Circe', ReadingStatus.toBeRead),
+    ];
+
+    test('counts books per tag, most first, ties alphabetical', () {
+      final counts = ReadingStats.tagCounts([
+        tag('Dune', 'sci-fi'),
+        tag('Dune', 'favourites'),
+        tag('Emma', 'favourites'),
+        tag('Circe', 'cosy'),
+        tag('Emma', 'Book Club'),
+      ], shelf);
+
+      expect(counts, [
+        (tag: 'favourites', books: 2),
+        (tag: 'Book Club', books: 1),
+        (tag: 'cosy', books: 1),
+        (tag: 'sci-fi', books: 1),
+      ]);
+    });
+
+    test('compares case- and space-insensitively, one count per book, '
+        'labelled with the newest spelling', () {
+      final counts = ReadingStats.tagCounts([
+        tag('Dune', 'Sci-Fi', day: 1),
+        tag('Dune', ' sci-fi ', day: 2),
+        tag('Emma', 'sci-fi', day: 3),
+      ], shelf);
+
+      expect(counts, [(tag: 'sci-fi', books: 2)]);
+    });
+
+    test('ignores tags on books that are no longer on the shelf', () {
+      final counts = ReadingStats.tagCounts([
+        tag('Dune', 'sci-fi'),
+        tag('Deleted', 'sci-fi'),
+        tag('Deleted', 'gone'),
+      ], shelf);
+
+      expect(counts, [(tag: 'sci-fi', books: 1)]);
+    });
+
+    test('is empty with no tags', () {
+      expect(ReadingStats.tagCounts(const [], shelf), isEmpty);
+    });
+  });
+
+  group('forShelf', () {
+    test('computes once for the same shelf list, again for a new one', () {
+      final shelf = [
+        _book('Dune', ReadingStatus.finished, pages: 400, page: 400),
+      ];
+
+      final first = ReadingStats.forShelf(shelf);
+      expect(identical(ReadingStats.forShelf(shelf), first), isTrue);
+
+      final changed = [
+        ...shelf,
+        _book('Emma', ReadingStatus.reading, pages: 300, page: 30),
+      ];
+      final second = ReadingStats.forShelf(changed);
+      expect(identical(second, first), isFalse);
+      expect(second.reading, 1);
+    });
+
+    test('a different import date is a different answer', () {
+      final shelf = [_book('Dune', ReadingStatus.reading, page: 10)];
+      final plain = ReadingStats.forShelf(shelf);
+      final imported = ReadingStats.forShelf(shelf, importedAt: DateTime(2020));
+      expect(identical(plain, imported), isFalse);
     });
   });
 }

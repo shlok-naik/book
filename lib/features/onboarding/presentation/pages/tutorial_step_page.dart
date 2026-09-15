@@ -5,6 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/tier_label.dart';
 
 /// One step of the post-welcome tutorial, styled after Pushr's
 /// onboarding pattern: whatever demonstrates the step sits in the top
@@ -27,6 +28,7 @@ class TutorialStepPage extends StatelessWidget {
     required this.onContinue,
     this.buttonLabel = 'continue',
     this.progressStep,
+    this.tier,
   });
 
   /// What demonstrates this step — placed centered in the top half.
@@ -51,6 +53,10 @@ class TutorialStepPage extends StatelessWidget {
   /// sequence this is.
   final int? progressStep;
 
+  /// Which plan this step describes, shown as a [TierLabel] above the
+  /// heading. Null shows nothing — for a step that isn't about a plan.
+  final OnboardingTier? tier;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -61,6 +67,10 @@ class TutorialStepPage extends StatelessWidget {
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (tier case final tier?) ...[
+            Align(alignment: Alignment.centerLeft, child: TierLabel(tier)),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           Text(
             heading,
             style: GoogleFonts.ebGaramond(

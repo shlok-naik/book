@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/book_details_repository.dart';
 import 'package:book/features/library/data/book_notes_repository.dart';
@@ -59,14 +61,30 @@ class FakeUserBookRepository extends UserBookRepository {
   /// `user_books` table, regardless of which method created the row.
   final Map<String, ReadingStatus> _statusByBookId = {};
 
+  /// When set, [fetchLibrary] waits on it — lets a test hold a load in
+  /// flight and act while it is.
+  Completer<void>? fetchGate;
+  int fetches = 0;
+  int starts = 0;
+
+  /// A non-[LibraryException] for [fetchLibrary] to throw — a parse bug.
+  Error? fetchError;
+
   @override
   Future<List<LibraryBook>> fetchLibrary() async {
+    fetches++;
+    if (fetchError case final error?) throw error;
+    // Captured before the wait: what the shelf held when this load started.
+    final snapshot = List.of(rows);
+    final gate = fetchGate;
+    if (gate != null) await gate.future;
     if (failure != null) throw failure!;
-    return List.of(rows);
+    return snapshot;
   }
 
   @override
-  Future<StartOutcome> start(String bookId) async {
+  Future<StartOutcome> start(String bookId, {DateTime? startedAt}) async {
+    starts++;
     if (failure != null) throw failure!;
     final existing = _statusByBookId[bookId];
     _statusByBookId.putIfAbsent(bookId, () => ReadingStatus.reading);
@@ -76,6 +94,7 @@ class FakeUserBookRepository extends UserBookRepository {
         bookId: bookId,
         currentPage: 0,
         status: existing ?? ReadingStatus.reading,
+        startedAt: (startedAt ?? DateTime.now()).toUtc(),
       ),
       alreadyExists: existing != null,
     );
@@ -87,6 +106,8 @@ class FakeUserBookRepository extends UserBookRepository {
     ReadingStatus status, {
     int currentPage = 0,
     String? shelfId,
+    DateTime? startedAt,
+    DateTime? finishedAt,
   }) async {
     if (failure != null) throw failure!;
     final existing = _statusByBookId[bookId];
@@ -99,8 +120,9 @@ class FakeUserBookRepository extends UserBookRepository {
         currentPage: existing == null ? currentPage : 0,
         status: actual,
         shelfId: existing == null ? shelfId : null,
+        startedAt: (startedAt ?? DateTime.now()).toUtc(),
         finishedAt: actual == ReadingStatus.finished
-            ? DateTime.now().toUtc()
+            ? (finishedAt ?? DateTime.now()).toUtc()
             : null,
       ),
       alreadyExists: existing != null,
@@ -116,20 +138,25 @@ class FakeUserBookRepository extends UserBookRepository {
   }) async {
     saves++;
     if (failure != null) throw failure!;
+    final existing = rows
+        .where((e) => e.progress.id == userBookId)
+        .firstOrNull
+        ?.progress;
     return UserBook(
       id: userBookId,
       bookId: 'book',
-      // The real row comes back with its custom shelf untouched.
-      shelfId: rows
-          .where((e) => e.progress.id == userBookId)
-          .firstOrNull
-          ?.progress
-          .shelfId,
+      // The real row comes back with its custom shelf, and its
+      // reread count, untouched — neither is a column this update sends.
+      shelfId: existing?.shelfId,
       currentPage: currentPage,
       status: finished ? ReadingStatus.finished : ReadingStatus.reading,
       finishedAt: finished ? (finishedAt ?? DateTime.now()).toUtc() : null,
+      rereadCount:
+          _rereadCountByUserBookId[userBookId] ?? existing?.rereadCount ?? 0,
     );
   }
+
+  final Map<String, int> _rereadCountByUserBookId = {};
 
   @override
   Future<void> delete(String userBookId) async {
@@ -143,8 +170,38 @@ class FakeUserBookRepository extends UserBookRepository {
   final List<(String, String?, int)> ownedEditions = [];
 
   /// Set to fail only [saveShelfOrder], after a [changeShelf] succeeded —
-  /// the half-way failure a drag between sections has to roll back.
+  /// the half-way failure where the move landed but its spot didn't.
   LibraryException? orderFailure;
+
+  /// What `fetchImportedAt` answers — the stats baseline.
+  DateTime? importedAt;
+
+  @override
+  Future<DateTime?> fetchImportedAt() async => importedAt;
+
+  final savedDates = <(String, DateTime, DateTime?)>[];
+
+  @override
+  Future<UserBook> saveDates(
+    String userBookId, {
+    required DateTime startedAt,
+    DateTime? finishedAt,
+  }) async {
+    if (failure != null) throw failure!;
+    savedDates.add((userBookId, startedAt, finishedAt));
+    final existing = rows
+        .where((e) => e.progress.id == userBookId)
+        .firstOrNull
+        ?.progress;
+    return UserBook(
+      id: userBookId,
+      bookId: existing?.bookId ?? 'book',
+      currentPage: existing?.currentPage ?? 0,
+      status: existing?.status ?? ReadingStatus.reading,
+      startedAt: startedAt.toUtc(),
+      finishedAt: finishedAt?.toUtc(),
+    );
+  }
 
   @override
   Future<UserBook> changeShelf(UserBook updated) async {
@@ -200,6 +257,25 @@ class FakeUserBookRepository extends UserBookRepository {
       rating: rating,
     );
   }
+
+  final List<(String userBookId, int rereadCount)> restarts = [];
+
+  @override
+  Future<UserBook> restart({
+    required String userBookId,
+    required int rereadCount,
+  }) async {
+    restarts.add((userBookId, rereadCount));
+    if (failure != null) throw failure!;
+    _rereadCountByUserBookId[userBookId] = rereadCount;
+    return UserBook(
+      id: userBookId,
+      bookId: 'book',
+      currentPage: 0,
+      status: ReadingStatus.reading,
+      rereadCount: rereadCount,
+    );
+  }
 }
 
 /// In-memory `reading_events` log — records what [LibraryController] logs
@@ -252,6 +328,48 @@ class FakeBookNotesRepository extends BookNotesRepository {
   final List<(String userBookId, String tag)> tags = [];
   final List<(String userBookId, String body)> comments = [];
   LibraryException? failure;
+
+  /// Every comment `fetchComments` knows, per book — seed it directly.
+  final storedComments = <BookComment>[];
+  final deletedComments = <String>[];
+  final removedTags = <String>[];
+
+  @override
+  Future<List<BookTag>> fetchTags(String userBookId) async {
+    if (failure != null) throw failure!;
+    return [
+      for (final (i, (bookId, tag)) in tags.indexed)
+        if (bookId == userBookId)
+          BookTag(
+            id: 'book-tag-${i + 1}',
+            userBookId: bookId,
+            tag: tag,
+            createdAt: DateTime(2026),
+          ),
+    ];
+  }
+
+  @override
+  Future<void> removeTag(String tagId) async {
+    if (failure != null) throw failure!;
+    removedTags.add(tagId);
+  }
+
+  @override
+  Future<List<BookComment>> fetchComments(String userBookId) async {
+    if (failure != null) throw failure!;
+    return [
+      for (final comment in storedComments)
+        if (comment.userBookId == userBookId) comment,
+    ];
+  }
+
+  @override
+  Future<void> deleteComment(String commentId) async {
+    if (failure != null) throw failure!;
+    deletedComments.add(commentId);
+    storedComments.removeWhere((c) => c.id == commentId);
+  }
 
   @override
   Future<BookTag> addTag(String userBookId, ReaderTag tag) async {
@@ -309,6 +427,18 @@ class FakeSeriesRepository extends BookSeriesRepository {
   }) async {
     filed.add((userBookId, seriesId, position));
   }
+
+  final cleared = <String>[];
+  final deleted = <String>[];
+
+  @override
+  Future<void> clearSeries(String userBookId) async => cleared.add(userBookId);
+
+  @override
+  Future<void> deleteSeries(String id) async {
+    deleted.add(id);
+    mine.removeWhere((s) => s.id == id);
+  }
 }
 
 /// Records every book `LibraryController._warmEditions` asks it to cache,
@@ -361,6 +491,7 @@ LibraryBook _entry(
   double? position,
   double? rating,
   String? shelfId,
+  int rereadCount = 0,
 }) {
   return LibraryBook(
     book: book,
@@ -373,6 +504,7 @@ LibraryBook _entry(
           status ?? (finished ? ReadingStatus.finished : ReadingStatus.reading),
       shelfPosition: position,
       rating: rating,
+      rereadCount: rereadCount,
     ),
   );
 }
@@ -919,11 +1051,37 @@ void main() {
       expect(controller.toBeRead.single.currentPage, 0);
     });
 
-    test('rolls the whole shelf back if saving the order fails after the shelf '
-        'change landed', () async {
+    test(
+      'rolls the whole shelf back if the shelf change itself fails',
+      () async {
+        final controller = controllerWith([
+          _entry(_dune, page: 120),
+          _entry(_circe, finished: true, page: 300),
+        ]);
+        await controller.load();
+        userBooks.failure = const NetworkException("You're offline");
+
+        final result = await controller.moveBook(
+          'progress-book-1',
+          const StatusShelfRef(ReadingStatus.finished),
+          0,
+        );
+
+        expect(result.success, isFalse);
+        expect(result.message, "You're offline");
+        expect(controller.inProgress.single.currentPage, 120);
+        expect(controller.finished.single.book.title, 'Circe');
+      },
+    );
+
+    // Regression: this used to roll the book back onto "reading" even though
+    // the server already had it finished — the screen and the database
+    // disagreed until the next reload.
+    test('keeps a shelf change that landed when only saving the order fails, '
+        'and says the spot did not save', () async {
       final controller = controllerWith([
         _entry(_dune, page: 120),
-        _entry(_circe, finished: true, page: 300),
+        _entry(_circe, finished: true, page: 300, position: 0),
       ]);
       await controller.load();
       userBooks.orderFailure = const NetworkException("You're offline");
@@ -931,13 +1089,25 @@ void main() {
       final result = await controller.moveBook(
         'progress-book-1',
         const StatusShelfRef(ReadingStatus.finished),
-        0,
+        1,
       );
 
       expect(result.success, isFalse);
-      expect(result.message, "You're offline");
-      expect(controller.inProgress.single.currentPage, 120);
-      expect(controller.finished.single.book.title, 'Circe');
+      expect(
+        result.message,
+        'Finished "Dune", but its spot on the shelf didn\'t save.',
+      );
+      expect(controller.inProgress, isEmpty);
+      final dune = controller.finished.firstWhere(
+        (e) => e.book.title == 'Dune',
+      );
+      // Unplaced, as the server left it after the status change.
+      expect(dune.progress.shelfPosition, isNull);
+      // The other book's position is the one it had before the drop.
+      final circe = controller.finished.firstWhere(
+        (e) => e.book.title == 'Circe',
+      );
+      expect(circe.progress.shelfPosition, 0);
     });
 
     test('unplaced books sort ahead of placed ones', () async {
@@ -978,7 +1148,10 @@ void main() {
       var notifications = 0;
       controller.addListener(() => notifications++);
 
-      final result = await controller.makeShelf('  Summer   reads ');
+      final result = await controller.makeShelf(
+        '  Summer   reads ',
+        isPro: true,
+      );
 
       expect(result.success, isTrue);
       expect(result.message, 'Made shelf "Summer reads"');
@@ -992,9 +1165,9 @@ void main() {
       () async {
         final controller = controllerWith([]);
         await controller.load();
-        await controller.makeShelf('Summer reads');
+        await controller.makeShelf('Summer reads', isPro: true);
 
-        final again = await controller.makeShelf('summer READS');
+        final again = await controller.makeShelf('summer READS', isPro: true);
 
         expect(again.success, isFalse);
         expect(again.message, 'You already have a shelf "summer READS".');
@@ -1006,7 +1179,7 @@ void main() {
       final controller = controllerWith([]);
 
       for (final name in ['tbr', 'Reading', 'did not finish']) {
-        final result = await controller.makeShelf(name);
+        final result = await controller.makeShelf(name, isPro: true);
         expect(result.success, isFalse, reason: name);
         expect(result.message, contains('built-in'));
       }
@@ -1017,11 +1190,11 @@ void main() {
       final controller = controllerWith([]);
 
       expect(
-        (await controller.makeShelf('   ')).message,
+        (await controller.makeShelf('   ', isPro: true)).message,
         'Name the shelf first.',
       );
       expect(
-        (await controller.makeShelf('x' * 41)).message,
+        (await controller.makeShelf('x' * 41, isPro: true)).message,
         'Shelf names can be at most 40 characters.',
       );
     });
@@ -1030,7 +1203,7 @@ void main() {
       final controller = controllerWith([]);
       collections.failure = const NetworkException("You're offline");
 
-      final result = await controller.makeShelf('Summer');
+      final result = await controller.makeShelf('Summer', isPro: true);
 
       expect(result.success, isFalse);
       expect(result.message, "You're offline");
@@ -1043,7 +1216,7 @@ void main() {
         final controller = controllerWith([_entry(_dune)]);
         await controller.load();
 
-        final result = await controller.makeTag('sci-fi');
+        final result = await controller.makeTag('sci-fi', isPro: true);
 
         expect(result.success, isTrue);
         expect(result.message, 'Made tag "sci-fi"');
@@ -1053,7 +1226,10 @@ void main() {
           isEmpty,
           reason: 'making a tag applies it to nothing',
         );
-        expect((await controller.makeTag('Sci-Fi')).success, isFalse);
+        expect(
+          (await controller.makeTag('Sci-Fi', isPro: true)).success,
+          isFalse,
+        );
       },
     );
 
@@ -1061,14 +1237,67 @@ void main() {
         'list', () async {
       final controller = controllerWith([]);
 
-      final made = await controller.makeSeries('dune');
-      final again = await controller.makeSeries('DUNE');
+      final made = await controller.makeSeries('dune', isPro: true);
+      final again = await controller.makeSeries('DUNE', isPro: true);
 
       expect(made.success, isTrue);
       expect(made.message, 'Made series "dune"');
       expect(again.success, isFalse);
       expect(again.message, 'You already have a series "dune".');
       expect(controller.mySeries.map((s) => s.name), ['dune']);
+    });
+  });
+
+  group('collection caps', () {
+    test('free plan allows no custom shelves at all', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+
+      expect(controller.canMakeShelf(false), isFalse);
+      expect(controller.canMakeShelf(true), isTrue);
+
+      final result = await controller.makeShelf('Summer', isPro: false);
+
+      expect(result.success, isFalse);
+      expect(result.message, contains('cactus pro'));
+      expect(controller.shelves, isEmpty);
+      expect(collections.creates, 0);
+    });
+
+    test('free plan allows up to 2 tags, pro is unlimited', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+
+      await controller.makeTag('one', isPro: false);
+      expect(controller.canMakeTag(false), isTrue);
+      await controller.makeTag('two', isPro: false);
+      expect(controller.canMakeTag(false), isFalse);
+
+      final blocked = await controller.makeTag('three', isPro: false);
+      expect(blocked.success, isFalse);
+      expect(blocked.message, contains('cactus pro'));
+      expect(controller.tags, hasLength(2));
+
+      final allowed = await controller.makeTag('three', isPro: true);
+      expect(allowed.success, isTrue);
+      expect(controller.tags, hasLength(3));
+    });
+
+    test('free plan allows up to 1 series, pro is unlimited', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+
+      await controller.makeSeries('dune', isPro: false);
+      expect(controller.canMakeSeries(false), isFalse);
+
+      final blocked = await controller.makeSeries('foundation', isPro: false);
+      expect(blocked.success, isFalse);
+      expect(blocked.message, contains('cactus pro'));
+      expect(controller.mySeries, hasLength(1));
+
+      final allowed = await controller.makeSeries('foundation', isPro: true);
+      expect(allowed.success, isTrue);
+      expect(controller.mySeries, hasLength(2));
     });
   });
 
@@ -1103,7 +1332,7 @@ void main() {
     test('add series files the book under a series made first', () async {
       final controller = controllerWith([_entry(_dune)]);
       await controller.load();
-      await controller.makeSeries('Dune');
+      await controller.makeSeries('Dune', isPro: true);
       final made = controller.findSeries('Dune')!;
 
       final result = await controller.addToSeries('dune', 'dune', position: 1);
@@ -1324,7 +1553,7 @@ void main() {
     test('add tag tags a book on the shelf with a tag made first', () async {
       final controller = controllerWith([_entry(_dune)]);
       await controller.load();
-      await controller.makeTag('sci-fi');
+      await controller.makeTag('sci-fi', isPro: true);
 
       final result = await controller.addTag('dune', 'sci-fi');
 
@@ -1333,15 +1562,30 @@ void main() {
       expect(notes.tags.single, ('progress-book-1', 'sci-fi'));
     });
 
-    test('add tag refuses a book that is not on the shelf', () async {
+    test('add tag adds a book that is not on the shelf yet, to read, then '
+        'tags it', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+      await controller.makeTag('sci-fi', isPro: true);
+
+      final result = await controller.addTag('Dune', 'sci-fi');
+
+      expect(result.success, isTrue);
+      expect(result.addedToLibrary, isTrue);
+      expect(result.message, 'Added "Dune" to read and tagged it sci-fi');
+      expect(controller.toBeRead.single.book.title, 'Dune');
+      expect(notes.tags.single.$2, 'sci-fi');
+    });
+
+    test('add tag with a tag that was never made adds nothing', () async {
       final controller = controllerWith([]);
       await controller.load();
 
       final result = await controller.addTag('Dune', 'sci-fi');
 
       expect(result.success, isFalse);
-      expect(result.message, contains("isn't on your shelf yet"));
-      expect(notes.tags, isEmpty);
+      expect(controller.books, isEmpty);
+      expect(userBooks.rows, isEmpty);
     });
 
     test('add tag reports an invalid tag without writing', () async {
@@ -1357,7 +1601,7 @@ void main() {
     test('add tag surfaces a repository failure', () async {
       final controller = controllerWith([_entry(_dune)]);
       await controller.load();
-      await controller.makeTag('sci-fi');
+      await controller.makeTag('sci-fi', isPro: true);
       notes.failure = const NetworkException("You're offline");
 
       final result = await controller.addTag('Dune', 'sci-fi');
@@ -1772,14 +2016,31 @@ void main() {
       expect(controller.inProgress.single.isFinished, isFalse);
     });
 
-    test('explains itself when the book was never started', () async {
+    test('a book that isn\'t on the shelf is started, then updated', () async {
       final controller = controllerWith([]);
       await controller.load();
 
-      final result = await controller.updateProgress('Neuromancer', 40);
+      final result = await controller.updateProgress('Dune', 40);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(result.success, isTrue);
+      expect(result.addedToLibrary, isTrue);
+      expect(controller.inProgress.single.currentPage, 40);
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.start, title: 'Dune'),
+        (type: ReadingEventType.update, title: 'Dune'),
+      ]);
+    });
+
+    test('a page past the end refuses before anything is added', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+
+      final result = await controller.updateProgress('Dune', 900);
 
       expect(result.success, isFalse);
-      expect(result.message, contains('start Neuromancer'));
+      expect(result.message, '"Dune" only has 400 pages.');
+      expect(controller.books, isEmpty);
     });
 
     test('rolls the optimistic update back when the write fails', () async {
@@ -1850,6 +2111,26 @@ void main() {
   });
 
   group('finishBook', () {
+    test('a book that isn\'t on the shelf is added straight to finished, '
+        'backdated when a date is given', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+      final lastWeek = DateTime.now().subtract(const Duration(days: 7));
+
+      final result = await controller.finishBook('Dune', loggedAt: lastWeek);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(result.success, isTrue);
+      expect(result.addedToLibrary, isTrue);
+      expect(result.message, 'Added "Dune" as finished');
+      final finished = controller.finished.single;
+      expect(finished.currentPage, 400);
+      expect(finished.progress.finishedAt, lastWeek.toUtc());
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.finish, title: 'Dune'),
+      ]);
+    });
+
     test('moves the book to Finished and fills its progress bar', () async {
       final controller = controllerWith([_entry(_dune, page: 10)]);
       await controller.load();
@@ -1923,6 +2204,90 @@ void main() {
     });
   });
 
+  group('restartBook', () {
+    test('puts a finished book back on the reading shelf at page 0', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
+      await controller.load();
+
+      final result = await controller.restartBook('Dune');
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Restarted "Dune"');
+      expect(controller.finished, isEmpty);
+      expect(controller.inProgress.single.currentPage, 0);
+      expect(controller.inProgress.single.rereadCount, 1);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(events.loggedTypesAndTitles, [
+        (type: ReadingEventType.restart, title: 'Dune'),
+      ]);
+    });
+
+    test('bumps rereadCount again on a second restart', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
+      await controller.load();
+
+      await controller.restartBook('Dune');
+      await controller.finishBook('Dune');
+      final result = await controller.restartBook('Dune');
+
+      expect(result.success, isTrue);
+      expect(controller.inProgress.single.rereadCount, 2);
+    });
+
+    test('refuses a book that has never been finished', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.restartBook('Dune');
+
+      expect(result.success, isFalse);
+      expect(result.message, '"Dune" hasn\'t been finished yet.');
+      expect(userBooks.restarts, isEmpty);
+    });
+
+    test('explains itself when the book was never started', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+
+      final result = await controller.restartBook('Dune');
+
+      expect(result.success, isFalse);
+    });
+
+    test('refuses a future date without writing', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
+      await controller.load();
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+
+      final result = await controller.restartBook('Dune', loggedAt: tomorrow);
+
+      expect(result.success, isFalse);
+      expect(controller.finished, isNotEmpty);
+      expect(userBooks.restarts, isEmpty);
+    });
+
+    test('rolls back local state when the write fails', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
+      await controller.load();
+      userBooks.failure = const NetworkException("You're offline");
+
+      final result = await controller.restartBook('Dune');
+
+      expect(result.success, isFalse);
+      expect(controller.finished.single.currentPage, 400);
+      expect(controller.finished.single.rereadCount, 0);
+    });
+  });
+
   group('rateBook', () {
     test('rates a finished book and shows the star', () async {
       final controller = controllerWith([
@@ -1988,14 +2353,29 @@ void main() {
       expect(userBooks.rates, 0);
     });
 
-    test('explains itself when the book was never started', () async {
+    test(
+      'a book that isn\'t on the shelf is added as finished, then rated',
+      () async {
+        final controller = controllerWith([]);
+        await controller.load();
+
+        final result = await controller.rateBook('Dune', 4.5);
+
+        expect(result.success, isTrue);
+        expect(result.addedToLibrary, isTrue);
+        expect(result.message, 'Added "Dune" as finished — 4.5★');
+        expect(controller.finished.single.rating, 4.5);
+      },
+    );
+
+    test('an out-of-range rating refuses before anything is added', () async {
       final controller = controllerWith([]);
       await controller.load();
 
-      final result = await controller.rateBook('Neuromancer', 5);
+      final result = await controller.rateBook('Dune', 9);
 
       expect(result.success, isFalse);
-      expect(result.message, contains('start Neuromancer'));
+      expect(controller.books, isEmpty);
     });
 
     test('rejects a rating outside 0.5-5 without writing', () async {
@@ -2027,6 +2407,318 @@ void main() {
         isNull,
         reason: 'screen must not show a rating that never persisted',
       );
+    });
+  });
+
+  group('start and dates', () {
+    test('start on a book queued to read moves it to reading and stamps the '
+        'start date', () async {
+      final controller = controllerWith([
+        _entry(_dune, status: ReadingStatus.toBeRead),
+      ]);
+      await controller.load();
+      final monday = DateTime.now().subtract(const Duration(days: 3));
+
+      final result = await controller.startBook('Dune', loggedAt: monday);
+
+      expect(result.success, isTrue);
+      expect(controller.inProgress.single.progress.startedAt, monday.toUtc());
+      expect(userBooks.shelfChanges.single.startedAt, monday.toUtc());
+    });
+
+    test('a new book started with a date keeps it as its start date', () async {
+      final controller = controllerWith([]);
+      await controller.load();
+      final monday = DateTime.now().subtract(const Duration(days: 3));
+
+      await controller.startBook('Dune', loggedAt: monday);
+
+      expect(controller.inProgress.single.progress.startedAt, monday.toUtc());
+    });
+
+    test('setDates saves a valid start and finish', () async {
+      final started = DateTime(2026, 1, 2);
+      final finished = DateTime(2026, 2, 3);
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+      ]);
+      await controller.load();
+
+      final result = await controller.setDates(
+        'progress-book-1',
+        startedAt: started,
+        finishedAt: finished,
+      );
+
+      expect(result.success, isTrue);
+      expect(userBooks.savedDates.single, (
+        'progress-book-1',
+        started,
+        finished,
+      ));
+      expect(controller.finished.single.progress.startedAt, started.toUtc());
+    });
+
+    test('setDates refuses the impossible without writing', () async {
+      final controller = controllerWith([
+        _entry(_dune, page: 400, finished: true),
+        _entry(_circe, page: 10),
+      ]);
+      await controller.load();
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+
+      final future = await controller.setDates(
+        'progress-book-1',
+        startedAt: tomorrow,
+      );
+      expect(future.message, "That date hasn't happened yet.");
+
+      await controller.setDates(
+        'progress-book-1',
+        startedAt: DateTime(2026, 3, 1),
+      );
+      final backwards = await controller.setDates(
+        'progress-book-1',
+        finishedAt: DateTime(2026, 2, 1),
+      );
+      expect(
+        backwards.message,
+        "A book can't be finished before it was started.",
+      );
+
+      final notFinished = await controller.setDates(
+        'progress-book-3',
+        finishedAt: DateTime(2026, 2, 1),
+      );
+      expect(notFinished.message, 'Only a finished book has a finish date.');
+
+      expect(userBooks.savedDates, hasLength(1));
+    });
+
+    test('setDates rolls back when the write fails', () async {
+      final started = DateTime.utc(2026, 1, 2);
+      final controller = controllerWith([
+        LibraryBook(
+          book: _dune,
+          progress: UserBook(
+            id: 'progress-book-1',
+            bookId: _dune.id,
+            currentPage: 10,
+            status: ReadingStatus.reading,
+            startedAt: started,
+          ),
+        ),
+      ]);
+      await controller.load();
+      userBooks.failure = const NetworkException("You're offline");
+
+      final result = await controller.setDates(
+        'progress-book-1',
+        startedAt: DateTime(2026, 1, 5),
+      );
+
+      expect(result.success, isFalse);
+      expect(controller.inProgress.single.progress.startedAt, started);
+    });
+  });
+
+  group('remove commands', () {
+    test('resolveRemoval splits an unquoted name from a title, longest '
+        'collection name first', () async {
+      final controller = controllerWith(
+        [_entry(_dune)],
+        shelves: const [
+          Shelf(id: 'shelf-1', name: 'summer'),
+          Shelf(id: 'shelf-2', name: 'summer reads'),
+        ],
+      );
+      await controller.load();
+
+      final off = controller.resolveRemoval(
+        CollectionKind.shelves,
+        argument: 'summer reads dune',
+      );
+      expect(off.removal, isA<RemoveFromCollection>());
+      expect((off.removal! as RemoveFromCollection).title, 'dune');
+      expect(off.removal!.name, 'summer reads');
+
+      final unmake = controller.resolveRemoval(
+        CollectionKind.shelves,
+        argument: 'Summer Reads',
+      );
+      expect(unmake.removal, isA<UnmakeCollection>());
+      expect((unmake.removal! as UnmakeCollection).id, 'shelf-2');
+
+      final builtIn = controller.resolveRemoval(
+        CollectionKind.shelves,
+        argument: 'reading',
+      );
+      expect(builtIn.failure, contains('built-in shelf'));
+
+      final unknown = controller.resolveRemoval(
+        CollectionKind.tags,
+        argument: 'nope dune',
+      );
+      expect(unknown.failure, 'No tag called "nope".');
+    });
+
+    test(
+      'remove shelf with a book takes it off the shelf, progress kept',
+      () async {
+        final controller = controllerWith(
+          [_entry(_dune, page: 120, shelfId: 'shelf-1')],
+          shelves: const [Shelf(id: 'shelf-1', name: 'summer')],
+        );
+        await controller.load();
+
+        final result = await controller.removeFromShelf('Dune', 'summer');
+
+        expect(result.success, isTrue);
+        expect(controller.inProgress.single.currentPage, 120);
+        expect(controller.inProgress.single.shelfId, isNull);
+      },
+    );
+
+    test('remove shelf with no book unmakes it and returns its books to '
+        'their own shelves', () async {
+      final controller = controllerWith(
+        [_entry(_dune, page: 120, shelfId: 'shelf-1')],
+        shelves: const [Shelf(id: 'shelf-1', name: 'summer')],
+      );
+      await controller.load();
+
+      final result = await controller.deleteShelf('shelf-1');
+
+      expect(result.success, isTrue);
+      expect(collections.deletedShelves, ['shelf-1']);
+      expect(controller.shelves, isEmpty);
+      expect(controller.inProgress.single.shelfId, isNull);
+    });
+
+    test(
+      'remove tag takes a tag off a book, and refuses one it lacks',
+      () async {
+        final controller = controllerWith([_entry(_dune)]);
+        await controller.load();
+        await controller.makeTag('sci-fi', isPro: true);
+        await controller.addTag('Dune', 'sci-fi');
+
+        final removed = await controller.removeTag('Dune', 'Sci-Fi');
+        expect(removed.success, isTrue);
+        expect(notes.removedTags, ['book-tag-1']);
+
+        await controller.makeTag('cosy', isPro: true);
+        final missing = await controller.removeTag('Dune', 'cosy');
+        expect(missing.message, '"Dune" isn\'t tagged cosy.');
+      },
+    );
+
+    test('remove tag with no book unmakes the tag', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+      await controller.makeTag('sci-fi', isPro: true);
+      final tag = controller.findTag('sci-fi')!;
+
+      final result = await controller.deleteTag(tag.id);
+
+      expect(result.success, isTrue);
+      expect(controller.tags, isEmpty);
+    });
+
+    test(
+      'remove series takes a book out, and unmaking clears every filing',
+      () async {
+        final controller = controllerWith([
+          _entry(_dune),
+          _entry(_duneMessiah),
+        ]);
+        await controller.load();
+        await controller.makeSeries('dune', isPro: true);
+        await controller.addToSeries('Dune', 'dune', position: 1);
+        await controller.addToSeries('Dune Messiah', 'dune', position: 2);
+
+        final out = await controller.removeFromSeries('Dune Messiah', 'dune');
+        expect(out.success, isTrue);
+        expect(controller.bookForTitleEntry('Dune Messiah')!.seriesId, isNull);
+        expect(series.cleared, ['progress-book-4']);
+
+        final wrong = await controller.removeFromSeries('Dune Messiah', 'dune');
+        expect(wrong.success, isFalse);
+
+        final id = controller.findSeries('dune')!.id;
+        final unmade = await controller.deleteSeries(id);
+        expect(unmade.success, isTrue);
+        expect(controller.bookForTitleEntry('Dune')!.seriesId, isNull);
+        expect(controller.bookForTitleEntry('Dune')!.seriesPosition, isNull);
+      },
+    );
+
+    test('remove comment finds the named comment, or the latest', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      await controller.load();
+      notes.storedComments.addAll([
+        BookComment(
+          id: 'c1',
+          userBookId: 'progress-book-1',
+          body: 'slow start',
+          createdAt: DateTime(2026, 1, 1),
+        ),
+        BookComment(
+          id: 'c2',
+          userBookId: 'progress-book-1',
+          body: 'loved the ending, truly',
+          createdAt: DateTime(2026, 2, 1),
+        ),
+      ]);
+
+      final latest = await controller.resolveCommentRemoval(argument: 'dune');
+      expect(latest.comment!.id, 'c2');
+
+      final named = await controller.resolveCommentRemoval(
+        argument: 'slow start dune',
+      );
+      expect(named.comment!.id, 'c1');
+
+      final prefix = await controller.resolveCommentRemoval(
+        title: 'Dune',
+        text: 'LOVED the ending',
+      );
+      expect(prefix.comment!.id, 'c2');
+
+      final none = await controller.resolveCommentRemoval(
+        title: 'Dune',
+        text: 'never said this',
+      );
+      expect(none.failure, contains('no comment like'));
+
+      final result = await controller.deleteComment(
+        latest.entry!,
+        latest.comment!,
+      );
+      expect(result.success, isTrue);
+      expect(notes.deletedComments, ['c2']);
+    });
+
+    test('the "+" panel removes a book by id', () async {
+      final controller = controllerWith([_entry(_dune), _entry(_circe)]);
+      await controller.load();
+
+      final result = await controller.deleteBookById('progress-book-3');
+
+      expect(result.success, isTrue);
+      expect(controller.books.single.book.title, 'Dune');
+    });
+  });
+
+  group('import baseline', () {
+    test('load reads the import date', () async {
+      final controller = controllerWith([]);
+      final stamp = DateTime.utc(2026, 9, 1);
+      userBooks.importedAt = stamp;
+
+      await controller.load();
+
+      expect(controller.importedAt, stamp);
     });
   });
 
@@ -2129,10 +2821,149 @@ void main() {
       expect(controller.finished.single.book.title, 'Pale Fire');
     });
   });
+
+  group('audit regressions', () {
+    test('deleting by id removes exactly that row when two books share a '
+        'title', () async {
+      const otherDune = Book(
+        id: 'book-dune-2',
+        googleBooksId: 'gb-dune-2',
+        title: 'Dune',
+        author: 'Someone Else',
+        pageCount: 100,
+      );
+      // Most recently updated first — a title match would pick this one.
+      final controller = controllerWith([
+        _entry(otherDune, page: 5),
+        _entry(_dune, page: 10),
+      ]);
+      await controller.load();
+
+      final result = await controller.deleteBookById('progress-book-1');
+
+      expect(result.success, isTrue);
+      expect(userBooks.deletedIds, ['progress-book-1']);
+      expect(controller.books.single.book.author, 'Someone Else');
+    });
+
+    test('an infinite rating is refused instead of throwing', () async {
+      final controller = controllerWith([_entry(_dune, finished: true)]);
+      await controller.load();
+
+      final byTitle = await controller.rateBook('Dune', double.infinity);
+      final byId = await controller.rateBookById('progress-book-1', double.nan);
+
+      expect(byTitle.success, isFalse);
+      expect(byTitle.message, 'Ratings are between 0.5 and 5 stars.');
+      expect(byId.success, isFalse);
+    });
+
+    test('an infinite percentage is refused instead of throwing', () async {
+      final controller = controllerWith([_entry(_dune, page: 10)]);
+      await controller.load();
+
+      final result = await controller.updateProgressByPercent(
+        'Dune',
+        double.infinity,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.message, 'A percentage has to be between 0 and 100.');
+    });
+
+    test('starting a book already being read makes no write at all', () async {
+      final controller = controllerWith([_entry(_dune, page: 40)]);
+      await controller.load();
+
+      final result = await controller.startBook('Dune');
+
+      expect(result.success, isFalse);
+      expect(result.message, '"Dune" is already on your shelf.');
+      expect(userBooks.starts, 0);
+      expect(controller.inProgress.single.currentPage, 40);
+    });
+
+    test('a load called while one is in flight joins it rather than '
+        'returning early', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      final gate = userBooks.fetchGate = Completer<void>();
+
+      final first = controller.load();
+      var secondDone = false;
+      final second = controller.load().then((_) => secondDone = true);
+      await pumpEventQueue();
+      expect(secondDone, isFalse, reason: 'must wait for the real load');
+
+      gate.complete();
+      await Future.wait([first, second]);
+
+      expect(userBooks.fetches, 1);
+      expect(controller.books.single.book.title, 'Dune');
+      expect(controller.hasLoaded, isTrue);
+    });
+
+    test('reset waits out a stale in-flight load and loads again', () async {
+      final controller = controllerWith([_entry(_dune)]);
+      final gate = userBooks.fetchGate = Completer<void>();
+      final stale = controller.load();
+
+      // The library is replaced (an import) while that load is out.
+      userBooks.rows
+        ..clear()
+        ..add(_entry(_circe));
+      userBooks.fetchGate = null;
+      final reset = controller.reset();
+      gate.complete();
+      await Future.wait([stale, reset]);
+
+      expect(userBooks.fetches, 2);
+      expect(controller.books.single.book.title, 'Circe');
+    });
+
+    test(
+      'an unexpected load error reads as a failed load, not a throw',
+      () async {
+        final controller = controllerWith([_entry(_dune)]);
+        userBooks.fetchError = StateError('bad row');
+
+        await controller.load();
+
+        expect(controller.errorMessage, "We couldn't load your library.");
+        expect(controller.isLoading, isFalse);
+      },
+    );
+
+    test(
+      'books and sections keep their identity until the shelf changes',
+      () async {
+        final controller = controllerWith([
+          _entry(_dune, page: 10),
+          _entry(_circe, finished: true),
+        ]);
+        await controller.load();
+
+        final books = controller.books;
+        final reading = controller.inProgress;
+        expect(identical(controller.books, books), isTrue);
+        expect(identical(controller.inProgress, reading), isTrue);
+
+        await controller.updateProgress('Dune', 20);
+
+        expect(identical(controller.books, books), isFalse);
+        expect(controller.inProgress.single.currentPage, 20);
+        expect(
+          () => controller.books.add(_entry(_duneMessiah)),
+          throwsA(anything),
+        );
+      },
+    );
+  });
 }
 
 /// Small convenience so a test can arm the repository failure inline.
 extension on LibraryController {
+  LibraryBook? bookForTitleEntry(String title) => match(title);
+
   set userBooksFailure(LibraryException failure) {
     (userBooks as FakeUserBookRepository).failure = failure;
   }

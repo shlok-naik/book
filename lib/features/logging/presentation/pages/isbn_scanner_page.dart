@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 
 /// Opens the camera to scan a book's ISBN barcode for `start isbn` —
@@ -104,7 +104,7 @@ class _IsbnScannerPageState extends State<IsbnScannerPage> {
                     child: Text(
                       "point your camera at the book's barcode",
                       textAlign: TextAlign.center,
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 13,
                         color: Colors.white,
                       ),
@@ -139,7 +139,7 @@ class _ScannerHeader extends StatelessWidget {
           Expanded(
             child: Text(
               'scan isbn',
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
                 color: Colors.white,
@@ -207,7 +207,7 @@ class _CameraError extends StatelessWidget {
           child: Text(
             message,
             textAlign: TextAlign.center,
-            style: GoogleFonts.jetBrainsMono(
+            style: context.fonts.interface(
               fontSize: 14,
               height: 1.6,
               color: Colors.white,

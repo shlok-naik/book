@@ -48,6 +48,13 @@ class BottomSwitcher extends StatelessWidget {
   static const _slotSize = _SwitcherItem.selectedSize;
   static const _outerHeight = _slotSize + (_itemGap + _tintInset) * 2;
 
+  /// How much of the bottom of every tab the floating bar covers: the bar
+  /// ([_outerHeight], 70), the gap and "cactus" label under it, and its
+  /// margin from the screen edge (see `RootShell`). Each tab pads its
+  /// content by this so the last row isn't hidden behind the bar — one
+  /// value here rather than the same literal repeated in every page.
+  static const pageFootprint = 108.0;
+
   /// Tapping the tab you are already on is not a move, so it gets no
   /// haptic — the pattern has to mean "you went somewhere" every time or
   /// it means nothing.

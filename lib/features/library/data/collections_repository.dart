@@ -103,6 +103,25 @@ class CollectionsRepository {
     }
   }
 
+  /// Unmakes a shelf the reader made — `remove shelf <shelf>` and the "+"
+  /// panel's X. The books on it fall back to their status section (the
+  /// composite foreign key's `on delete set null (shelf_id)`), everything
+  /// else about them untouched. Needs the delete policy in
+  /// `20260918000000_delete_collections.sql`.
+  Future<void> deleteShelf(String id) {
+    return runSupabase<void>(() async {
+      await _client.from('shelves').delete().eq('id', id);
+    }, friendlyMessage: "We couldn't remove that shelf.");
+  }
+
+  /// Unmakes a tag the reader made — `remove tag <tag>` and the "+" panel's
+  /// X. Every book it was on loses it too (`book_tags` cascades).
+  Future<void> deleteTag(String id) {
+    return runSupabase<void>(() async {
+      await _client.from('tags').delete().eq('id', id);
+    }, friendlyMessage: "We couldn't remove that tag.");
+  }
+
   static T _parsed<T>(T? value, Map<String, dynamic> row, String message) {
     if (value == null) {
       throw RemoteDataException(message, cause: 'unparseable row: $row');

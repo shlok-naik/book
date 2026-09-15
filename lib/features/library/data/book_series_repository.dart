@@ -82,4 +82,25 @@ class BookSeriesRepository {
           .eq('id', userBookId);
     }, friendlyMessage: "We couldn't save that series.");
   }
+
+  /// Takes [userBookId] out of whatever series it's filed under — its
+  /// number goes with it. `remove series <series> <book>`.
+  Future<void> clearSeries(String userBookId) {
+    return runSupabase<void>(() async {
+      await _client
+          .from('user_books')
+          .update({'series_id': null, 'series_position': null})
+          .eq('id', userBookId);
+    }, friendlyMessage: "We couldn't remove that book from its series.");
+  }
+
+  /// Unmakes a series the reader made — `remove series <series>` and the
+  /// "+" panel's X. Every book filed under it loses that filing (the
+  /// composite foreign key's `on delete set null (series_id)`); the
+  /// now-meaningless numbers are cleared client-side by the caller.
+  Future<void> deleteSeries(String id) {
+    return runSupabase<void>(() async {
+      await _client.from('series').delete().eq('id', id);
+    }, friendlyMessage: "We couldn't remove that series.");
+  }
 }

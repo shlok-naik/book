@@ -68,6 +68,14 @@ abstract final class CommandCatalog {
       example: 'finish Dune',
     ),
     CommandReference(
+      keyword: 'restart',
+      syntax: 'restart <book> [date]',
+      description:
+          'puts a finished book back on your reading shelf for another '
+          'read, at page 0.',
+      example: 'restart Dune',
+    ),
+    CommandReference(
       keyword: 'rate',
       syntax: 'rate <book> <stars>',
       description: 'rates a finished book from 0.5 to 5 stars, in halves.',
@@ -78,7 +86,7 @@ abstract final class CommandCatalog {
       syntax: 'delete <book>',
       description:
           'removes a book from your library, with its tags, comments and '
-          'journal history. asks you to confirm first.',
+          'reading history. asks you to confirm first.',
       example: 'delete Dune',
     ),
     CommandReference(
@@ -141,6 +149,41 @@ abstract final class CommandCatalog {
           'writes a note on a book on your shelf — like why you stopped '
           'reading a dnf. quotes around the comment are optional.',
       example: 'add comment "lost me in the middle" Dune',
+    ),
+    CommandReference(
+      keyword: 'remove shelf',
+      syntax: 'remove shelf <shelf> [book]',
+      description:
+          'with a book, takes it off a shelf you made and back to its own '
+          'shelf, progress kept. with no book, removes the shelf itself '
+          '(after asking) — its books go back to their own shelves. quote a '
+          'name with spaces if it runs into the title.',
+      example: 'remove shelf summer Piranesi',
+    ),
+    CommandReference(
+      keyword: 'remove tag',
+      syntax: 'remove tag <tag> [book]',
+      description:
+          'with a book, takes a tag off it. with no book, removes the tag '
+          'itself, from every book it was on (after asking).',
+      example: 'remove tag sci-fi Dune',
+    ),
+    CommandReference(
+      keyword: 'remove series',
+      syntax: 'remove series <series> [book]',
+      description:
+          'with a book, takes it out of a series, number and all. with no '
+          'book, removes the series itself (after asking).',
+      example: 'remove series dune Dune Messiah',
+    ),
+    CommandReference(
+      keyword: 'remove comment',
+      syntax: 'remove comment [comment] <book>',
+      description:
+          'removes a comment from a book, after showing you which. name the '
+          'comment (or how it starts) to pick one; leave it out for the '
+          'latest: remove comment Dune.',
+      example: 'remove comment "lost me in the middle" Dune',
     ),
     CommandReference(
       keyword: 'remember',

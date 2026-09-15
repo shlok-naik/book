@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
@@ -77,7 +77,7 @@ class _GoalSheetState extends State<_GoalSheet> {
         children: [
           Text(
             'reading goal',
-            style: GoogleFonts.jetBrainsMono(
+            style: context.fonts.interface(
               fontSize: 18,
               fontWeight: FontWeight.w600,
               color: colors.primaryText,
@@ -86,7 +86,7 @@ class _GoalSheetState extends State<_GoalSheet> {
           const SizedBox(height: AppSpacing.sm),
           Text(
             'how many books do you want to read this year?',
-            style: GoogleFonts.inter(
+            style: context.fonts.body(
               fontSize: 14,
               height: 1.5,
               color: colors.secondaryText,
@@ -101,7 +101,7 @@ class _GoalSheetState extends State<_GoalSheet> {
             const SizedBox(height: AppSpacing.md),
             Text(
               error,
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 13,
                 color: colors.secondaryText,
               ),
@@ -118,7 +118,7 @@ class _GoalSheetState extends State<_GoalSheet> {
               onPressed: _busy ? null : () => _save(null),
               child: Text(
                 'remove goal',
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 13,
                   color: colors.secondaryText,
                 ),

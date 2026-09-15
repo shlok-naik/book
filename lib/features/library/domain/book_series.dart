@@ -1,3 +1,4 @@
+import '../../../core/formatting/numbers.dart';
 import 'collections.dart';
 import 'library_book.dart';
 
@@ -27,9 +28,7 @@ class BookSeries {
 
   /// "2" for 2.0, "1.5" for 1.5.
   static String formatPosition(double position) =>
-      position == position.roundToDouble()
-      ? position.toInt().toString()
-      : position.toStringAsFixed(1);
+      formatCompactNumber(position);
 
   /// Series order: numbered books by number, then unnumbered ones by title.
   static List<LibraryBook> sortEntries(Iterable<LibraryBook> entries) {

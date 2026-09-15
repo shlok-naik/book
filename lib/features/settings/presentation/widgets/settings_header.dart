@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
+import '../../../../core/widgets/offline_indicator.dart';
 
 /// The heading a page pushed *from* settings wears: [title] flush left
 /// at the exact same position [TopBar]'s own title sits at on every
@@ -36,13 +37,16 @@ class SettingsHeader extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
                 color: colors.primaryText,
               ),
             ),
           ),
+          // The same offline mark `TopBar` shows left of its gear, so it's
+          // on settings and every page pushed from it too.
+          const OfflineIndicator(),
           Semantics(
             button: true,
             label: 'Back',

@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../logging/presentation/widgets/confirmation_pill.dart';
@@ -240,7 +240,7 @@ class _EditionsPageState extends State<EditionsPage> {
                     children: [
                       TextSpan(
                         text: entry.book.title,
-                        style: GoogleFonts.fraunces(
+                        style: context.fonts.bookTitle(
                           fontWeight: FontWeight.w600,
                           color: colors.primaryText,
                         ),
@@ -253,7 +253,7 @@ class _EditionsPageState extends State<EditionsPage> {
                       ),
                     ],
                   ),
-                  style: GoogleFonts.inter(
+                  style: context.fonts.body(
                     fontSize: 13,
                     height: 1.5,
                     color: colors.secondaryText,
@@ -427,7 +427,7 @@ class _EditionCoverState extends State<_EditionCover> {
                 publisher,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(
+                style: context.fonts.body(
                   fontSize: 13,
                   height: 1.25,
                   fontWeight: FontWeight.w600,
@@ -439,7 +439,7 @@ class _EditionCoverState extends State<_EditionCover> {
                 details,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 11,
                   color: widget.owned ? colors.accent : colors.secondaryText,
                 ),
@@ -493,7 +493,7 @@ class _CenteredNote extends StatelessWidget {
             Text(
               text,
               textAlign: TextAlign.center,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 13,
                 height: 1.6,
                 color: colors.secondaryText,
@@ -505,7 +505,7 @@ class _CenteredNote extends StatelessWidget {
                 onPressed: action,
                 child: Text(
                   label,
-                  style: GoogleFonts.jetBrainsMono(
+                  style: context.fonts.interface(
                     fontSize: 13,
                     color: colors.accent,
                   ),

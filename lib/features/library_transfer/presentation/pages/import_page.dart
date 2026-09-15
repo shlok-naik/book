@@ -3,11 +3,11 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/confirm_dialog.dart';
@@ -184,7 +184,7 @@ class _ImportPageState extends State<ImportPage> {
         title:
             'imported ${controller.imported} '
             '${controller.imported == 1 ? 'book' : 'books'}',
-        message: 'your library, stats and journal now come from the file.',
+        message: 'your library and stats now come from the file.',
         actionLabel: 'done',
         onAction: () => Navigator.of(context).pop(),
       ),
@@ -198,14 +198,15 @@ class _ImportPageState extends State<ImportPage> {
   }
 }
 
-TextStyle _body(AppColors colors) =>
-    GoogleFonts.inter(fontSize: 14, height: 1.5, color: colors.secondaryText);
+TextStyle _body(BuildContext context, AppColors colors) =>
+    context.fonts.body(fontSize: 14, height: 1.5, color: colors.secondaryText);
 
-TextStyle _title(AppColors colors) => GoogleFonts.jetBrainsMono(
-  fontSize: 18,
-  fontWeight: FontWeight.w600,
-  color: colors.primaryText,
-);
+TextStyle _title(BuildContext context, AppColors colors) =>
+    context.fonts.interface(
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+      color: colors.primaryText,
+    );
 
 class _Intro extends StatelessWidget {
   const _Intro({required this.onChoose});
@@ -217,19 +218,19 @@ class _Intro extends StatelessWidget {
     final colors = context.colors;
     return ListView(
       children: [
-        Text('bring your goodreads library', style: _title(colors)),
+        Text('bring your goodreads library', style: _title(context, colors)),
         const SizedBox(height: AppSpacing.sm),
         Text(
           'on goodreads, open my books → import and export → export library, '
           'then choose the csv file it gives you.',
-          style: _body(colors),
+          style: _body(context, colors),
         ),
         const SizedBox(height: AppSpacing.md),
         Text(
           'read, currently reading and to-read land on the matching shelves; '
           'a shelf like "dnf" or "abandoned" becomes did not finish. ratings, '
           'dates, reviews and your other shelves (as tags) come along.',
-          style: _body(colors),
+          style: _body(context, colors),
         ),
         const SizedBox(height: AppSpacing.md),
         Container(
@@ -241,7 +242,7 @@ class _Intro extends StatelessWidget {
           child: Text(
             'importing replaces your whole library. nothing changes until you '
             "confirm, after you've seen what was found.",
-            style: _body(colors).copyWith(color: colors.primaryText),
+            style: _body(context, colors).copyWith(color: colors.primaryText),
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -270,9 +271,9 @@ class _Progress extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(title, style: _title(colors)),
+        Text(title, style: _title(context, colors)),
         const SizedBox(height: AppSpacing.sm),
-        Text(detail, style: _body(colors)),
+        Text(detail, style: _body(context, colors)),
         const SizedBox(height: AppSpacing.lg),
         ClipRRect(
           borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -291,7 +292,7 @@ class _Progress extends StatelessWidget {
               onPressed: onCancel,
               child: Text(
                 'cancel',
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 14,
                   color: colors.secondaryText,
                 ),
@@ -323,26 +324,26 @@ class _Review extends StatelessWidget {
         Text(
           'found $matched of ${controller.total} '
           '${controller.total == 1 ? 'book' : 'books'}',
-          style: _title(colors),
+          style: _title(context, colors),
         ),
         const SizedBox(height: AppSpacing.sm),
         if (controller.duplicates > 0)
           Text(
             '${controller.duplicates} repeated '
             '${controller.duplicates == 1 ? 'row was' : 'rows were'} merged.',
-            style: _body(colors),
+            style: _body(context, colors),
           ),
         if (controller.skipped > 0)
           Text(
             '${controller.skipped} '
             '${controller.skipped == 1 ? 'row had' : 'rows had'} no title.',
-            style: _body(colors),
+            style: _body(context, colors),
           ),
         if (unmatched.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.md),
           Text(
             "couldn't find ${unmatched.length} — they won't be imported:",
-            style: _body(colors).copyWith(color: colors.primaryText),
+            style: _body(context, colors).copyWith(color: colors.primaryText),
           ),
           const SizedBox(height: AppSpacing.xs),
           for (final item in unmatched.take(50))
@@ -351,14 +352,17 @@ class _Review extends StatelessWidget {
               child: Text(
                 '· ${item.row.title}'
                 '${item.row.author.isEmpty ? '' : ' — ${item.row.author}'}',
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 12,
                   color: colors.secondaryText,
                 ),
               ),
             ),
           if (unmatched.length > 50)
-            Text('· and ${unmatched.length - 50} more', style: _body(colors)),
+            Text(
+              '· and ${unmatched.length - 50} more',
+              style: _body(context, colors),
+            ),
         ],
         const SizedBox(height: AppSpacing.lg),
         if (current > 0)
@@ -366,7 +370,7 @@ class _Review extends StatelessWidget {
             'replacing deletes your $current current '
             '${current == 1 ? 'book' : 'books'} and their tags, comments and '
             'reading history. your memories and reading goal stay.',
-            style: _body(colors),
+            style: _body(context, colors),
           ),
         const SizedBox(height: AppSpacing.lg),
         SoftPillButton(
@@ -378,7 +382,7 @@ class _Review extends StatelessWidget {
           onPressed: controller.reset,
           child: Text(
             'choose a different file',
-            style: GoogleFonts.jetBrainsMono(
+            style: context.fonts.interface(
               fontSize: 13,
               color: colors.secondaryText,
             ),
@@ -408,9 +412,9 @@ class _Finished extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(title, style: _title(colors)),
+        Text(title, style: _title(context, colors)),
         const SizedBox(height: AppSpacing.sm),
-        Text(message, style: _body(colors)),
+        Text(message, style: _body(context, colors)),
         const SizedBox(height: AppSpacing.lg),
         SoftPillButton(label: actionLabel, onPressed: onAction),
       ],

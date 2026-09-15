@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../logging/domain/command_catalog.dart';
@@ -47,7 +47,7 @@ class CommandsPage extends StatelessWidget {
                       'type these on the add tab. <book> is a title, '
                       '[date] is optional (YYYY-MM-DD), and a book only '
                       'needs enough of its title to be found.',
-                      style: GoogleFonts.inter(
+                      style: context.fonts.body(
                         fontSize: 13,
                         height: 1.5,
                         color: colors.secondaryText,
@@ -96,7 +96,7 @@ class _CommandRow extends StatelessWidget {
           children: [
             Text(
               command.syntax,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: colors.primaryText,
@@ -105,7 +105,7 @@ class _CommandRow extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             Text(
               command.description,
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 13,
                 height: 1.5,
                 color: colors.secondaryText,
@@ -123,7 +123,7 @@ class _CommandRow extends StatelessWidget {
               ),
               child: Text(
                 command.example,
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 12,
                   color: colors.accent,
                 ),

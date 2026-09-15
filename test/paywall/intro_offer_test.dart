@@ -272,7 +272,7 @@ void main() {
 
     expect(find.byType(PaywallPage), findsOneWidget);
 
-    await tester.tap(find.byTooltip('close'));
+    await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
 
     expect(find.byType(PaywallPage), findsNothing);
@@ -290,7 +290,28 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('on the free plan, tapping it opens the paywall instead', (
+    const lockedLine =
+        'cactus pro unlocks your full reading memory — tap to upgrade';
+
+    testWidgets(
+      'on the free plan, it opens on a locked preview rather than a paywall',
+      (tester) async {
+        await pumpShell(
+          tester,
+          introOffer: _FakeIntroOfferStore(seen: true),
+          purchases: _FakePurchasesService(pro: false),
+        );
+        expect(shownTab(tester), 3);
+
+        await tapMemory(tester);
+
+        expect(shownTab(tester), 0);
+        expect(find.byType(PaywallPage), findsNothing);
+        expect(find.text(lockedLine), findsOneWidget);
+      },
+    );
+
+    testWidgets('tapping the preview opens the paywall on the memory chapter', (
       tester,
     ) async {
       await pumpShell(
@@ -298,15 +319,17 @@ void main() {
         introOffer: _FakeIntroOfferStore(seen: true),
         purchases: _FakePurchasesService(pro: false),
       );
-      expect(shownTab(tester), 3);
-
       await tapMemory(tester);
 
-      expect(find.byType(PaywallPage), findsOneWidget);
-      expect(shownTab(tester), 3, reason: 'still on the add tab behind it');
+      await tester.tap(find.byKey(const ValueKey('locked-memory')));
+      await tester.pumpAndSettle();
+
+      final paywall = tester.widget<PaywallPage>(find.byType(PaywallPage));
+      expect(paywall.feature, PaywallFeature.memory);
+      expect(find.text('A Mind of Its Own'), findsOneWidget);
     });
 
-    testWidgets('a store that cannot be reached shows the paywall too', (
+    testWidgets('a store that cannot be reached keeps it locked', (
       tester,
     ) async {
       await pumpShell(
@@ -320,11 +343,12 @@ void main() {
 
       await tapMemory(tester);
 
-      expect(find.byType(PaywallPage), findsOneWidget);
-      expect(shownTab(tester), 3);
+      // Unknown entitlement fails closed — never a free peek at the notes.
+      expect(find.text(lockedLine), findsOneWidget);
+      expect(shownTab(tester), 0);
     });
 
-    testWidgets('a real subscriber opens it, without a paywall', (
+    testWidgets('a real subscriber sees their memories, not the preview', (
       tester,
     ) async {
       await pumpShell(
@@ -337,6 +361,7 @@ void main() {
 
       expect(find.byType(PaywallPage), findsNothing);
       expect(shownTab(tester), 0);
+      expect(find.text(lockedLine), findsNothing);
     });
 
     testWidgets('the pro plan opens it directly', (tester) async {
@@ -351,9 +376,10 @@ void main() {
 
       expect(find.byType(PaywallPage), findsNothing);
       expect(shownTab(tester), 0);
+      expect(find.text(lockedLine), findsNothing);
     });
 
-    testWidgets('losing pro while on it moves the reader off it', (
+    testWidgets('losing pro while on it locks it again in place', (
       tester,
     ) async {
       PlanController.isPro.value = true;
@@ -363,12 +389,13 @@ void main() {
         purchases: _FakePurchasesService(pro: false),
       );
       await tapMemory(tester);
-      expect(shownTab(tester), 0);
+      expect(find.text(lockedLine), findsNothing);
 
       PlanController.isPro.value = false;
       await tester.pumpAndSettle();
 
-      expect(shownTab(tester), 3);
+      expect(shownTab(tester), 0);
+      expect(find.text(lockedLine), findsOneWidget);
     });
 
     testWidgets('other tabs are never gated', (tester) async {

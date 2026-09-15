@@ -176,6 +176,21 @@ class ImportController extends ChangeNotifier {
       return;
     }
 
+    // Marks every imported row and stamps the import time — the baseline
+    // the stats page counts monthly charts and pace from. Best-effort: the
+    // library itself is already replaced, and a failure here only means the
+    // imported books still count in the monthly charts, so it's logged
+    // rather than reported as a failed import.
+    try {
+      await transfer.markImported();
+    } on LibraryException catch (error) {
+      AppLogger.warning(
+        'ImportController',
+        'Could not mark the import baseline.',
+        error: error,
+      );
+    }
+
     // The freshly imported rows are what `addToSeries` matches on by
     // title, and their series must already be on the reader's own list.
     await _reloadQuietly();
@@ -184,7 +199,10 @@ class ImportController extends ChangeNotifier {
       final name = row.series;
       if (name == null || name.trim().isEmpty) continue;
       if (library.findSeries(name) == null) {
-        final made = await library.makeSeries(name);
+        // Import is only reachable once a reader is pro (gated in
+        // Settings, see `_LibraryDataSection`) — the 1-series free cap
+        // never applies here.
+        final made = await library.makeSeries(name, isPro: true);
         if (!made.success) {
           AppLogger.info(
             'ImportController',

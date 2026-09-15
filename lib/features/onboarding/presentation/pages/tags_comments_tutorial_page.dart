@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../widgets/command_wall.dart';
+import '../widgets/tier_label.dart';
 import 'natural_language_tutorial_page.dart';
 import 'tutorial_step_page.dart';
 
@@ -36,8 +37,9 @@ class TagsCommentsTutorialPage extends StatelessWidget {
       'add comment "cried twice" The Hobbit',
     ],
     [
-      'move Ulysses dnf',
+      'make shelf summer reads',
       'add comment "too dense for me right now" Ulysses',
+      'make shelf book club',
       'add tag maybe-later Ulysses',
     ],
     [
@@ -51,6 +53,7 @@ class TagsCommentsTutorialPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return TutorialStepPage(
       topContent: const CommandWall(rows: wallRows),
+      tier: OnboardingTier.free,
       heading: 'make every book yours',
       description: const _TutorialCopy(),
       onContinue: () => Navigator.of(context).push(
@@ -63,7 +66,21 @@ class TagsCommentsTutorialPage extends StatelessWidget {
   }
 }
 
-const _commands = ['add tag <tag> <book>', 'add comment <comment> <book>'];
+/// `make shelf`/`make tag` are listed ahead of `add tag` because
+/// collections are made first, applied after — `add tag` refuses a tag
+/// that hasn't been made (see `LibraryController.addTag`), so a reader
+/// who learned only `add tag` here would hit that refusal on day one.
+///
+/// The flag marks the one command on this otherwise-free step that needs
+/// cactus pro — `LibraryController.canMakeShelf` refuses a custom shelf on
+/// the free plan — so the reader learns that here rather than from a
+/// paywall the first time they type it.
+const _commands = [
+  (text: 'make shelf <shelf name>', pro: true),
+  (text: 'make tag <tag>', pro: false),
+  (text: 'add tag <tag> <book>', pro: false),
+  (text: 'add comment <comment> <book>', pro: false),
+];
 
 class _TutorialCopy extends StatelessWidget {
   const _TutorialCopy();
@@ -76,12 +93,19 @@ class _TutorialCopy extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'you can also add tags and comments to any book on your shelf - '
-          'tags to group books however you like, and comments to note '
-          'anything worth remembering. the commands are:',
+          'you can also make your own shelves and tags, and add comments '
+          'to any book on your shelf - shelves and tags to group books '
+          'however you like, and comments to note anything worth '
+          'remembering. the commands are:',
         ),
         const SizedBox(height: AppSpacing.sm),
-        for (final command in _commands) _CommandLine(command),
+        for (final command in _commands)
+          _CommandLine(command.text, pro: command.pro),
+        const SizedBox(height: AppSpacing.sm),
+        const Text(
+          'the free plan includes 2 tags and 1 series; custom shelves and '
+          'unlimited tags and series come with cactus pro.',
+        ),
         const SizedBox(height: AppSpacing.sm),
         Text.rich(
           TextSpan(
@@ -116,9 +140,12 @@ class _TutorialCopy extends StatelessWidget {
 /// One line of the command list — identical to the step before's own
 /// `_CommandLine`, so the two lists look the same.
 class _CommandLine extends StatelessWidget {
-  const _CommandLine(this.command);
+  const _CommandLine(this.command, {this.pro = false});
 
   final String command;
+
+  /// Appends a [ProMarker] after the command.
+  final bool pro;
 
   @override
   Widget build(BuildContext context) {
@@ -131,8 +158,11 @@ class _CommandLine extends StatelessWidget {
         children: [
           Text('•  ', style: TextStyle(color: colors.accent)),
           Expanded(
-            child: Text(
-              command,
+            child: Text.rich(
+              TextSpan(
+                text: command,
+                children: [if (pro) const WidgetSpan(child: ProMarker())],
+              ),
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 13,
                 color: colors.primaryText,

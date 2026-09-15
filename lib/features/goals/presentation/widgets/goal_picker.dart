@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../domain/reading_goal.dart';
@@ -76,7 +76,7 @@ class GoalPicker extends StatelessWidget {
                       Text(
                         '$value',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.jetBrainsMono(
+                        style: context.fonts.interface(
                           fontSize: 44,
                           fontWeight: FontWeight.w600,
                           color: colors.primaryText,
@@ -84,7 +84,7 @@ class GoalPicker extends StatelessWidget {
                       ),
                       Text(
                         value == 1 ? 'book' : 'books',
-                        style: GoogleFonts.jetBrainsMono(
+                        style: context.fonts.interface(
                           fontSize: 13,
                           color: colors.secondaryText,
                         ),
@@ -196,7 +196,7 @@ class _PresetChip extends StatelessWidget {
             ),
             child: Text(
               label,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: selected ? colors.accent : colors.secondaryText,

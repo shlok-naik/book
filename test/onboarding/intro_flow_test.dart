@@ -20,6 +20,7 @@ import 'package:book/features/onboarding/data/onboarding_store.dart';
 import 'package:book/features/onboarding/presentation/pages/add_book_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/finish_page.dart';
 import 'package:book/features/onboarding/presentation/pages/founders_note_page.dart';
+import 'package:book/features/onboarding/presentation/pages/goodreads_prompt_page.dart';
 import 'package:book/features/onboarding/presentation/pages/natural_language_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.dart';
 import 'package:book/features/onboarding/presentation/pages/reading_goal_page.dart';
@@ -176,6 +177,10 @@ void main() {
     await start(tester);
 
     expect(find.byType(AddBookTutorialPage), findsOneWidget);
+    // `move` isn't taught on the first tutorial any more.
+    expect(find.textContaining('move <book>'), findsNothing);
+    expect(find.textContaining('move '), findsNothing);
+    expect(find.text('free'), findsOneWidget);
     await tapContinue(tester);
 
     // Straight after the free-tier commands: tags and comments, and the
@@ -183,14 +188,28 @@ void main() {
     expect(find.byType(TagsCommentsTutorialPage), findsOneWidget);
     expect(find.textContaining('add tag <tag> <book>'), findsOneWidget);
     expect(find.textContaining('add comment <comment> <book>'), findsOneWidget);
+    // Shelves are taught here, marked as the one pro command on the page.
+    expect(find.textContaining('make shelf <shelf name>'), findsOneWidget);
+    expect(find.text('  · pro'), findsOneWidget);
     expect(
       find.textContaining('why you stopped', findRichText: true),
       findsOneWidget,
     );
     await tapContinue(tester);
 
+    // The first pro step says where the free tour ended.
     expect(find.byType(NaturalLanguageTutorialPage), findsOneWidget);
+    expect(find.text('cactus pro'), findsOneWidget);
+    expect(find.textContaining('everything so far is free'), findsOneWidget);
     await tapContinue(tester);
+
+    // A reader coming from Goodreads is asked here, before "pick a
+    // look" — "not now" skips it exactly like every other onboarding
+    // question can be skipped. Importing here is free; it only becomes
+    // a pro feature once onboarding is done.
+    expect(find.byType(GoodreadsPromptPage), findsOneWidget);
+    expect(find.text('import my library'), findsOneWidget);
+    await tapPill(tester, 'not now');
 
     expect(find.byType(ThemePreferencePage), findsOneWidget);
     await tapContinue(tester);
@@ -220,6 +239,7 @@ void main() {
     await tapContinue(tester);
     await tapContinue(tester);
     await tapContinue(tester);
+    await tapPill(tester, 'not now');
 
     expect(find.byType(ThemePreferencePage), findsOneWidget);
     expect(ThemeController.mode.value, ThemeMode.system);
@@ -260,9 +280,11 @@ void main() {
   Future<void> walkToGoal(WidgetTester tester, GoalController goals) async {
     await pumpIntro(tester, goals: goals);
     await start(tester);
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 3; i++) {
       await tapContinue(tester);
     }
+    await tapPill(tester, 'not now');
+    await tapContinue(tester);
     expect(find.byType(ReadingGoalPage), findsOneWidget);
   }
 

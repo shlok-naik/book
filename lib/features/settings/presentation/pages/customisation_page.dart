@@ -1,12 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemNavigator;
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/platform/app_icon.dart';
 import '../../../../core/platform/app_icon_controller.dart';
+import '../../../../core/theme/app_color_theme.dart';
+import '../../../../core/theme/app_color_theme_controller.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_font_theme.dart';
+import '../../../../core/theme/app_font_theme_controller.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
@@ -134,10 +140,44 @@ class _CustomisationPageState extends State<CustomisationPage> {
     }
   }
 
+  Widget _iconsTab(Brightness brightness) {
+    return ValueListenableBuilder<AppIcon>(
+      valueListenable: AppIconController.current,
+      builder: (context, current, _) {
+        return ListView(
+          padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+          children: [
+            _CurrentIcon(icon: current),
+            const SizedBox(height: AppSpacing.lg),
+            for (final (i, entry) in _groups.entries.indexed) ...[
+              // Same gap as _IconGroup puts between its own label and
+              // its icons, so a group's icons sit as far from the label
+              // above ("main") as from the next group's label below
+              // ("colours") — not the label-hugs-content,
+              // section-break-is-bigger split this used to have.
+              if (i > 0) const SizedBox(height: AppSpacing.md),
+              _IconGroup(
+                group: entry.key,
+                choices: entry.value,
+                brightness: brightness,
+                busy: _busy,
+                onSelect: _select,
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final brightness = Theme.of(context).brightness;
+    final labelStyle = context.fonts.interface(
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+    );
 
     return Scaffold(
       backgroundColor: colors.background,
@@ -149,43 +189,55 @@ class _CustomisationPageState extends State<CustomisationPage> {
             AppSpacing.xl,
             0,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SettingsHeader(title: 'customisation'),
-              const SizedBox(height: AppSpacing.lg),
-              Expanded(
-                child: ValueListenableBuilder<AppIcon>(
-                  valueListenable: AppIconController.current,
-                  builder: (context, current, _) {
-                    return ListView(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
-                      children: [
-                        _CurrentIcon(icon: current),
-                        const SizedBox(height: AppSpacing.lg),
-                        for (final (i, entry) in _groups.entries.indexed) ...[
-                          // Same gap as _IconGroup puts between its own
-                          // label and its icons, so a group's icons sit
-                          // as far from the label above ("main") as
-                          // from the next group's label below
-                          // ("colours") — not the label-hugs-content,
-                          // section-break-is-bigger split this used to
-                          // have.
-                          if (i > 0) const SizedBox(height: AppSpacing.md),
-                          _IconGroup(
-                            group: entry.key,
-                            choices: entry.value,
-                            brightness: brightness,
-                            busy: _busy,
-                            onSelect: _select,
-                          ),
-                        ],
-                      ],
-                    );
-                  },
+          // Icons first — the tab this page has always opened on, so a
+          // reader who's been here before lands exactly where they left
+          // off; themes and fonts follow.
+          child: DefaultTabController(
+            length: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SettingsHeader(title: 'customisation'),
+                const SizedBox(height: AppSpacing.sm),
+                // Same tab bar the library's "+" panel uses for
+                // shelves/tags/series — same colors, same face.
+                TabBar(
+                  labelColor: colors.accent,
+                  unselectedLabelColor: colors.secondaryText,
+                  indicatorColor: colors.accent,
+                  dividerColor: colors.divider,
+                  labelStyle: labelStyle,
+                  unselectedLabelStyle: labelStyle.copyWith(
+                    fontWeight: FontWeight.w400,
+                  ),
+                  onTap: (_) => AppHaptics.selection(),
+                  tabs: const [
+                    Tab(
+                      key: ValueKey('customisation-tab-icons'),
+                      text: 'icons',
+                    ),
+                    Tab(
+                      key: ValueKey('customisation-tab-themes'),
+                      text: 'themes',
+                    ),
+                    Tab(
+                      key: ValueKey('customisation-tab-fonts'),
+                      text: 'fonts',
+                    ),
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: AppSpacing.md),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _iconsTab(brightness),
+                      _ThemesTab(brightness),
+                      const _FontsTab(),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -220,7 +272,7 @@ Future<bool?> _showRestartSheet(BuildContext context) {
         children: [
           Text(
             'restart to apply',
-            style: GoogleFonts.jetBrainsMono(
+            style: context.fonts.interface(
               fontSize: 18,
               fontWeight: FontWeight.w600,
               color: colors.primaryText,
@@ -230,7 +282,7 @@ Future<bool?> _showRestartSheet(BuildContext context) {
           Text(
             'cactus needs to close and reopen for the new icon to show '
             'on your home screen.',
-            style: GoogleFonts.inter(
+            style: context.fonts.body(
               fontSize: 14,
               height: 1.4,
               color: colors.secondaryText,
@@ -299,7 +351,7 @@ class _CurrentIcon extends StatelessWidget {
           children: [
             Text(
               'currently',
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: colors.secondaryText,
@@ -308,7 +360,7 @@ class _CurrentIcon extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               icon.label,
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
                 color: colors.primaryText,
@@ -352,7 +404,7 @@ class _IconGroup extends StatelessWidget {
         // the memory journal's book name use.
         Text(
           group.label,
-          style: GoogleFonts.jetBrainsMono(
+          style: context.fonts.interface(
             fontSize: 13,
             fontWeight: FontWeight.w600,
             color: colors.secondaryText,
@@ -456,13 +508,395 @@ class _IconTileState extends State<_IconTile> {
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.inter(
+            style: context.fonts.body(
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: colors.secondaryText,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The "themes" tab: an accent color for the whole app — background,
+/// surface and text stay the e-ink cream/charcoal look in both light and
+/// dark mode; only the accent (buttons, progress bars, active states,
+/// the "currently reading" ring…) changes. Laid out exactly like the
+/// icons tab: a "currently" preview above a wrapped grid of tiles, and
+/// picking one applies immediately rather than needing a confirm.
+class _ThemesTab extends StatelessWidget {
+  const _ThemesTab(this.brightness);
+
+  final Brightness brightness;
+
+  static const _crossAxisCount = 4;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<AppColorTheme>(
+      valueListenable: AppColorThemeController.current,
+      builder: (context, current, _) {
+        return ListView(
+          padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+          children: [
+            _CurrentTheme(theme: current, brightness: brightness),
+            const SizedBox(height: AppSpacing.lg),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final tileWidth =
+                    (constraints.maxWidth -
+                        AppSpacing.sm * (_crossAxisCount - 1)) /
+                    _crossAxisCount;
+                return Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.md,
+                  children: [
+                    for (final theme in AppColorTheme.values)
+                      SizedBox(
+                        width: tileWidth,
+                        child: _ThemeTile(
+                          theme: theme,
+                          brightness: brightness,
+                          selected: theme == current,
+                          onTap: () {
+                            if (theme == current) return;
+                            AppHaptics.selection();
+                            unawaited(AppColorThemeController.select(theme));
+                          },
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The color theme actually active right now — shown once, above the
+/// grid, the same way [_CurrentIcon] names the active launcher icon.
+class _CurrentTheme extends StatelessWidget {
+  const _CurrentTheme({required this.theme, required this.brightness});
+
+  final AppColorTheme theme;
+  final Brightness brightness;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return Row(
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: theme.resolve(brightness),
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'currently',
+              style: context.fonts.interface(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colors.secondaryText,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              theme.label,
+              style: context.fonts.body(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: colors.primaryText,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One theme's swatch and its name underneath — a filled circle in the
+/// theme's own accent (resolved for the current brightness, the same
+/// way an icon's light/dark rendering is), checked when it's the one
+/// active right now.
+class _ThemeTile extends StatelessWidget {
+  const _ThemeTile({
+    required this.theme,
+    required this.brightness,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppColorTheme theme;
+  final Brightness brightness;
+  final bool selected;
+  final VoidCallback onTap;
+
+  static const _size = 56.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final swatch = theme.resolve(brightness);
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${theme.label} theme',
+      // excludeSemantics drops the GestureDetector's tap action; without
+      // this a screen reader found the tile but couldn't pick it.
+      onTap: onTap,
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: _size,
+              height: _size,
+              decoration: BoxDecoration(
+                color: swatch,
+                shape: BoxShape.circle,
+                border: selected
+                    ? Border.all(color: colors.primaryText, width: 2)
+                    : null,
+              ),
+              child: selected
+                  ? Center(
+                      child: Icon(
+                        Icons.check,
+                        color: colors.background,
+                        size: 22,
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              theme.label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.fonts.body(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: colors.secondaryText,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The "fonts" tab: the typefaces the whole app is set in — page titles and
+/// labels, running text, and book titles (see [AppFontTheme]). Same shape
+/// as the other two tabs: what's active now on top, every choice below,
+/// applied the moment it's tapped.
+///
+/// Each choice previews itself in its *own* fonts, whatever is active, so a
+/// reader compares them side by side instead of trying each one on.
+class _FontsTab extends StatelessWidget {
+  const _FontsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<AppFontTheme>(
+      valueListenable: AppFontThemeController.current,
+      builder: (context, current, _) {
+        return ListView(
+          padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+          children: [
+            _CurrentFont(theme: current),
+            const SizedBox(height: AppSpacing.lg),
+            for (final (i, theme) in AppFontTheme.values.indexed) ...[
+              if (i > 0) const SizedBox(height: AppSpacing.sm),
+              _FontTile(
+                key: ValueKey('font-${theme.name}'),
+                theme: theme,
+                selected: theme == current,
+                onTap: () {
+                  if (theme == current) return;
+                  AppHaptics.selection();
+                  unawaited(AppFontThemeController.select(theme));
+                },
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The font set active right now — "Aa" in its book-title face, where the
+/// other two tabs show an icon or a swatch.
+class _CurrentFont extends StatelessWidget {
+  const _CurrentFont({required this.theme});
+
+  final AppFontTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final fonts = context.fonts;
+
+    return Row(
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colors.surface,
+            shape: BoxShape.circle,
+            border: Border.all(color: colors.divider),
+          ),
+          child: Text(
+            'Aa',
+            style: AppFonts(theme).bookTitle(
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+              color: colors.primaryText,
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'currently',
+              style: fonts.interface(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colors.secondaryText,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              theme.label,
+              style: fonts.body(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: colors.primaryText,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One font set, previewed as a small piece of the app set in it: its name
+/// in the interface face, a book title in the title face, and an author and
+/// progress line in the body face.
+class _FontTile extends StatelessWidget {
+  const _FontTile({
+    super.key,
+    required this.theme,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppFontTheme theme;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final preview = AppFonts(theme);
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${theme.label} fonts',
+      // Given here too: excludeSemantics drops the InkWell's own tap
+      // action, which would leave a screen reader nothing to activate.
+      onTap: onTap,
+      excludeSemantics: true,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(
+                color: selected ? colors.accent : colors.divider,
+                width: selected ? 2 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        theme.label,
+                        style: preview.interface(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: selected
+                              ? colors.accent
+                              : colors.secondaryText,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Dune',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: preview.bookTitle(
+                          fontSize: 20,
+                          height: 1.2,
+                          fontWeight: FontWeight.w600,
+                          color: colors.primaryText,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Frank Herbert · page 150 of 412',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: preview.body(
+                          fontSize: 13,
+                          color: colors.secondaryText,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (selected) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  Icon(Icons.check, size: 20, color: colors.accent),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

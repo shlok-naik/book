@@ -87,6 +87,14 @@ class _Transfer extends LibraryTransferRepository {
     replaced = books;
     return books.length;
   }
+
+  int marks = 0;
+
+  @override
+  Future<DateTime?> markImported() async {
+    marks++;
+    return DateTime.utc(2026, 9, 1);
+  }
 }
 
 class _Series extends BookSeriesRepository {
@@ -221,6 +229,7 @@ void main() {
     expect(series.made, ['Dune'], reason: 'made first, never implicitly');
     expect(series.filed, [('progress-dune', 'series-Dune', 1.0)]);
     expect(shelf.loads, greaterThan(0));
+    expect(transfer.marks, 1, reason: 'the stats baseline is stamped');
   });
 
   test('a failed replace ends in failed and still reloads the shelf', () async {
@@ -231,6 +240,7 @@ void main() {
     expect(controller.stage, ImportStage.failed);
     expect(controller.errorMessage, 'nope');
     expect(shelf.loads, greaterThan(0));
+    expect(transfer.marks, 0, reason: 'nothing was imported to mark');
   });
 
   test('a network hiccup is retried once', () async {

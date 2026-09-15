@@ -49,6 +49,8 @@ class UserBook {
     this.shelfId,
     this.seriesId,
     this.seriesPosition,
+    this.rereadCount = 0,
+    this.imported = false,
   });
 
   final String id;
@@ -93,6 +95,17 @@ class UserBook {
   /// filed without a number, or not in a series at all.
   final double? seriesPosition;
 
+  /// How many times this book has been restarted after finishing —
+  /// `restart <book>` — driving the bronze/silver/gold cover badge.
+  /// Never decreases; unrelated to [status].
+  final int rereadCount;
+
+  /// True for a row a Goodreads import created (`user_books.imported`).
+  /// Imported books are history rather than reading done in the app: the
+  /// stats page leaves them out of its monthly charts and uses them as the
+  /// pace chart's baseline instead — see `ReadingStats`.
+  final bool imported;
+
   bool get isFinished => status == ReadingStatus.finished;
 
   /// `clearFinishedAt`/`clearShelfPosition`/`clearOwnedEdition`/
@@ -104,6 +117,7 @@ class UserBook {
   UserBook copyWith({
     int? currentPage,
     ReadingStatus? status,
+    DateTime? startedAt,
     DateTime? finishedAt,
     bool clearFinishedAt = false,
     double? rating,
@@ -114,21 +128,23 @@ class UserBook {
     String? shelfId,
     bool clearShelfId = false,
     String? seriesId,
+    bool clearSeriesId = false,
     double? seriesPosition,
     bool clearSeriesPosition = false,
+    int? rereadCount,
   }) {
     return UserBook(
       id: id,
       bookId: bookId,
       currentPage: currentPage ?? this.currentPage,
       status: status ?? this.status,
-      startedAt: startedAt,
+      startedAt: startedAt ?? this.startedAt,
       finishedAt: clearFinishedAt ? null : finishedAt ?? this.finishedAt,
       rating: rating ?? this.rating,
       ownedEditionId: clearOwnedEdition
           ? null
           : ownedEditionId ?? this.ownedEditionId,
-      seriesId: seriesId ?? this.seriesId,
+      seriesId: clearSeriesId ? null : seriesId ?? this.seriesId,
       seriesPosition: clearSeriesPosition
           ? null
           : seriesPosition ?? this.seriesPosition,
@@ -136,6 +152,8 @@ class UserBook {
           ? null
           : shelfPosition ?? this.shelfPosition,
       shelfId: clearShelfId ? null : shelfId ?? this.shelfId,
+      rereadCount: rereadCount ?? this.rereadCount,
+      imported: imported,
     );
   }
 
@@ -174,6 +192,14 @@ class UserBook {
       shelfId: row['shelf_id'] is String ? row['shelf_id'] as String : null,
       seriesId: row['series_id'] is String ? row['series_id'] as String : null,
       seriesPosition: _parseDouble(row['series_position']),
+      rereadCount: switch (row['reread_count']) {
+        final int value => value,
+        final num value => value.toInt(),
+        _ => 0,
+      },
+      // Absent (the column not migrated yet, or an old cached row) reads
+      // as not imported — every book counts, as it always did.
+      imported: row['imported'] == true,
     );
   }
 

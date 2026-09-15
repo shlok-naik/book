@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../library/domain/reading_event.dart';
 import '../../../library/presentation/library_scope.dart';
@@ -120,7 +120,7 @@ class _ReadingStreakState extends State<ReadingStreak> {
             const SizedBox(width: 6),
             Text(
               label,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: active ? colors.accent : colors.secondaryText,
@@ -210,7 +210,7 @@ class _DayDot extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           _weekdayInitials[day.weekday - 1],
-          style: GoogleFonts.jetBrainsMono(
+          style: context.fonts.interface(
             fontSize: 10,
             fontWeight: FontWeight.w600,
             color: colors.secondaryText,

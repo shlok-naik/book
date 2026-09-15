@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../domain/reading_goal.dart';
@@ -57,7 +57,7 @@ class GoalProgressView extends StatelessWidget {
               child: Text(
                 'no reading goal set yet',
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: colors.secondaryText,
@@ -80,7 +80,7 @@ class GoalProgressView extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   'set a reading goal',
-                  style: GoogleFonts.jetBrainsMono(
+                  style: context.fonts.interface(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: colors.accent,
@@ -109,7 +109,7 @@ class GoalProgressView extends StatelessWidget {
                 child: Text(
                   progress.summary,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.jetBrainsMono(
+                  style: context.fonts.interface(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: colors.primaryText,
@@ -118,7 +118,7 @@ class GoalProgressView extends StatelessWidget {
               ),
               Text(
                 pace,
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 12,
                   color: colors.secondaryText,
                 ),
@@ -132,7 +132,7 @@ class GoalProgressView extends StatelessWidget {
             children: [
               Text(
                 '${progress.finished}',
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 40,
                   fontWeight: FontWeight.w600,
                   color: colors.primaryText,
@@ -140,7 +140,7 @@ class GoalProgressView extends StatelessWidget {
               ),
               Text(
                 ' / ${progress.goal} books',
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 16,
                   color: colors.secondaryText,
                 ),
@@ -157,7 +157,7 @@ class GoalProgressView extends StatelessWidget {
           ),
           Text(
             '${progress.year} goal · $pace',
-            style: GoogleFonts.jetBrainsMono(
+            style: context.fonts.interface(
               fontSize: 13,
               color: colors.secondaryText,
             ),

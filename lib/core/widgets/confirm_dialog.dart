@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../features/paywall/presentation/widgets/soft_pill_button.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_fonts.dart';
 import '../theme/app_radius.dart';
 import '../theme/app_spacing.dart';
 
@@ -67,7 +67,7 @@ class _ConfirmDialog extends StatelessWidget {
               header: true,
               child: Text(
                 title,
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                   color: colors.primaryText,
@@ -77,7 +77,7 @@ class _ConfirmDialog extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             Text(
               message,
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 14,
                 height: 1.5,
                 color: colors.secondaryText,

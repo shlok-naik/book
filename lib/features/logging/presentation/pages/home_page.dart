@@ -1,19 +1,23 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/ai/ai_command_parser.dart';
+import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/feedback/app_haptics.dart';
+import '../../../../core/network/connectivity_controller.dart';
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/widgets/confirm_dialog.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_progress_view.dart';
+import '../../../library/domain/collections.dart';
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
+import '../../../library/presentation/widgets/removal_confirmations.dart';
 import '../../../memory/presentation/memory_scope.dart';
+import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../../streaks/domain/reading_stats.dart';
 import '../../domain/log_command_parser.dart';
@@ -56,12 +60,18 @@ class _SlidingGradientTransform extends GradientTransform {
 /// keeps the input's "never move the text" guarantee from depending on
 /// anything the page does.
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.aiParser});
+  const HomePage({super.key, this.aiParser, this.onOpenMemory});
 
   /// Injection point for tests: a fake wrapping fixed extractions
   /// instead of a real call to the `parse-command` edge function. Null
   /// in the app.
   final AiCommandParser? aiParser;
+
+  /// Switches the shell to the Memory tab — what typing a bare `memory`
+  /// does (see [_isOpenMemory]). Null outside `RootShell` (a test pumping
+  /// this page alone), where `memory` falls through to the parser like
+  /// any other unrecognized word.
+  final VoidCallback? onOpenMemory;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -80,11 +90,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   String? _message;
   Timer? _messageTimer;
 
-  /// Whether [CommandInput] currently has any typed text — what hides
-  /// the "currently reading" peek the instant typing starts, and brings
-  /// it back once the field empties again (a submit clears it, same as
-  /// backspacing to nothing).
-  bool _hasText = false;
+  /// Whether the on-screen keyboard is up — what decides whether the
+  /// currently-reading card, the goal and the streak show (see [build]).
+  /// The keyboard *replaces* them: while it's up the page is just its title
+  /// and the command line above it, and once it goes down the three come
+  /// back where it was.
+  ///
+  /// Read from the [MediaQuery] *above* this page's own [Scaffold]: a
+  /// Scaffold that resizes for the keyboard hands its body a zero bottom
+  /// inset, so asking from inside it would always say "no keyboard".
+  static bool _keyboardVisible(BuildContext context) =>
+      MediaQuery.viewInsetsOf(context).bottom > 0;
 
   /// AI-extracted commands from the reader's last submitted sentence,
   /// null whenever the plain-message pill should show instead — only
@@ -164,7 +180,31 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// Read at submit time rather than cached, so a mid-session plan
   /// switch takes effect on the very next command.
   Future<CommandOutcome> _run(String command) {
-    return PlanController.isPro.value ? _runAi(command) : _runManual(command);
+    if (_isOpenMemory(command)) return Future.value(_openMemory());
+    // Offline, the AI path can't run at all (it's an edge function), so a
+    // pro reader's line goes to the manual parser instead — a typed command
+    // still saves offline, where a sentence would only fail.
+    final useAi =
+        PlanController.isPro.value && !ConnectivityController.isOffline.value;
+    return useAi ? _runAi(command) : _runManual(command);
+  }
+
+  /// A bare `memory` (any case, surrounding space ignored) is a way to the
+  /// Memory tab, not a command — checked before either parser, the same
+  /// way `start isbn` is recognized ahead of the grammar. Both plans get
+  /// it: on the free plan the tab shows its locked preview, which is the
+  /// point — a reader who guesses the word learns what it unlocks.
+  bool _isOpenMemory(String command) =>
+      widget.onOpenMemory != null && command.trim().toLowerCase() == 'memory';
+
+  /// Opens the tab and clears the field without re-focusing it (see
+  /// [CommandOutcome.handled]). No pill: the tab switching under the
+  /// reader's thumb already says it worked.
+  CommandOutcome _openMemory() {
+    AppHaptics.selection();
+    _focusNode.unfocus();
+    widget.onOpenMemory!();
+    return CommandOutcome.handled;
   }
 
   /// Parses [command] and applies it — the one place that decision gets
@@ -174,7 +214,32 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// line can be refused it hit: syntax the parser doesn't recognize,
   /// or syntax it does recognize but that the library rejects (offline,
   /// a book already on the shelf, a page past the end).
+  ///
+  /// Never throws: anything unexpected underneath (a parser or repository
+  /// bug) comes back as a failed line with a message. Without that, a throw
+  /// would leave an AI instruction list on screen forever — the command
+  /// field only returns once every line has had its turn.
   Future<({bool success, bool cancelled, String message})> _runCommand(
+    String command,
+  ) async {
+    try {
+      return await _parseAndApply(command);
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'HomePage',
+        'A command failed unexpectedly.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return (
+        success: false,
+        cancelled: false,
+        message: "That didn't work — try again.",
+      );
+    }
+  }
+
+  Future<({bool success, bool cancelled, String message})> _parseAndApply(
     String command,
   ) async {
     final parsed = LogCommandParser.parse(command);
@@ -196,9 +261,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // library's result knows which book, shelf or stored name it was; and
     // every `move`, where only the library knows whether the book was added
     // or moved, and what the shelf is really called.
+    //
+    // Also every `remove` (only the library knows what was removed from
+    // where), and any command whose book wasn't on the shelf and was added
+    // first — the parser's "Finished Dune" can't say it was added.
     final libraryMessage = outcome?.message;
     final preferLibrary =
-        parsed.title == null || parsed.type == LogCommandType.move;
+        parsed.title == null ||
+        parsed.type == LogCommandType.move ||
+        _isRemoval(parsed.type) ||
+        (outcome?.addedToLibrary ?? false);
     return (
       success: true,
       cancelled: false,
@@ -280,11 +352,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             (title: entry.bookTitle, note: entry.note),
         ],
       );
-    } on AiCommandException catch (error) {
+    } on Object catch (error, stackTrace) {
+      // Anything but an [AiCommandException] is a bug below — still stop
+      // the shimmer and give the field back rather than thinking forever.
+      if (error is! AiCommandException) {
+        AppLogger.error(
+          'HomePage',
+          'The AI parser threw unexpectedly.',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
       _thinkingGradient.stop();
       if (!mounted) return CommandOutcome.rejected;
       setState(() => _aiThinking = false);
-      _showMessage(error.message);
+      _showMessage(
+        error is AiCommandException
+            ? error.message
+            : "Couldn't reach the AI right now — try again in a moment.",
+      );
       return CommandOutcome.rejected;
     }
     _thinkingGradient.stop();
@@ -364,6 +450,71 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     setState(() => _instructions = null);
   }
 
+  static bool _isRemoval(LogCommandType type) => switch (type) {
+    LogCommandType.removeShelf ||
+    LogCommandType.removeTag ||
+    LogCommandType.removeSeries ||
+    LogCommandType.removeComment => true,
+    _ => false,
+  };
+
+  /// `remove shelf|tag|series …` — resolves what the line means against the
+  /// collections that exist, asks first when it would unmake the whole
+  /// collection, then applies it. Backing out is a cancel, like `delete`.
+  Future<LibraryActionResult> _removeCollection(
+    LibraryController library,
+    ParsedLogCommand command,
+    CollectionKind kind,
+  ) async {
+    final resolved = library.resolveRemoval(
+      kind,
+      name: switch (kind) {
+        CollectionKind.shelves => command.shelf,
+        CollectionKind.tags => command.tag,
+        CollectionKind.series => command.series,
+      },
+      title: command.title,
+      argument: command.argument,
+    );
+    final removal = resolved.removal;
+    if (removal == null) {
+      return LibraryActionResult.failure(resolved.failure);
+    }
+    if (removal is UnmakeCollection) {
+      final confirmed = await confirmUnmake(context, removal);
+      if (!mounted) return const LibraryActionResult.cancelled(null);
+      if (!confirmed) {
+        return LibraryActionResult.cancelled('Kept "${removal.name}"');
+      }
+    }
+    return library.applyRemoval(removal);
+  }
+
+  /// `remove comment [comment] <book>` — finds the comment, shows it, and
+  /// only removes it once confirmed.
+  Future<LibraryActionResult> _removeComment(
+    LibraryController library,
+    ParsedLogCommand command,
+  ) async {
+    final resolved = await library.resolveCommentRemoval(
+      title: command.title,
+      text: command.note,
+      argument: command.argument,
+    );
+    final entry = resolved.entry;
+    final comment = resolved.comment;
+    if (!mounted) return const LibraryActionResult.cancelled(null);
+    if (entry == null || comment == null) {
+      return LibraryActionResult.failure(resolved.failure);
+    }
+    final confirmed = await confirmRemoveComment(context, entry, comment);
+    if (!mounted) return const LibraryActionResult.cancelled(null);
+    if (!confirmed) {
+      return const LibraryActionResult.cancelled('Kept the comment');
+    }
+    return library.deleteComment(entry, comment);
+  }
+
   /// Applies a recognized command — to the shelf for the original five,
   /// to the memory list for `remember`, or not at all for `recommend`
   /// (the AI has already resolved a title and reason by the time this
@@ -409,16 +560,33 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       return library.moveToShelfUnsplit(argument);
     }
 
-    // The `make` family names a collection, never a book, so it is routed
-    // before the title check. Each goes to the same creation function the
+    // The `make` and `remove` families may name no book at all, so they are
+    // routed before the title check. Each goes to the same function the
     // library page's "+" panel uses.
     switch (command.type) {
+      case LogCommandType.removeShelf:
+        return _removeCollection(library, command, CollectionKind.shelves);
+      case LogCommandType.removeTag:
+        return _removeCollection(library, command, CollectionKind.tags);
+      case LogCommandType.removeSeries:
+        return _removeCollection(library, command, CollectionKind.series);
+      case LogCommandType.removeComment:
+        return _removeComment(library, command);
       case LogCommandType.makeShelf:
-        return library.makeShelf(command.shelf ?? '');
+        return library.makeShelf(
+          command.shelf ?? '',
+          isPro: PlanController.isPro.value,
+        );
       case LogCommandType.makeTag:
-        return library.makeTag(command.tag ?? '');
+        return library.makeTag(
+          command.tag ?? '',
+          isPro: PlanController.isPro.value,
+        );
       case LogCommandType.makeSeries:
-        return library.makeSeries(command.series ?? '');
+        return library.makeSeries(
+          command.series ?? '',
+          isPro: PlanController.isPro.value,
+        );
       default:
         break;
     }
@@ -480,6 +648,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         return library.updateProgress(title, page, loggedAt: command.date);
       case LogCommandType.finish:
         return library.finishBook(title, loggedAt: command.date);
+      case LogCommandType.restart:
+        return library.restartBook(title, loggedAt: command.date);
       case LogCommandType.delete:
         return _confirmDelete(library, title);
       case LogCommandType.move:
@@ -520,6 +690,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.makeShelf:
       case LogCommandType.makeTag:
       case LogCommandType.makeSeries:
+      case LogCommandType.removeShelf:
+      case LogCommandType.removeTag:
+      case LogCommandType.removeSeries:
+      case LogCommandType.removeComment:
         // Handled above, before the title check — never reached.
         return Future.value(null);
       case LogCommandType.rate:
@@ -563,19 +737,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final entry = library.match(title);
     if (entry == null) return library.deleteBook(title);
 
-    final confirmed = await showConfirmDialog(
-      context,
-      title: 'delete ${entry.book.title}?',
-      message:
-          'this removes it from your library along with its tags, comments '
-          "and journal history. this can't be undone.",
-      confirmLabel: 'delete',
-      routeName: 'confirm_delete',
-    );
+    final confirmed = await confirmRemoveBook(context, entry);
     if (!confirmed) {
       return LibraryActionResult.cancelled('Kept "${entry.book.title}"');
     }
-    return library.deleteBook(entry.book.title);
+    // By id: exactly the book the dialog named, even if another book shares
+    // its title or the shelf changed while the dialog was up.
+    return library.deleteBookById(entry.id);
   }
 
   /// Puts [message] in the pill and (re)starts its fade-in / lifetime /
@@ -599,7 +767,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// reads exactly like it was typed there itself, just swapped in
   /// rather than edited into.
   TextStyle _inputStyle(AppColors colors) {
-    return GoogleFonts.jetBrainsMono(
+    return context.fonts.interface(
       fontSize: 16,
       height: 1.5,
       color: colors.primaryText,
@@ -619,12 +787,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final library = LibraryScope.of(context);
     final currentBook = library.currentlyReading;
     final goals = GoalScope.of(context);
+    final showPeek = !_keyboardVisible(context);
 
     Widget commandInput = CommandInput(
       focusNode: _focusNode,
       onSubmit: _run,
       style: _inputStyle(colors),
-      onHasTextChanged: (hasText) => setState(() => _hasText = hasText),
     );
     if (_aiThinking) {
       // A sliding, mirror-tiled version of [aiGradient] — same colors
@@ -655,7 +823,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               AppSpacing.xl,
               AppSpacing.md,
               AppSpacing.xl,
-              130,
+              // The streak sits just clear of the floating bar.
+              BottomSwitcher.pageFootprint + AppSpacing.lg,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -700,16 +869,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         )
                       : const SizedBox.shrink(),
                 ),
-                // The currently-reading row and the streak readout,
-                // stacked just above the floating bottom bar (the
-                // padding below already clears it). Both disappear the
-                // instant typing starts — see [_hasText] — so neither
-                // competes with a command actually being written. A
+                // The currently-reading row, the goal and the streak
+                // readout, stacked just above the floating bottom bar.
+                // Hidden while the keyboard is up — it takes their place,
+                // see [_keyboardVisible] — and back once it's down. A
                 // hairline (not a box — see both widgets' own doc
                 // comments on why this app doesn't use card chrome) is
-                // what keeps the two legible as separate things now
-                // that neither has a fill of its own to do that.
-                if (!_hasText) ...[
+                // what keeps them legible as separate things now that
+                // none has a fill of its own to do that.
+                if (showPeek) ...[
                   if (currentBook != null)
                     CurrentlyReadingCard(entry: currentBook)
                   else
@@ -719,7 +887,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     // saying it depending which screen you're on.
                     Text(
                       'nothing logged yet — start a book.',
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 13,
                         color: colors.secondaryText,
                       ),
@@ -734,8 +902,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     GoalProgressView(
                       compact: true,
                       editable: false,
-                      progress: ReadingStats.from(
+                      progress: ReadingStats.forShelf(
                         library.books,
+                        importedAt: library.importedAt,
                       ).goalProgress(goals.goal),
                     ),
                     const SizedBox(height: AppSpacing.md),
@@ -745,15 +914,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ],
                 // Visibility, not a conditional in the list above: an
                 // `if` that removes this from the tree would unmount
-                // ReadingStreak's State every time typing starts, losing
-                // its already-loaded streak and forcing a fresh Supabase
-                // fetch (with a flash of nothing while it reloads) every
-                // single time the field empties back out.
+                // ReadingStreak's State every time the keyboard rises,
+                // losing its already-loaded streak and forcing a fresh
+                // Supabase fetch (with a flash of nothing while it
+                // reloads) every single time it goes back down.
                 // `maintainState: true` keeps it alive and loaded the
                 // whole session through, exactly like the streak/memory
                 // pages' own controllers do.
                 Visibility(
-                  visible: !_hasText,
+                  visible: showPeek,
                   maintainState: true,
                   maintainAnimation: true,
                   child: const ReadingStreak(),

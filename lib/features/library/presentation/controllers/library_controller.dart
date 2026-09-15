@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
+import '../../../../core/formatting/numbers.dart';
 import '../../data/book_details_repository.dart';
 import '../../data/book_notes_repository.dart';
 import '../../data/book_series_repository.dart';
@@ -13,6 +15,7 @@ import '../../domain/book.dart';
 import '../../domain/book_details_service.dart';
 import '../../domain/book_edition.dart';
 import '../../domain/book_lookup_service.dart';
+import '../../domain/book_note.dart';
 import '../../domain/book_series.dart';
 import '../../domain/collections.dart';
 import '../../domain/library_book.dart';
@@ -25,22 +28,30 @@ import '../../domain/user_book.dart';
 /// Commands never throw at the UI — failures come back as a
 /// [LibraryActionResult] with `success == false` and a friendly message.
 class LibraryActionResult {
-  const LibraryActionResult.success([this.message])
+  const LibraryActionResult.success([this.message, this.addedToLibrary = false])
     : success = true,
       cancelled = false;
   const LibraryActionResult.failure(this.message)
     : success = false,
-      cancelled = false;
+      cancelled = false,
+      addedToLibrary = false;
 
   /// The reader backed out before anything was attempted — not a failure,
   /// so it gets no rejection haptic or shake.
   const LibraryActionResult.cancelled(this.message)
     : success = false,
-      cancelled = true;
+      cancelled = true,
+      addedToLibrary = false;
 
   final bool success;
   final bool cancelled;
   final String? message;
+
+  /// The command's book wasn't on the shelf, so it was added first (see
+  /// `LibraryController._onShelfOrAdd`). The add tab shows [message] in
+  /// that case rather than the parser's own wording, which can't know the
+  /// book was added.
+  final bool addedToLibrary;
 }
 
 /// Holds the reader's shelf and applies the log-page commands to it.
@@ -168,7 +179,7 @@ class LibraryController extends ChangeNotifier {
     reportingFailure(
       events
           .log(type, title: title, occurredAt: at, value: value)
-          .then((_) => _loggedEvents.add(event)),
+          .then((_) => _emit(_loggedEvents, event)),
       source: 'LibraryController',
       message: 'Could not record a "${type.wireValue}" reading event.',
     );
@@ -182,7 +193,7 @@ class LibraryController extends ChangeNotifier {
   /// write it followed has already succeeded.
   void _clearJournal(String title) {
     reportingFailure(
-      events.deleteForTitle(title).then((_) => _clearedTitles.add(title)),
+      events.deleteForTitle(title).then((_) => _emit(_clearedTitles, title)),
       source: 'LibraryController',
       message: 'Could not clear the journal for "$title".',
     );
@@ -196,35 +207,94 @@ class LibraryController extends ChangeNotifier {
   /// history (the streak journal, the add tab's week row) reloads on it.
   Stream<void> get resets => _resets.stream;
 
+  final _tagsChanged = StreamController<void>.broadcast();
+
+  /// Fires after a tag was applied to or removed from a book — tags live
+  /// outside the shelf rows [notifyListeners] covers, so anything counting
+  /// them (the stats page's tags section) listens here instead of
+  /// refetching on every shelf change.
+  Stream<void> get tagsChanged => _tagsChanged.stream;
+
+  /// Announces a tag write made outside this controller — the book page's
+  /// `BookDetailController` applies and removes tags on its own.
+  void notifyTagsChanged() => _emit(_tagsChanged, null);
+
   /// Reloads the shelf and tells [resets] listeners to reload theirs.
+  ///
+  /// Always a *fresh* load: a load already in flight started before the
+  /// library was replaced and would answer with the old shelf, so it is
+  /// waited out first rather than joined.
   Future<void> reset() async {
     _books = const [];
     notifyListeners();
+    await _inFlightLoad;
     await load();
-    _resets.add(null);
+    _emit(_resets, null);
   }
+
+  bool _disposed = false;
 
   @override
   void dispose() {
+    _disposed = true;
     _loggedEvents.close();
     _clearedTitles.close();
     _resets.close();
+    _tagsChanged.close();
     super.dispose();
+  }
+
+  /// Adds to [controller] unless this controller was disposed — every
+  /// broadcast here can fire from a write that outlives the app root.
+  static void _emit<T>(StreamController<T> controller, T value) {
+    if (!controller.isClosed) controller.add(value);
   }
 
   /// The shelf in its natural order — most recently updated first, as
   /// `UserBookRepository.fetchLibrary` returns it. Section getters sort
   /// on top of this; [currentlyReading] and title matching rely on it.
+  ///
+  /// Never mutated in place — every change assigns a new list. The
+  /// memoized views below ([books], [shelfSection]) rely on that: they are
+  /// keyed on this list's identity.
   List<LibraryBook> _books = const [];
   bool _isLoading = false;
+  bool _hasLoaded = false;
   String? _errorMessage;
 
+  List<LibraryBook>? _booksViewSource;
+  List<LibraryBook> _booksView = const [];
+
   /// Every book on the shelf, most recently updated first.
-  List<LibraryBook> get books => List.unmodifiable(_books);
+  ///
+  /// A read-only view rather than a copy, and the *same* view until the
+  /// shelf changes — so a caller can cheaply tell "nothing changed" by
+  /// identity (see `ReadingStats.forShelf`).
+  List<LibraryBook> get books {
+    if (!identical(_booksViewSource, _books)) {
+      _booksViewSource = _books;
+      _booksView = UnmodifiableListView(_books);
+    }
+    return _booksView;
+  }
+
+  /// Every section's display order, computed once per shelf/shelves change
+  /// rather than filtered and sorted again on every access — the library
+  /// page asks for each section on every rebuild.
+  Map<ShelfRef, List<LibraryBook>>? _sections;
+  List<LibraryBook>? _sectionsBooks;
+  List<Shelf>? _sectionsShelves;
 
   List<Shelf> _shelves = const [];
   List<ReaderTag> _tags = const [];
   List<BookSeries> _mySeries = const [];
+  DateTime? _importedAt;
+
+  /// When the reader last imported a library (Goodreads), or null — the
+  /// stats page's baseline: imported books stay out of its monthly charts,
+  /// and pace counts from here. Loaded with the shelf; a failed fetch keeps
+  /// the last known value.
+  DateTime? get importedAt => _importedAt;
 
   /// The reader's custom shelves, oldest first — shown after the four
   /// built-in shelves on the library page.
@@ -258,11 +328,27 @@ class LibraryController extends ChangeNotifier {
   /// Any library-page section, built-in or custom, in display order: books
   /// never placed by hand first (most recently updated first), then the
   /// reader's own drag-and-drop order — see [ShelfRules.sortSection].
-  List<LibraryBook> shelfSection(ShelfRef shelf) => List.unmodifiable(
-    ShelfRules.sortSection(
-      _books.where((entry) => placementOf(entry) == shelf),
-    ),
-  );
+  List<LibraryBook> shelfSection(ShelfRef shelf) =>
+      _sectionMap()[shelf] ?? const [];
+
+  Map<ShelfRef, List<LibraryBook>> _sectionMap() {
+    final cached = _sections;
+    if (cached != null &&
+        identical(_sectionsBooks, _books) &&
+        identical(_sectionsShelves, _shelves)) {
+      return cached;
+    }
+    final grouped = <ShelfRef, List<LibraryBook>>{};
+    for (final entry in _books) {
+      (grouped[placementOf(entry)] ??= []).add(entry);
+    }
+    _sectionsBooks = _books;
+    _sectionsShelves = _shelves;
+    return _sections = {
+      for (final MapEntry(:key, :value) in grouped.entries)
+        key: List.unmodifiable(ShelfRules.sortSection(value)),
+    };
+  }
 
   /// The section [entry] is shown in. A `shelf_id` naming a shelf that
   /// isn't loaded (its fetch failed) falls back to the status section,
@@ -329,10 +415,21 @@ class LibraryController extends ChangeNotifier {
 
   bool get isEmpty => _books.isEmpty;
 
-  /// (Re)loads the shelf from Supabase. Safe to call repeatedly; a
-  /// second call while one is in flight is ignored.
-  Future<void> load() async {
-    if (_isLoading) return;
+  /// Whether a load has finished at least once (successfully or not) — lets
+  /// a page that mounts later skip a reload of a shelf already on screen.
+  bool get hasLoaded => _hasLoaded;
+
+  Future<void>? _inFlightLoad;
+
+  /// (Re)loads the shelf from Supabase. Safe to call repeatedly: a call
+  /// while one is in flight *joins* it — the returned future completes when
+  /// that load does — so a caller that awaits this (pull-to-refresh, the
+  /// CSV export, a sync) always sees the loaded shelf, never a half-started
+  /// one.
+  Future<void> load() =>
+      _inFlightLoad ??= _load().whenComplete(() => _inFlightLoad = null);
+
+  Future<void> _load() async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -353,9 +450,21 @@ class LibraryController extends ChangeNotifier {
         'Loading the shelf failed.',
         error: error,
       );
+    } on Object catch (error, stackTrace) {
+      // Callers fire this without awaiting (startup, resume, a sync); an
+      // unexpected parse error must still read as a failed load with a
+      // retry, not escape as an unhandled error behind a spinner.
+      _errorMessage = "We couldn't load your library.";
+      AppLogger.error(
+        'LibraryController',
+        'Loading the shelf failed unexpectedly.',
+        error: error,
+        stackTrace: stackTrace,
+      );
     } finally {
       _isLoading = false;
-      notifyListeners();
+      _hasLoaded = true;
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -375,7 +484,19 @@ class LibraryController extends ChangeNotifier {
       }
     }
 
+    Future<void> importBaseline() async {
+      try {
+        _importedAt = await userBooks.fetchImportedAt();
+      } on LibraryException catch (error) {
+        AppLogger.info(
+          'LibraryController',
+          'Could not load import date: $error',
+        );
+      }
+    }
+
     await Future.wait([
+      importBaseline(),
       attempt<Shelf>('shelves', collections.fetchShelves, (v) => _shelves = v),
       attempt<ReaderTag>('tags', collections.fetchTags, (v) => _tags = v),
       attempt<BookSeries>('series', series.fetchMySeries, (v) => _mySeries = v),
@@ -384,10 +505,31 @@ class LibraryController extends ChangeNotifier {
 
   // ------------------------------------------------------------ collections
 
+  /// Free plan: no custom shelves at all. `isPro` is read at the call
+  /// site ([PlanController.isPro], the same debug-aware flag `HomePage`
+  /// checks before `remember`/`recommend`) rather than cached here, so
+  /// this controller stays purchase-agnostic — it just does the counting.
+  bool canMakeShelf(bool isPro) => isPro;
+
+  /// Free plan: up to 2 tags total.
+  bool canMakeTag(bool isPro) => isPro || _tags.length < 2;
+
+  /// Free plan: up to 1 series total.
+  bool canMakeSeries(bool isPro) => isPro || _mySeries.isEmpty;
+
   /// `make shelf <name>` and the "+" panel's shelves tab — the one way a
   /// custom shelf comes into existence. Refuses a name the reader already
-  /// has (built-in names included) before any I/O.
-  Future<LibraryActionResult> makeShelf(String name) async {
+  /// has (built-in names included) before any I/O. [isPro] gates whether a
+  /// custom shelf can be made at all — see [canMakeShelf].
+  Future<LibraryActionResult> makeShelf(
+    String name, {
+    required bool isPro,
+  }) async {
+    if (!canMakeShelf(isPro)) {
+      return const LibraryActionResult.failure(
+        'Upgrade to cactus pro to make custom shelves.',
+      );
+    }
     try {
       final clean = CollectionNames.validateShelf(name);
       if (findShelf(clean) != null) {
@@ -405,8 +547,17 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// `make tag <tag>` and the "+" panel's tags tab — the one way a tag
-  /// comes into existence.
-  Future<LibraryActionResult> makeTag(String name) async {
+  /// comes into existence. Free plan caps at 2 tags total — see
+  /// [canMakeTag].
+  Future<LibraryActionResult> makeTag(
+    String name, {
+    required bool isPro,
+  }) async {
+    if (!canMakeTag(isPro)) {
+      return const LibraryActionResult.failure(
+        'Upgrade to cactus pro for unlimited tags — free includes 2.',
+      );
+    }
     try {
       final clean = CollectionNames.validateTag(name);
       if (findTag(clean) != null) {
@@ -423,8 +574,17 @@ class LibraryController extends ChangeNotifier {
 
   /// `make series <name>` and the "+" panel's series tab — the one way a
   /// series comes into existence. Private to this reader, like a shelf or a
-  /// tag — refuses a name they already have before any I/O.
-  Future<LibraryActionResult> makeSeries(String name) async {
+  /// tag — refuses a name they already have before any I/O. Free plan caps
+  /// at 1 series total — see [canMakeSeries].
+  Future<LibraryActionResult> makeSeries(
+    String name, {
+    required bool isPro,
+  }) async {
+    if (!canMakeSeries(isPro)) {
+      return const LibraryActionResult.failure(
+        'Upgrade to cactus pro for unlimited series — free includes 1.',
+      );
+    }
     try {
       final clean = CollectionNames.validateSeries(name);
       if (findSeries(clean) case final existing?) {
@@ -491,32 +651,16 @@ class LibraryController extends ChangeNotifier {
   /// shouldn't look like it did.
   ///
   /// [loggedAt], when given, backdates the reading event this logs (and
-  /// so the streaks day it lands on) — never the shelf write itself,
-  /// which always reflects when the command actually ran.
-  Future<LibraryActionResult> startBook(
-    String title, {
-    DateTime? loggedAt,
-  }) async {
-    final invalidDate = _validateLoggedAt(loggedAt);
-    if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
-
-    try {
-      final book = await lookup.findOrFetch(title);
-      final started = await userBooks.start(book.id);
-      _upsertLocal(LibraryBook(book: book, progress: started.progress));
-      notifyListeners();
-      _warmEditions(book);
-      if (started.alreadyExists) {
-        return LibraryActionResult.failure(
-          '"${book.title}" is already on your shelf.',
-        );
-      }
-      _logEvent(ReadingEventType.start, book.title, occurredAt: loggedAt);
-      return LibraryActionResult.success('Started "${book.title}"');
-    } on LibraryException catch (error) {
-      return LibraryActionResult.failure(error.message);
-    }
-  }
+  /// so the streaks day it lands on) and the book's start date — the one
+  /// the book page shows and lets the reader edit. The shelf's own
+  /// ordering still reflects when the command actually ran.
+  ///
+  /// A book already on the shelf *to read* is started — moved to reading,
+  /// exactly as `move <book> reading` would, start date stamped — rather
+  /// than refused: "start" is what a reader says when they pick up a book
+  /// they had queued.
+  Future<LibraryActionResult> startBook(String title, {DateTime? loggedAt}) =>
+      _start(() => lookup.findOrFetch(title), loggedAt: loggedAt);
 
   /// `start isbn` once the camera has scanned a barcode — same shelf
   /// write as [startBook], resolving [isbn] cache-first through
@@ -527,13 +671,35 @@ class LibraryController extends ChangeNotifier {
   Future<LibraryActionResult> startBookByIsbn(
     String isbn, {
     DateTime? loggedAt,
+  }) => _start(() => lookup.findOrFetchByIsbn(isbn), loggedAt: loggedAt);
+
+  /// The shared body of [startBook] and [startBookByIsbn] — they differ
+  /// only in how the book is resolved.
+  Future<LibraryActionResult> _start(
+    Future<Book> Function() resolve, {
+    DateTime? loggedAt,
   }) async {
     final invalidDate = _validateLoggedAt(loggedAt);
     if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
 
     try {
-      final book = await lookup.findOrFetchByIsbn(isbn);
-      final started = await userBooks.start(book.id);
+      final book = await resolve();
+      final existing = _findByBookId(book.id);
+      if (existing != null) {
+        if (existing.status == ReadingStatus.toBeRead) {
+          return _changeShelf(
+            existing,
+            const StatusShelfRef(ReadingStatus.reading),
+            at: loggedAt,
+          );
+        }
+        // Already on the shelf locally: nothing to write, so no round trip
+        // just to have the server say the same thing.
+        return LibraryActionResult.failure(
+          '"${existing.book.title}" is already on your shelf.',
+        );
+      }
+      final started = await userBooks.start(book.id, startedAt: loggedAt);
       _upsertLocal(LibraryBook(book: book, progress: started.progress));
       notifyListeners();
       _warmEditions(book);
@@ -705,9 +871,10 @@ class LibraryController extends ChangeNotifier {
     _applyOrderLocally(order);
     notifyListeners();
 
+    UserBook? savedMove;
     try {
       if (isMove) {
-        final saved = await userBooks.changeShelf(moved);
+        final saved = savedMove = await userBooks.changeShelf(moved);
         // The server cleared the row's position on the status change;
         // keep the one just assigned locally, which the next write stores.
         final placed = findById(entry.id)?.progress.shelfPosition;
@@ -725,8 +892,25 @@ class LibraryController extends ChangeNotifier {
       );
     } on LibraryException catch (error) {
       _books = snapshot;
+      if (savedMove == null) {
+        notifyListeners();
+        return LibraryActionResult.failure(error.message);
+      }
+      // The shelf change itself landed; only the order write didn't. Rolling
+      // the book back would show it on a shelf the server no longer has it
+      // on, so keep the saved move — unplaced, as the server left it — and
+      // put only the other books' positions back.
+      _upsertLocal(
+        entry.copyWith(progress: savedMove.copyWith(clearShelfPosition: true)),
+      );
       notifyListeners();
-      return LibraryActionResult.failure(error.message);
+      if (statusChanged) {
+        _logEvent(_eventForShelf(moved.status), entry.book.title);
+      }
+      return LibraryActionResult.failure(
+        '${_movedMessage(entry.book.title, shelf)}, but its spot on the '
+        "shelf didn't save.",
+      );
     }
   }
 
@@ -737,8 +921,9 @@ class LibraryController extends ChangeNotifier {
   /// reading moment.
   Future<LibraryActionResult> _changeShelf(
     LibraryBook entry,
-    ShelfRef shelf,
-  ) async {
+    ShelfRef shelf, {
+    DateTime? at,
+  }) async {
     if (placementOf(entry) == shelf) {
       return LibraryActionResult.failure(
         '"${entry.book.title}" is already ${_shelfPhrase(shelf)}.',
@@ -746,7 +931,7 @@ class LibraryController extends ChangeNotifier {
     }
 
     final previous = entry;
-    final moved = ShelfRules.enterShelf(entry, shelf);
+    final moved = ShelfRules.enterShelf(entry, shelf, at: at);
     _upsertLocal(entry.copyWith(progress: moved));
     notifyListeners();
 
@@ -755,7 +940,11 @@ class LibraryController extends ChangeNotifier {
       _upsertLocal(entry.copyWith(progress: saved));
       notifyListeners();
       if (saved.status != previous.status) {
-        _logEvent(_eventForShelf(saved.status), entry.book.title);
+        _logEvent(
+          _eventForShelf(saved.status),
+          entry.book.title,
+          occurredAt: at,
+        );
       }
       return LibraryActionResult.success(
         _movedMessage(entry.book.title, shelf),
@@ -831,9 +1020,24 @@ class LibraryController extends ChangeNotifier {
     int page, {
     DateTime? loggedAt,
   }) async {
-    final entry = _findByTitle(title);
-    if (entry == null) return _notStarted(title);
-    return _updateEntryProgress(entry, page, loggedAt: loggedAt);
+    // On the shelf already: straight to the write, with no await before the
+    // optimistic update — the page redraws in the same frame as the command.
+    final existing = _findByTitle(title);
+    if (existing != null) {
+      return _updateEntryProgress(existing, page, loggedAt: loggedAt);
+    }
+    final invalidDate = _validateLoggedAt(loggedAt);
+    if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
+    final resolved = await _onShelfOrAdd(
+      title,
+      ReadingStatus.reading,
+      at: loggedAt,
+      precheck: (candidate) => _validatePage(page, candidate),
+    );
+    final entry = resolved.entry;
+    if (entry == null) return resolved.failure!;
+    final result = await _updateEntryProgress(entry, page, loggedAt: loggedAt);
+    return _markAdded(result, added: resolved.added);
   }
 
   /// The detail page's progress fields — [updateProgress] for a row
@@ -897,12 +1101,30 @@ class LibraryController extends ChangeNotifier {
     double percent, {
     DateTime? loggedAt,
   }) async {
-    final entry = _findByTitle(title);
-    if (entry == null) return _notStarted(title);
+    final existing = _findByTitle(title);
+    if (existing != null) {
+      final resolved = pageForPercent(existing, percent);
+      final page = resolved.page;
+      if (page == null) return LibraryActionResult.failure(resolved.failure);
+      return _updateEntryProgress(existing, page, loggedAt: loggedAt);
+    }
+    final invalidDate = _validateLoggedAt(loggedAt);
+    if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
+    final onShelf = await _onShelfOrAdd(
+      title,
+      ReadingStatus.reading,
+      at: loggedAt,
+      // Checked before adding, so "update dune 50%" on a book whose length
+      // Google doesn't know refuses cleanly instead of leaving it added.
+      precheck: (candidate) => pageForPercent(candidate, percent).failure,
+    );
+    final entry = onShelf.entry;
+    if (entry == null) return onShelf.failure!;
     final resolved = pageForPercent(entry, percent);
     final page = resolved.page;
     if (page == null) return LibraryActionResult.failure(resolved.failure);
-    return _updateEntryProgress(entry, page, loggedAt: loggedAt);
+    final result = await _updateEntryProgress(entry, page, loggedAt: loggedAt);
+    return _markAdded(result, added: onShelf.added);
   }
 
   /// Converts [percent] of [entry]'s length to a page — the single rule
@@ -914,7 +1136,7 @@ class LibraryController extends ChangeNotifier {
     LibraryBook entry,
     double percent,
   ) {
-    if (percent.isNaN || percent < 0 || percent > 100) {
+    if (!percent.isFinite || percent < 0 || percent > 100) {
       return (page: null, failure: 'A percentage has to be between 0 and 100.');
     }
     final total = entry.pageCount;
@@ -939,16 +1161,29 @@ class LibraryController extends ChangeNotifier {
     String title, {
     DateTime? loggedAt,
   }) async {
-    final entry = _findByTitle(title);
-    if (entry == null) return _notStarted(title);
+    final invalidDate = _validateLoggedAt(loggedAt);
+    if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
+
+    // A hit resolves synchronously, so the optimistic finish below still
+    // redraws in the same frame; only a miss goes through the async add.
+    final onShelf = _findByTitle(title);
+    final resolved = onShelf != null
+        ? (entry: onShelf, added: false, failure: null)
+        : await _onShelfOrAdd(title, ReadingStatus.finished, at: loggedAt);
+    final entry = resolved.entry;
+    if (entry == null) return resolved.failure!;
+    if (resolved.added) {
+      // Added straight onto the finished shelf — that *is* the finish.
+      return LibraryActionResult.success(
+        'Added "${entry.book.title}" as finished',
+        true,
+      );
+    }
     if (entry.isFinished) {
       return LibraryActionResult.failure(
         '"${entry.book.title}" is already finished.',
       );
     }
-
-    final invalidDate = _validateLoggedAt(loggedAt);
-    if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
 
     return _persist(
       entry,
@@ -965,6 +1200,63 @@ class LibraryController extends ChangeNotifier {
     );
   }
 
+  /// `restart <book>` — puts a finished book back on the reading shelf at
+  /// page 0 for another pass, bumping [UserBook.rereadCount] for the
+  /// cover badge. Only valid once a book has actually been finished — a
+  /// dropped ([ReadingStatus.dnf]) book isn't "restarted", it's just
+  /// moved back with `move`.
+  ///
+  /// Uses [UserBookRepository.restart] rather than [_persist]: like
+  /// [rateBook], `reread_count` isn't a column `saveProgress` writes.
+  Future<LibraryActionResult> restartBook(
+    String title, {
+    DateTime? loggedAt,
+  }) async {
+    final entry = _findByTitle(title);
+    if (entry == null) return _notStarted(title);
+    if (!entry.isFinished) {
+      return LibraryActionResult.failure(
+        '"${entry.book.title}" hasn\'t been finished yet.',
+      );
+    }
+
+    final invalidDate = _validateLoggedAt(loggedAt);
+    if (invalidDate != null) return LibraryActionResult.failure(invalidDate);
+
+    final previous = entry;
+    final nextCount = entry.rereadCount + 1;
+    _upsertLocal(
+      entry.copyWith(
+        progress: entry.progress.copyWith(
+          currentPage: 0,
+          status: ReadingStatus.reading,
+          clearFinishedAt: true,
+          rereadCount: nextCount,
+        ),
+      ),
+    );
+    notifyListeners();
+
+    try {
+      final saved = await userBooks.restart(
+        userBookId: entry.progress.id,
+        rereadCount: nextCount,
+      );
+      _upsertLocal(entry.copyWith(progress: saved));
+      notifyListeners();
+      _logEvent(
+        ReadingEventType.restart,
+        entry.book.title,
+        occurredAt: loggedAt,
+      );
+      return LibraryActionResult.success('Restarted "${entry.book.title}"');
+    } on LibraryException catch (error) {
+      _upsertLocal(previous);
+      notifyListeners();
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
   /// `rate <book> <stars>` — only allowed once the book is finished, so
   /// a rating always reflects a book actually read rather than a
   /// prediction. Optimistic like the other commands: the star shows
@@ -974,10 +1266,39 @@ class LibraryController extends ChangeNotifier {
   /// writes progress/status through [UserBookRepository.saveProgress],
   /// which has no `rating` column in its update and would silently drop
   /// this write.
+  ///
+  /// A book not on the shelf is added as finished first (see
+  /// [_onShelfOrAdd]) — rating a book says it was read.
   Future<LibraryActionResult> rateBook(String title, double rating) async {
-    final entry = _findByTitle(title);
-    if (entry == null) return _notStarted(title);
-    return _rateEntry(entry, rating);
+    final existing = _findByTitle(title);
+    if (existing != null) return _rateEntry(existing, rating);
+    final resolved = await _onShelfOrAdd(
+      title,
+      ReadingStatus.finished,
+      precheck: (_) => _validateRating(rating),
+    );
+    final entry = resolved.entry;
+    if (entry == null) return resolved.failure!;
+    final result = await _rateEntry(entry, rating);
+    if (!resolved.added || !result.success) return result;
+    return LibraryActionResult.success(
+      'Added "${entry.book.title}" as finished — '
+      '${formatCompactNumber(roundToHalf(rating))}★',
+      true,
+    );
+  }
+
+  /// The rating range rule [_rateEntry] enforces, as a message or null —
+  /// shared so a fallback add can refuse a bad rating before adding.
+  static String? _validateRating(double rating) {
+    // Checked before rounding: `round()` throws on NaN and infinity, and a
+    // long enough run of typed digits parses to infinity.
+    if (!rating.isFinite) return 'Ratings are between 0.5 and 5 stars.';
+    final rounded = roundToHalf(rating);
+    if (rounded <= 0 || rounded > 5) {
+      return 'Ratings are between 0.5 and 5 stars.';
+    }
+    return null;
   }
 
   /// The detail page's star row — [rateBook] for a row identified by id.
@@ -1000,12 +1321,10 @@ class LibraryController extends ChangeNotifier {
     // Half-star granularity — rounded here (not just in the parser) so
     // the rule holds no matter who calls rateBook, and the star row
     // never has to render a value finer than it can actually display.
-    final rounded = (rating * 2).round() / 2;
-    if (rounded <= 0 || rounded > 5) {
-      return const LibraryActionResult.failure(
-        'Ratings are between 0.5 and 5 stars.',
-      );
+    if (_validateRating(rating) case final problem?) {
+      return LibraryActionResult.failure(problem);
     }
+    final rounded = roundToHalf(rating);
 
     final previous = entry;
     _upsertLocal(
@@ -1022,22 +1341,13 @@ class LibraryController extends ChangeNotifier {
       notifyListeners();
       _logEvent(ReadingEventType.rate, entry.book.title, value: rounded);
       return LibraryActionResult.success(
-        '"${entry.book.title}" — ${_formatStars(rounded)}★',
+        '"${entry.book.title}" — ${formatCompactNumber(rounded)}★',
       );
     } on LibraryException catch (error) {
       _upsertLocal(previous);
       notifyListeners();
       return LibraryActionResult.failure(error.message);
     }
-  }
-
-  /// Drops a trailing ".0" ("5★" rather than "5.0★") but keeps a real
-  /// half ("4.5★") — mirrors `LogCommandParser`'s own formatting so the
-  /// optimistic pill message and this result never disagree.
-  static String _formatStars(double rating) {
-    return rating == rating.roundToDouble()
-        ? rating.toInt().toString()
-        : rating.toStringAsFixed(1);
   }
 
   /// The editions page's cover gallery: makes [edition] the copy the
@@ -1109,14 +1419,26 @@ class LibraryController extends ChangeNotifier {
   /// `make tag` command that would create it (see [noSuchTag]). Not
   /// optimistic: tags aren't rendered anywhere on the shelf itself, only on
   /// the detail page, which loads them fresh when it opens.
+  ///
+  /// A book not on the shelf yet is added to read first (see
+  /// [_onShelfOrAdd]) — but only once the tag is known to exist, so a
+  /// mistyped tag never leaves a stray book behind.
   Future<LibraryActionResult> addTag(String title, String tagName) async {
-    final entry = _findByTitle(title);
-    if (entry == null) return _notOnShelf(title);
     if (noSuchTag(tagName) case final missing?) return missing;
+    // Resolved now, not after the await below: a reload landing while the
+    // book is being added could otherwise leave nothing to look up.
+    final tag = findTag(tagName)!;
+    final resolved = await _onShelfOrAdd(title, ReadingStatus.toBeRead);
+    final entry = resolved.entry;
+    if (entry == null) return resolved.failure!;
     try {
-      final saved = await notes.addTag(entry.id, findTag(tagName)!);
+      final saved = await notes.addTag(entry.id, tag);
+      notifyTagsChanged();
       return LibraryActionResult.success(
-        'Tagged "${entry.book.title}" ${saved.tag}',
+        resolved.added
+            ? 'Added "${entry.book.title}" to read and tagged it ${saved.tag}'
+            : 'Tagged "${entry.book.title}" ${saved.tag}',
+        resolved.added,
       );
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
@@ -1153,10 +1475,20 @@ class LibraryController extends ChangeNotifier {
   }) async {
     var body = comment;
     final LibraryBook entry;
+    var added = false;
     if (title != null) {
-      final found = _findByTitle(title);
-      if (found == null) return _notOnShelf(title);
+      // Validated before a fallback add, so an empty or overlong comment
+      // never leaves a stray book on the shelf.
+      try {
+        BookNotesRepository.validateComment(comment);
+      } on LibraryException catch (error) {
+        return LibraryActionResult.failure(error.message);
+      }
+      final resolved = await _onShelfOrAdd(title, ReadingStatus.toBeRead);
+      final found = resolved.entry;
+      if (found == null) return resolved.failure!;
       entry = found;
+      added = resolved.added;
     } else {
       final split = splitTrailingTitle(comment);
       if (split == null) {
@@ -1171,7 +1503,12 @@ class LibraryController extends ChangeNotifier {
 
     try {
       await notes.addComment(entry.id, body);
-      return LibraryActionResult.success('Commented on "${entry.book.title}"');
+      return LibraryActionResult.success(
+        added
+            ? 'Added "${entry.book.title}" to read and commented on it'
+            : 'Commented on "${entry.book.title}"',
+        added,
+      );
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
     }
@@ -1242,8 +1579,6 @@ class LibraryController extends ChangeNotifier {
     String seriesName, {
     double? position,
   }) async {
-    final entry = _findByTitle(title);
-    if (entry == null) return _notOnShelf(title);
     final String clean;
     try {
       clean = CollectionNames.validateSeries(seriesName);
@@ -1257,6 +1592,17 @@ class LibraryController extends ChangeNotifier {
         '$clean.',
       );
     }
+    if (position != null &&
+        (!position.isFinite || position <= 0 || position >= 10000)) {
+      return const LibraryActionResult.failure(
+        'A series number has to be above 0 and below 10000.',
+      );
+    }
+    // Only now, with the series known to exist: a book not on the shelf
+    // yet is added to read (see [_onShelfOrAdd]).
+    final resolved = await _onShelfOrAdd(title, ReadingStatus.toBeRead);
+    final entry = resolved.entry;
+    if (entry == null) return resolved.failure!;
     final before = entry.progress;
     final samePosition = before.seriesId == known.id
         ? before.seriesPosition
@@ -1278,13 +1624,646 @@ class LibraryController extends ChangeNotifier {
           ? known.name
           : '${known.name} #${BookSeries.formatPosition(newPosition)}';
       return LibraryActionResult.success(
-        'Filed "${entry.book.title}" under $label',
+        resolved.added
+            ? 'Added "${entry.book.title}" to read and filed it under $label'
+            : 'Filed "${entry.book.title}" under $label',
+        resolved.added,
       );
     } on LibraryException catch (error) {
       _upsertLocal(entry.copyWith(progress: before));
       notifyListeners();
       return LibraryActionResult.failure(error.message);
     }
+  }
+
+  // ---------------------------------------------------------------- removal
+
+  /// Works out what a `remove shelf|tag|series` line means, using the
+  /// collections that exist to split the name from a book title:
+  ///
+  /// * [name] given (the quoted form, `remove tag "sci fi" dune`) — the
+  ///   parser already split it; [title] may be empty.
+  /// * otherwise [argument] is the whole unquoted remainder ("summer reads
+  ///   dune"): the *longest* leading run of words naming an existing
+  ///   collection wins, and whatever follows is the book.
+  ///
+  /// No book at all means unmaking the collection itself
+  /// ([UnmakeCollection]); a book means taking it out ([RemoveFromCollection]).
+  /// Unknown names, and the built-in shelves (which aren't rows and can't be
+  /// removed), come back as a failure message instead.
+  ({CollectionRemoval? removal, String? failure}) resolveRemoval(
+    CollectionKind kind, {
+    String? name,
+    String? title,
+    String? argument,
+  }) {
+    String? matchedName;
+    String remainder;
+    if (name != null) {
+      matchedName = name.trim();
+      remainder = (title ?? '').trim();
+    } else {
+      final tokens = (argument ?? '').trim().split(RegExp(r'\s+'))
+        ..removeWhere((t) => t.isEmpty);
+      if (tokens.isEmpty) {
+        return (
+          removal: null,
+          failure: 'Name the ${_singular(kind)} to remove.',
+        );
+      }
+      remainder = '';
+      matchedName = null;
+      for (var end = tokens.length; end >= 1; end--) {
+        final candidate = tokens.sublist(0, end).join(' ');
+        if (_lookupCollection(kind, candidate) != null ||
+            (kind == CollectionKind.shelves &&
+                CollectionNames.builtInShelf(candidate) != null)) {
+          matchedName = candidate;
+          remainder = tokens.sublist(end).join(' ');
+          break;
+        }
+      }
+      matchedName ??= tokens.first;
+    }
+
+    if (matchedName.isEmpty) {
+      return (removal: null, failure: 'Name the ${_singular(kind)} to remove.');
+    }
+    if (kind == CollectionKind.shelves &&
+        CollectionNames.builtInShelf(matchedName) != null) {
+      return (
+        removal: null,
+        failure:
+            '"${CollectionNames.clean(matchedName)}" is a built-in shelf — it '
+            "can't be removed.",
+      );
+    }
+    final found = _lookupCollection(kind, matchedName);
+    if (found == null) {
+      final clean = CollectionNames.clean(matchedName);
+      return (removal: null, failure: 'No ${_singular(kind)} called "$clean".');
+    }
+    if (remainder.isEmpty) {
+      return (
+        removal: UnmakeCollection(
+          kind: kind,
+          name: found.name,
+          id: found.id,
+          bookCount: switch (kind) {
+            CollectionKind.shelves =>
+              _books.where((b) => b.shelfId == found.id).length,
+            CollectionKind.series =>
+              _books.where((b) => b.seriesId == found.id).length,
+            CollectionKind.tags => 0,
+          },
+        ),
+        failure: null,
+      );
+    }
+    return (
+      removal: RemoveFromCollection(
+        kind: kind,
+        name: found.name,
+        title: remainder,
+      ),
+      failure: null,
+    );
+  }
+
+  ({String id, String name})? _lookupCollection(
+    CollectionKind kind,
+    String name,
+  ) {
+    final key = CollectionNames.key(name);
+    switch (kind) {
+      case CollectionKind.shelves:
+        for (final s in _shelves) {
+          if (CollectionNames.key(s.name) == key) {
+            return (id: s.id, name: s.name);
+          }
+        }
+      case CollectionKind.tags:
+        for (final t in _tags) {
+          if (CollectionNames.key(t.name) == key) {
+            return (id: t.id, name: t.name);
+          }
+        }
+      case CollectionKind.series:
+        for (final s in _mySeries) {
+          if (s.matches(name)) return (id: s.id, name: s.name);
+        }
+    }
+    return null;
+  }
+
+  static String _singular(CollectionKind kind) => switch (kind) {
+    CollectionKind.shelves => 'shelf',
+    CollectionKind.tags => 'tag',
+    CollectionKind.series => 'series',
+  };
+
+  /// Applies a resolved [removal] — see [resolveRemoval]. The add tab
+  /// confirms an [UnmakeCollection] before calling this; the "+" panel
+  /// calls [deleteShelf]/[deleteTag]/[deleteSeries] directly after its own
+  /// confirmation.
+  Future<LibraryActionResult> applyRemoval(CollectionRemoval removal) {
+    return switch (removal) {
+      UnmakeCollection(kind: CollectionKind.shelves, :final id) => deleteShelf(
+        id,
+      ),
+      UnmakeCollection(kind: CollectionKind.tags, :final id) => deleteTag(id),
+      UnmakeCollection(kind: CollectionKind.series, :final id) => deleteSeries(
+        id,
+      ),
+      RemoveFromCollection(
+        kind: CollectionKind.shelves,
+        :final title,
+        :final name,
+      ) =>
+        removeFromShelf(title, name),
+      RemoveFromCollection(
+        kind: CollectionKind.tags,
+        :final title,
+        :final name,
+      ) =>
+        removeTag(title, name),
+      RemoveFromCollection(
+        kind: CollectionKind.series,
+        :final title,
+        :final name,
+      ) =>
+        removeFromSeries(title, name),
+    };
+  }
+
+  /// `remove shelf <shelf> <book>` — takes a book off a custom shelf, back
+  /// to its own status section with its progress kept (the same side effect
+  /// a drag onto the built-in shelf of its status has). Refused for a book
+  /// that isn't on that shelf.
+  Future<LibraryActionResult> removeFromShelf(
+    String title,
+    String shelfName,
+  ) async {
+    final entry = _findByTitle(title);
+    if (entry == null) return _notOnShelf(title);
+    final target = findShelf(shelfName);
+    if (target is! CustomShelfRef) {
+      return LibraryActionResult.failure(
+        'No shelf called "${CollectionNames.clean(shelfName)}".',
+      );
+    }
+    if (entry.shelfId != target.shelfId) {
+      return LibraryActionResult.failure(
+        '"${entry.book.title}" isn\'t on ${shelfName.trim()}.',
+      );
+    }
+    final result = await _changeShelf(entry, StatusShelfRef(entry.status));
+    return result.success
+        ? LibraryActionResult.success(
+            'Took "${entry.book.title}" off ${shelfName.trim()}',
+          )
+        : result;
+  }
+
+  /// `remove tag <tag> <book>` — the reverse of [addTag]. Refused, without
+  /// touching anything, when the book doesn't carry that tag. Not
+  /// optimistic, like [addTag]: it needs a round trip to find which link
+  /// row to delete anyway.
+  Future<LibraryActionResult> removeTag(String title, String tagName) async {
+    final entry = _findByTitle(title);
+    if (entry == null) return _notOnShelf(title);
+    final String clean;
+    try {
+      clean = CollectionNames.validateTag(tagName);
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+    try {
+      final applied = await notes.fetchTags(entry.id);
+      final match = applied
+          .where((t) => BookTag.normalize(t.tag) == BookTag.normalize(clean))
+          .firstOrNull;
+      if (match == null) {
+        return LibraryActionResult.failure(
+          '"${entry.book.title}" isn\'t tagged $clean.',
+        );
+      }
+      await notes.removeTag(match.id);
+      notifyTagsChanged();
+      return LibraryActionResult.success(
+        'Removed $clean from "${entry.book.title}"',
+      );
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// `remove series <series> <book>` — takes a book out of the series it's
+  /// filed under, number and all. Refused when it isn't filed under that
+  /// series. Optimistic with rollback, like [addToSeries].
+  Future<LibraryActionResult> removeFromSeries(
+    String title,
+    String seriesName,
+  ) async {
+    final entry = _findByTitle(title);
+    if (entry == null) return _notOnShelf(title);
+    final known = findSeries(seriesName);
+    final before = entry.progress;
+    if (known == null || before.seriesId != known.id) {
+      return LibraryActionResult.failure(
+        '"${entry.book.title}" isn\'t filed under ${seriesName.trim()}.',
+      );
+    }
+    _upsertLocal(
+      entry.copyWith(
+        progress: before.copyWith(
+          clearSeriesId: true,
+          clearSeriesPosition: true,
+        ),
+      ),
+    );
+    notifyListeners();
+    try {
+      await series.clearSeries(entry.id);
+      return LibraryActionResult.success(
+        'Took "${entry.book.title}" out of ${known.name}',
+      );
+    } on LibraryException catch (error) {
+      _upsertLocal(entry.copyWith(progress: before));
+      notifyListeners();
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// Unmakes a shelf — `remove shelf <shelf>` and the "+" panel's X. Every
+  /// book on it falls back to its status section, progress untouched (the
+  /// foreign key does this server-side; mirrored locally). Not optimistic:
+  /// it's a confirmed, rarer action, and reverting a vanished section
+  /// would be jarring.
+  Future<LibraryActionResult> deleteShelf(String shelfId) async {
+    final shelf = _shelfById(shelfId);
+    if (shelf == null) {
+      return const LibraryActionResult.failure("That shelf doesn't exist.");
+    }
+    try {
+      await collections.deleteShelf(shelfId);
+      _shelves = [..._shelves]..removeWhere((s) => s.id == shelfId);
+      for (final entry in [..._books]) {
+        if (entry.shelfId == shelfId) {
+          _upsertLocal(
+            entry.copyWith(
+              progress: entry.progress.copyWith(
+                clearShelfId: true,
+                clearShelfPosition: true,
+              ),
+            ),
+          );
+        }
+      }
+      notifyListeners();
+      return LibraryActionResult.success('Removed shelf "${shelf.name}"');
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// Unmakes a tag — `remove tag <tag>` and the "+" panel's X. Every book
+  /// it was on loses it (the link rows cascade server-side).
+  Future<LibraryActionResult> deleteTag(String tagId) async {
+    final tag = _tags.where((t) => t.id == tagId).firstOrNull;
+    if (tag == null) {
+      return const LibraryActionResult.failure("That tag doesn't exist.");
+    }
+    try {
+      await collections.deleteTag(tagId);
+      _tags = [..._tags]..removeWhere((t) => t.id == tagId);
+      notifyListeners();
+      notifyTagsChanged();
+      return LibraryActionResult.success('Removed tag "${tag.name}"');
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// Unmakes a series — `remove series <series>` and the "+" panel's X.
+  /// Every book filed under it falls out of it, its number with it.
+  Future<LibraryActionResult> deleteSeries(String seriesId) async {
+    final found = seriesById(seriesId);
+    if (found == null) {
+      return const LibraryActionResult.failure("That series doesn't exist.");
+    }
+    try {
+      await series.deleteSeries(seriesId);
+      _mySeries = [..._mySeries]..removeWhere((s) => s.id == seriesId);
+      for (final entry in [..._books]) {
+        if (entry.seriesId == seriesId) {
+          _upsertLocal(
+            entry.copyWith(
+              progress: entry.progress.copyWith(
+                clearSeriesId: true,
+                clearSeriesPosition: true,
+              ),
+            ),
+          );
+        }
+      }
+      notifyListeners();
+      return LibraryActionResult.success('Removed series "${found.name}"');
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// Which comment a `remove comment` line means, for the add tab to
+  /// confirm before [deleteComment] runs:
+  ///
+  /// * [title] given (quoted form) — [text] names the comment, or is null
+  ///   for "the latest";
+  /// * otherwise [argument] is split by [splitTrailingTitle]; if the whole
+  ///   argument is itself a book's title, it's that book's latest comment.
+  ///
+  /// A comment matches ignoring case and surrounding space, then by prefix
+  /// ("remove comment loved it dune" finds "loved it, especially the
+  /// ending") — the most recent match wins.
+  Future<({LibraryBook? entry, BookComment? comment, String? failure})>
+  resolveCommentRemoval({String? title, String? text, String? argument}) async {
+    LibraryBook? entry;
+    String? needle;
+    if (title != null) {
+      entry = _findByTitle(title);
+      if (entry == null) {
+        return (
+          entry: null,
+          comment: null,
+          failure: _notOnShelf(title).message,
+        );
+      }
+      needle = text;
+    } else {
+      final words = (argument ?? '').trim();
+      if (words.isEmpty) {
+        return (
+          entry: null,
+          comment: null,
+          failure: 'Name the book whose comment to remove.',
+        );
+      }
+      entry = _findExactTitle(words);
+      if (entry == null) {
+        final split = splitTrailingTitle(words);
+        if (split != null) {
+          entry = split.entry;
+          needle = split.prefix;
+        } else {
+          entry = _findByTitle(words);
+        }
+      }
+      if (entry == null) {
+        return (
+          entry: null,
+          comment: null,
+          failure:
+              "Couldn't tell which book that comment is on — try "
+              'remove comment "the comment" <book>.',
+        );
+      }
+    }
+
+    try {
+      final comments = [...await notes.fetchComments(entry.id)]
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      if (comments.isEmpty) {
+        return (
+          entry: entry,
+          comment: null,
+          failure: '"${entry.book.title}" has no comments.',
+        );
+      }
+      if (needle == null || needle.trim().isEmpty) {
+        return (entry: entry, comment: comments.first, failure: null);
+      }
+      final key = needle.trim().toLowerCase();
+      final match =
+          comments
+              .where((c) => c.body.trim().toLowerCase() == key)
+              .firstOrNull ??
+          comments
+              .where((c) => c.body.trim().toLowerCase().startsWith(key))
+              .firstOrNull;
+      if (match == null) {
+        return (
+          entry: entry,
+          comment: null,
+          failure:
+              '"${entry.book.title}" has no comment like "${needle.trim()}".',
+        );
+      }
+      return (entry: entry, comment: match, failure: null);
+    } on LibraryException catch (error) {
+      return (entry: entry, comment: null, failure: error.message);
+    }
+  }
+
+  /// `remove comment` once confirmed — deletes [comment] from [entry].
+  Future<LibraryActionResult> deleteComment(
+    LibraryBook entry,
+    BookComment comment,
+  ) async {
+    try {
+      await notes.deleteComment(comment.id);
+      return LibraryActionResult.success(
+        'Removed a comment from "${entry.book.title}"',
+      );
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  // ------------------------------------------------------------------ dates
+
+  /// The book page's start/finish date fields. Both dates are calendar days
+  /// (local midnight is fine); either may be omitted to keep the current
+  /// one. Validation, before anything is written:
+  ///
+  /// * neither may be in the future;
+  /// * a finish date is only for a finished book;
+  /// * a book can't be finished before it was started.
+  ///
+  /// Optimistic with rollback, like every shelf write.
+  Future<LibraryActionResult> setDates(
+    String userBookId, {
+    DateTime? startedAt,
+    DateTime? finishedAt,
+  }) async {
+    final entry = findById(userBookId);
+    if (entry == null) return _missingById;
+    final progress = entry.progress;
+
+    if (finishedAt != null && !entry.isFinished) {
+      return const LibraryActionResult.failure(
+        'Only a finished book has a finish date.',
+      );
+    }
+    final start = startedAt ?? progress.startedAt;
+    final finish = finishedAt ?? progress.finishedAt;
+    if (start == null) {
+      return const LibraryActionResult.failure('Pick a start date first.');
+    }
+    final today = DateTime.now();
+    final endOfToday = DateTime(today.year, today.month, today.day + 1);
+    for (final date in [startedAt, finishedAt]) {
+      if (date != null && !date.isBefore(endOfToday)) {
+        return const LibraryActionResult.failure(
+          "That date hasn't happened yet.",
+        );
+      }
+    }
+    if (entry.isFinished &&
+        finish != null &&
+        _dayOf(finish).isBefore(_dayOf(start))) {
+      return const LibraryActionResult.failure(
+        "A book can't be finished before it was started.",
+      );
+    }
+    if (_sameMoment(start, progress.startedAt) &&
+        (!entry.isFinished || _sameMoment(finish, progress.finishedAt))) {
+      return const LibraryActionResult.success();
+    }
+
+    final previous = entry;
+    _upsertLocal(
+      entry.copyWith(
+        progress: progress.copyWith(
+          startedAt: start.toUtc(),
+          finishedAt: entry.isFinished ? finish?.toUtc() : null,
+        ),
+      ),
+    );
+    notifyListeners();
+    try {
+      final saved = await userBooks.saveDates(
+        userBookId,
+        startedAt: start,
+        finishedAt: entry.isFinished ? finish : null,
+      );
+      _upsertLocal(entry.copyWith(progress: saved));
+      notifyListeners();
+      return const LibraryActionResult.success('Saved your dates');
+    } on LibraryException catch (error) {
+      _upsertLocal(previous);
+      notifyListeners();
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  static DateTime _dayOf(DateTime date) {
+    final local = date.toLocal();
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  static bool _sameMoment(DateTime? a, DateTime? b) =>
+      a == null ? b == null : b != null && a.isAtSameMomentAs(b);
+
+  // ------------------------------------------------------ add-to-library
+
+  /// Resolves [title] to a shelf row for a command that needs one —
+  /// `update`, `finish`, `rate`, `add tag`, `add series`, a quoted
+  /// `add comment` — *adding the book first* when it isn't on the shelf,
+  /// the way `move` adds a book it doesn't find ([moveToShelf]).
+  ///
+  /// * On the shelf (by the usual fuzzy title match) — returned as is.
+  /// * Otherwise the title is resolved cache-first through [lookup]; if
+  ///   that finds a book already on the shelf under another spelling, that
+  ///   row is used.
+  /// * Otherwise [precheck] runs against a stand-in row for the book (so a
+  ///   page past its end, a rating out of range, a percentage of a book of
+  ///   unknown length refuses *before* anything is added), then the book is
+  ///   added at [status] — reading, finished (at its last page), or to read
+  ///   — with its start/finish dates at [at] when given, and journaled the
+  ///   same way `move` journals an add.
+  Future<({LibraryBook? entry, bool added, LibraryActionResult? failure})>
+  _onShelfOrAdd(
+    String title,
+    ReadingStatus status, {
+    DateTime? at,
+    String? Function(LibraryBook candidate)? precheck,
+  }) async {
+    final onShelf = _findByTitle(title);
+    if (onShelf != null) return (entry: onShelf, added: false, failure: null);
+
+    try {
+      final book = await lookup.findOrFetch(title);
+      final existing = _findByBookId(book.id);
+      if (existing != null) {
+        return (entry: existing, added: false, failure: null);
+      }
+
+      final page = status == ReadingStatus.finished ? book.pageCount ?? 0 : 0;
+      final problem = precheck?.call(
+        LibraryBook(
+          book: book,
+          progress: UserBook(
+            id: '',
+            bookId: book.id,
+            currentPage: page,
+            status: status,
+          ),
+        ),
+      );
+      if (problem != null) {
+        return (
+          entry: null,
+          added: false,
+          failure: LibraryActionResult.failure(problem),
+        );
+      }
+
+      final added = await userBooks.addWithStatus(
+        book.id,
+        status,
+        currentPage: page,
+        startedAt: at,
+        finishedAt: status == ReadingStatus.finished ? at : null,
+      );
+      final entry = LibraryBook(book: book, progress: added.progress);
+      _upsertLocal(entry);
+      notifyListeners();
+      _warmEditions(book);
+      if (added.alreadyExists) {
+        // Rare race: the row appeared between the local lookup and this
+        // write. Use it as found rather than claiming an add.
+        return (entry: entry, added: false, failure: null);
+      }
+      _logEvent(_eventForShelf(status), book.title, occurredAt: at);
+      return (entry: entry, added: true, failure: null);
+    } on LibraryException catch (error) {
+      return (
+        entry: null,
+        added: false,
+        failure: LibraryActionResult.failure(error.message),
+      );
+    }
+  }
+
+  /// [result], flagged as having added its book when [added].
+  static LibraryActionResult _markAdded(
+    LibraryActionResult result, {
+    required bool added,
+  }) {
+    if (!added || !result.success) return result;
+    return LibraryActionResult.success(result.message, true);
+  }
+
+  /// The "+" panel's books tab — [deleteBook] for a row identified by id,
+  /// so two books with similar titles can never be confused.
+  ///
+  /// Deletes exactly that row. It used to re-resolve the book by its title,
+  /// which with two books of the same title deleted whichever was updated
+  /// most recently — not necessarily the one whose X was tapped.
+  Future<LibraryActionResult> deleteBookById(String userBookId) {
+    final entry = findById(userBookId);
+    if (entry == null) return Future.value(_missingById);
+    return _deleteEntry(entry);
   }
 
   /// `delete <book>` — removes the book from the shelf. Optimistic like
@@ -1296,10 +2275,13 @@ class LibraryController extends ChangeNotifier {
   /// from the shelf shouldn't leave its "started"/"read up to page..."
   /// trail behind in the streak journal either. Its tags and comments go
   /// with the shelf row itself (`on delete cascade`).
-  Future<LibraryActionResult> deleteBook(String title) async {
+  Future<LibraryActionResult> deleteBook(String title) {
     final entry = _findByTitle(title);
-    if (entry == null) return _notStarted(title);
+    if (entry == null) return Future.value(_notStarted(title));
+    return _deleteEntry(entry);
+  }
 
+  Future<LibraryActionResult> _deleteEntry(LibraryBook entry) async {
     _removeLocal(entry.id);
     notifyListeners();
 
