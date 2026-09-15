@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -105,6 +106,13 @@ class _CommandInputState extends State<CommandInput>
   /// double-tap of the return key can't fire the same command twice.
   bool _busy = false;
 
+  /// Refuses every edit while a command is running — the struck-through
+  /// text must stay exactly as submitted — without making the field
+  /// read-only, which would close the keyboard.
+  late final TextInputFormatter _whileBusy = TextInputFormatter.withFunction(
+    (oldValue, newValue) => _busy ? oldValue : newValue,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -144,7 +152,7 @@ class _CommandInputState extends State<CommandInput>
     } on Object catch (error, stackTrace) {
       // The handler is supposed to report failures as an outcome. If one
       // escapes anyway, the field must still come back: `_busy` left true
-      // makes it read-only for the rest of the session.
+      // refuses every edit for the rest of the session.
       AppLogger.error(
         'CommandInput',
         'A command handler threw instead of returning an outcome.',
@@ -250,9 +258,17 @@ class _CommandInputState extends State<CommandInput>
                     keyboardType: TextInputType.text,
                     textInputAction: TextInputAction.done,
                     textAlignVertical: TextAlignVertical.top,
-                    readOnly: _busy,
+                    // The keyboard stays up through a submit, so the next
+                    // command can be typed straight away. `readOnly` would
+                    // close it (a read-only field drops its input
+                    // connection), so while a command runs edits are
+                    // refused by [_whileBusy] instead.
+                    inputFormatters: [_whileBusy],
                     showCursor: !_busy,
                     onSubmitted: _submit,
+                    // A no-op rather than null: left null, the "done" key's
+                    // default is to unfocus the field and drop the keyboard.
+                    onEditingComplete: () {},
                     style: style,
                     cursorColor: colors.accent,
                     decoration: InputDecoration(
