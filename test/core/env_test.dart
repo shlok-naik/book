@@ -53,15 +53,13 @@ void main() {
   });
 
   group('the Google Books key', () {
-    test('is optional — a missing one degrades to keyless search', () {
-      expect(Env.googleBooksApiKeyOrNull, isNull);
+    test('is not part of the app config at all any more', () {
+      // It is a Supabase project secret used by the `google-books` edge
+      // function. If it reappears here, it ships inside the app again.
+      dotenv.loadFromString(envString: 'GOOGLE_BOOKS_API_KEY=leaked');
+
+      expect(Env.requiredKeys, isNot(contains('GOOGLE_BOOKS_API_KEY')));
       expect(Env.missingKeys, isNot(contains('GOOGLE_BOOKS_API_KEY')));
-    });
-
-    test('is still returned when it is configured', () {
-      dotenv.loadFromString(envString: 'GOOGLE_BOOKS_API_KEY=abc123');
-
-      expect(Env.googleBooksApiKeyOrNull, 'abc123');
     });
   });
 

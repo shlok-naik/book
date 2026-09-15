@@ -3,22 +3,33 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/env/env.dart';
 import '../domain/library_exception.dart';
 import 'google_book.dart';
 
-/// Thin wrapper over the Google Books "volumes" search endpoint. Takes
-/// its [http.Client] by injection so it can be swapped for a mock in
+/// Thin wrapper over the Google Books "volumes" API, reached through the
+/// `google-books` Supabase edge function rather than googleapis.com
+/// directly — the function adds the API key server-side, so no key ships in
+/// the app (see `supabase/functions/google-books/index.ts`). The function
+/// mirrors Google's own paths and passes its status and body through, so
+/// everything below parses exactly what Google sent.
+///
+/// Takes its [http.Client] by injection so it can be swapped for a mock in
 /// tests instead of hitting the network.
 ///
 /// Every failure mode — offline, timeout, non-200, malformed body — is
 /// translated into a [LibraryException] here, so callers never have to
 /// know about sockets or status codes.
 class GoogleBooksApiClient {
-  GoogleBooksApiClient({http.Client? client, Duration? timeout})
-    : _client = client ?? http.Client(),
-      _timeout = timeout ?? const Duration(seconds: 12);
+  GoogleBooksApiClient({
+    http.Client? client,
+    Duration? timeout,
+    Future<Map<String, String>> Function()? authHeaders,
+  }) : _client = client ?? http.Client(),
+       _timeout = timeout ?? const Duration(seconds: 12),
+       _authHeaders = authHeaders ?? _sessionHeaders;
 
   final http.Client _client;
 
@@ -26,7 +37,39 @@ class GoogleBooksApiClient {
   /// a stalled connection must not leave the search spinner up forever.
   final Duration _timeout;
 
-  static const _baseUrl = 'https://www.googleapis.com/books/v1/volumes';
+  /// The signed-in session's headers for the edge function — injectable
+  /// so tests never reach for an uninitialised Supabase client.
+  final Future<Map<String, String>> Function() _authHeaders;
+
+  /// `<project>/functions/v1/google-books/volumes`. Resolved per request so
+  /// a test (which never configures Supabase) still builds a URL; the mock
+  /// client it injects never sends it anywhere.
+  static String get _baseUrl {
+    final project = Env.supabaseUrlOrNull ?? 'https://supabase.invalid';
+    return '$project/functions/v1/google-books/volumes';
+  }
+
+  /// The caller's access token, refreshed first if it has lapsed (an app
+  /// left in the background past the token's hour), plus the project's
+  /// publishable key. Empty when there's no Supabase client or session —
+  /// the function then answers 401, reported like any refused request.
+  static Future<Map<String, String>> _sessionHeaders() async {
+    try {
+      final auth = Supabase.instance.client.auth;
+      var session = auth.currentSession;
+      if (session != null && session.isExpired) {
+        session = (await auth.refreshSession()).session ?? session;
+      }
+      final token = session?.accessToken;
+      final publishableKey = Env.supabaseAnonKeyOrNull;
+      return {
+        'Authorization': ?(token == null ? null : 'Bearer $token'),
+        'apikey': ?publishableKey,
+      };
+    } on Object {
+      return const {};
+    }
+  }
 
   /// Searches volumes for [query].
   ///
@@ -92,10 +135,8 @@ class GoogleBooksApiClient {
     }
   }
 
-  Uri _uri(String base, Map<String, String> query) {
-    final apiKey = Env.googleBooksApiKeyOrNull;
-    return Uri.parse(base).replace(queryParameters: {...query, 'key': ?apiKey});
-  }
+  Uri _uri(String base, Map<String, String> query) =>
+      Uri.parse(base).replace(queryParameters: query.isEmpty ? null : query);
 
   /// One GET, with every transport/status/parse failure translated into a
   /// [LibraryException]. [subject] names the request in the user-facing
@@ -106,7 +147,9 @@ class GoogleBooksApiClient {
   }) async {
     final http.Response response;
     try {
-      response = await _client.get(uri).timeout(_timeout);
+      response = await _client
+          .get(uri, headers: await _authHeaders())
+          .timeout(_timeout);
     } on TimeoutException catch (error) {
       throw NetworkException(
         '$subject timed out. Check your connection and try again.',
@@ -124,6 +167,8 @@ class GoogleBooksApiClient {
       );
     }
 
+    // The edge function passes Google's status through; its own 504 (Google
+    // didn't answer) lands in the retryable branch with Google's 5xx.
     if (response.statusCode >= 500 || response.statusCode == 429) {
       // Server-side or rate-limited, and therefore worth retrying later.
       throw NetworkException(

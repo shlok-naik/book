@@ -32,9 +32,6 @@ abstract final class Env {
   // compile time — a non-const call always returns the empty string.
   static const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
   static const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
-  static const _googleBooksApiKey = String.fromEnvironment(
-    'GOOGLE_BOOKS_API_KEY',
-  );
   static const _revenueCatApiKey = String.fromEnvironment('REVENUECAT_API_KEY');
 
   static String get supabaseUrl => _require('SUPABASE_URL', _supabaseUrl);
@@ -45,19 +42,17 @@ abstract final class Env {
   static String get supabaseAnonKey =>
       _require('SUPABASE_ANON_KEY', _supabaseAnonKey);
 
-  static String get googleBooksApiKey =>
-      _require('GOOGLE_BOOKS_API_KEY', _googleBooksApiKey);
-
   /// RevenueCat's *public* SDK key, not a secret API key.
   static String get revenueCatApiKey =>
       _require('REVENUECAT_API_KEY', _revenueCatApiKey);
 
-  /// The Google Books volumes endpoint also serves anonymous requests
-  /// (at a lower quota), so a missing key degrades to keyless search
-  /// instead of taking the whole search flow down. Returns null when the
-  /// key — or the `.env` file itself — is absent.
-  static String? get googleBooksApiKeyOrNull =>
-      _lookup('GOOGLE_BOOKS_API_KEY', _googleBooksApiKey);
+  /// [supabaseUrl] without throwing when it's missing — for code that can
+  /// still build a request in a test that never configures Supabase.
+  static String? get supabaseUrlOrNull => _lookup('SUPABASE_URL', _supabaseUrl);
+
+  /// [supabaseAnonKey] without throwing when it's missing.
+  static String? get supabaseAnonKeyOrNull =>
+      _lookup('SUPABASE_ANON_KEY', _supabaseAnonKey);
 
   /// Every key this app needs to start, so a misconfigured build fails
   /// at launch with a list of what is missing rather than at the first
@@ -69,8 +64,8 @@ abstract final class Env {
   ];
 
   /// Which of [requiredKeys] resolved to nothing. Empty on a correctly
-  /// configured build. `GOOGLE_BOOKS_API_KEY` is deliberately not in
-  /// that list — see [googleBooksApiKeyOrNull].
+  /// configured build. There is no Google Books key here at all: it is a
+  /// Supabase project secret used by the `google-books` edge function.
   static List<String> get missingKeys => [
     for (final key in requiredKeys)
       if (_lookup(key, _compileTimeValues[key] ?? '') == null) key,
@@ -79,7 +74,6 @@ abstract final class Env {
   static const _compileTimeValues = <String, String>{
     'SUPABASE_URL': _supabaseUrl,
     'SUPABASE_ANON_KEY': _supabaseAnonKey,
-    'GOOGLE_BOOKS_API_KEY': _googleBooksApiKey,
     'REVENUECAT_API_KEY': _revenueCatApiKey,
   };
 
