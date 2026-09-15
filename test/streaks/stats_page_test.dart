@@ -4,11 +4,13 @@ import 'package:book/core/theme/app_theme.dart';
 import 'package:book/features/goals/presentation/controllers/goal_controller.dart';
 import 'package:book/features/goals/presentation/goal_scope.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
+import 'package:book/features/library/data/book_notes_repository.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
 import 'package:book/features/library/data/reading_event_repository.dart';
 import 'package:book/features/library/data/user_book_repository.dart';
 import 'package:book/features/library/domain/book.dart';
 import 'package:book/features/library/domain/book_lookup_service.dart';
+import 'package:book/features/library/domain/book_note.dart';
 import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/reading_event.dart';
 import 'package:book/features/library/domain/user_book.dart';
@@ -74,12 +76,16 @@ class _EmptyCache extends BookCacheRepository {
 }
 
 class _EmptyUserBooks extends UserBookRepository {
-  _EmptyUserBooks([this.rows = const []]);
+  _EmptyUserBooks([this.rows = const [], this.importedAt]);
 
   final List<LibraryBook> rows;
+  final DateTime? importedAt;
 
   @override
   Future<List<LibraryBook>> fetchLibrary() async => rows;
+
+  @override
+  Future<DateTime?> fetchImportedAt() async => importedAt;
 }
 
 class _FakeReadingEventRepository extends ReadingEventRepository {
@@ -91,18 +97,31 @@ class _FakeReadingEventRepository extends ReadingEventRepository {
   Future<List<ReadingEvent>> fetchForYear(int year) async => List.of(rows);
 }
 
+/// Tags for the stats page's pro "tags" section — every `book_tags` row.
+class _FakeNotes extends BookNotesRepository {
+  _FakeNotes([this.tags = const []]);
+
+  final List<BookTag> tags;
+
+  @override
+  Future<List<BookTag>> fetchAllTags() async => tags;
+}
+
 LibraryController _controller(
   List<ReadingEvent> rows, [
   List<LibraryBook> books = const [],
+  List<BookTag> tags = const [],
+  DateTime? importedAt,
 ]) {
   return LibraryController(
+    notes: _FakeNotes(tags),
     lookup: BookLookupService(
       cache: _EmptyCache(),
       googleBooks: GoogleBooksApiClient(
         client: MockClient((_) async => http.Response('unused', 200)),
       ),
     ),
-    userBooks: _EmptyUserBooks(books),
+    userBooks: _EmptyUserBooks(books, importedAt),
     events: _FakeReadingEventRepository(rows),
   );
 }
@@ -111,15 +130,17 @@ Future<GoalController> pumpJournal(
   WidgetTester tester,
   List<ReadingEvent> rows, {
   List<LibraryBook> books = const [],
+  List<BookTag> tags = const [],
   int? goal,
   PurchasesService? purchases,
+  DateTime? importedAt,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 2.625;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  final controller = _controller(rows, books);
+  final controller = _controller(rows, books, tags, importedAt);
   addTearDown(controller.dispose);
   await controller.load();
   final goals = goalControllerFor(goal: goal);
@@ -149,74 +170,6 @@ Future<GoalController> pumpJournal(
 }
 
 void main() {
-  testWidgets('reads a day\'s commands back exactly as they were typed', (
-    tester,
-  ) async {
-    final day = DateTime.utc(2026, 3, 12, 9);
-    await pumpJournal(tester, [
-      ReadingEvent(
-        type: ReadingEventType.start,
-        occurredAt: day,
-        title: 'Dune',
-      ),
-      ReadingEvent(
-        type: ReadingEventType.update,
-        occurredAt: day.add(const Duration(hours: 2)),
-        title: 'Dune',
-        value: 120,
-      ),
-      ReadingEvent(
-        type: ReadingEventType.finish,
-        occurredAt: day.add(const Duration(hours: 4)),
-        title: 'Dune',
-      ),
-      ReadingEvent(
-        type: ReadingEventType.rate,
-        occurredAt: day.add(const Duration(hours: 5)),
-        title: 'Dune',
-        value: 4.5,
-      ),
-    ]);
-
-    expect(find.text('3.12.26'), findsOneWidget);
-    expect(find.text('started Dune'), findsOneWidget);
-    expect(find.text('read up to page 120 in Dune'), findsOneWidget);
-    expect(find.text('finished Dune'), findsOneWidget);
-    expect(find.text('rated Dune 4.5 stars'), findsOneWidget);
-  });
-
-  testWidgets('a single star reads in the singular', (tester) async {
-    await pumpJournal(tester, [
-      ReadingEvent(
-        type: ReadingEventType.rate,
-        occurredAt: DateTime.utc(2026, 1, 1),
-        title: 'Neuromancer',
-        value: 1,
-      ),
-    ]);
-
-    expect(find.text('rated Neuromancer 1 star'), findsOneWidget);
-  });
-
-  testWidgets('a deleted book leaves no line behind', (tester) async {
-    await pumpJournal(tester, [
-      ReadingEvent(
-        type: ReadingEventType.delete,
-        occurredAt: DateTime.utc(2026, 1, 1),
-        title: 'Neuromancer',
-      ),
-    ]);
-
-    expect(find.textContaining('Neuromancer'), findsNothing);
-    expect(find.text('nothing logged yet — start a book.'), findsOneWidget);
-  });
-
-  testWidgets('says so when nothing has ever been logged', (tester) async {
-    await pumpJournal(tester, []);
-
-    expect(find.text('nothing logged yet — start a book.'), findsOneWidget);
-  });
-
   testWidgets('leads with the reading goal, then the shelf numbers', (
     tester,
   ) async {
@@ -252,12 +205,12 @@ void main() {
     expect(find.text('pages read'), findsOneWidget);
     expect(find.text('400'), findsOneWidget);
     expect(find.text('science fiction'), findsOneWidget);
-    // The goal is above the tiles, which are above the journal.
+    // The goal is above the tiles, which are above the reading days.
     final goalY = tester.getTopLeft(find.text(' / 10 books')).dy;
     final tilesY = tester.getTopLeft(find.text('books read')).dy;
-    final journalY = tester.getTopLeft(find.text('journal')).dy;
+    final daysY = tester.getTopLeft(find.text('reading days')).dy;
     expect(goalY, lessThan(tilesY));
-    expect(tilesY, lessThan(journalY));
+    expect(tilesY, lessThan(daysY));
   });
 
   testWidgets(
@@ -295,12 +248,96 @@ void main() {
       expect(find.text('pages per month'), findsOneWidget);
       expect(find.text('no pages logged in $year yet.'), findsOneWidget);
       expect(find.text('pace'), findsOneWidget);
-      expect(
-        find.text('finish a book to start tracking your pace.'),
-        findsOneWidget,
-      );
+      expect(find.text('no books read in $year yet.'), findsOneWidget);
       expect(find.text('your shelf'), findsOneWidget);
       expect(find.text('nothing on your shelf yet.'), findsOneWidget);
+      expect(find.text('reading days'), findsOneWidget);
+      expect(find.text('nothing logged in $year yet.'), findsOneWidget);
+      expect(find.text('tags'), findsOneWidget);
+      expect(
+        find.text('no tagged books yet — try add tag <tag> <book>.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('pace is only text, never a chart, until a book is finished '
+        '— even with a goal set', (tester) async {
+      await pumpJournal(tester, [], goal: 12);
+
+      expect(find.text('no books read in $year yet.'), findsOneWidget);
+      // The chart's legend is how a drawn pace chart shows up.
+      expect(find.text('steady pace'), findsNothing);
+      expect(find.text('you'), findsNothing);
+    });
+
+    testWidgets('reading days sums up the year above the heatmap', (
+      tester,
+    ) async {
+      final today = DateTime.now();
+      final yesterday = today.subtract(const Duration(days: 1));
+      await pumpJournal(tester, [
+        ReadingEvent(
+          type: ReadingEventType.start,
+          occurredAt: today.toUtc(),
+          title: 'Dune',
+        ),
+        ReadingEvent(
+          type: ReadingEventType.update,
+          occurredAt: today.toUtc(),
+          title: 'Dune',
+          value: 40,
+        ),
+        // A delete isn't a reading day.
+        ReadingEvent(
+          type: ReadingEventType.delete,
+          occurredAt: yesterday.toUtc(),
+          title: 'Emma',
+        ),
+      ]);
+
+      expect(
+        find.bySemanticsLabel(RegExp(r'^Reading days: 1 in ')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('tags counts the books carrying each tag', (tester) async {
+      LibraryBook onShelf(String id, String title) => LibraryBook(
+        book: Book(
+          id: 'b$id',
+          googleBooksId: 'g$id',
+          title: title,
+          author: 'Someone',
+        ),
+        progress: UserBook(
+          id: 'u$id',
+          bookId: 'b$id',
+          currentPage: 0,
+          status: ReadingStatus.reading,
+        ),
+      );
+      BookTag tag(String id, String userBookId, String name) => BookTag(
+        id: id,
+        userBookId: userBookId,
+        tag: name,
+        createdAt: DateTime.utc(2026, 1, 1),
+      );
+
+      await pumpJournal(
+        tester,
+        [],
+        books: [onShelf('1', 'Dune'), onShelf('2', 'Emma')],
+        tags: [
+          tag('t1', 'u1', 'favourites'),
+          tag('t2', 'u2', 'favourites'),
+          tag('t3', 'u1', 'sci-fi'),
+          // A book no longer on the shelf doesn't count.
+          tag('t4', 'gone', 'sci-fi'),
+        ],
+      );
+
+      expect(find.bySemanticsLabel('favourites: 2 books'), findsOneWidget);
+      expect(find.bySemanticsLabel('sci-fi: 1 book'), findsOneWidget);
     });
 
     testWidgets(
@@ -376,43 +413,87 @@ void main() {
     );
   });
 
+  group('import baseline', () {
+    testWidgets('after an import this year, pace draws from the import with a '
+        'baseline line, and monthly charts leave the imported books out', (
+      tester,
+    ) async {
+      final year = DateTime.now().year;
+      final importedAt = DateTime(year, 1, 1, 12);
+      LibraryBook book(
+        String id,
+        DateTime finishedAt, {
+        bool imported = false,
+      }) => LibraryBook(
+        book: Book(
+          id: 'b$id',
+          googleBooksId: 'g$id',
+          title: 'Book $id',
+          author: 'Someone',
+          pageCount: 100,
+        ),
+        progress: UserBook(
+          id: 'u$id',
+          bookId: 'b$id',
+          currentPage: 100,
+          status: ReadingStatus.finished,
+          finishedAt: finishedAt,
+          imported: imported,
+        ),
+      );
+
+      await pumpJournal(
+        tester,
+        [],
+        goal: 20,
+        importedAt: importedAt,
+        books: [
+          book('1', DateTime(year, 1, 1, 8), imported: true),
+          book('2', DateTime(year, 1, 1, 9), imported: true),
+          book('3', DateTime(year, 1, 1, 18)),
+        ],
+      );
+
+      final label = 'imported 1.1 · 2';
+      await tester.scrollUntilVisible(
+        find.text(label),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text(label), findsOneWidget);
+      expect(find.text('steady pace'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(
+          RegExp(r'^Books finished per month in \d+: Jan 1,'),
+        ),
+        findsOneWidget,
+        reason: 'only the book finished after the import is charted',
+      );
+    });
+  });
+
   group('pro gate', () {
-    const cta = 'cactus pro unlocks your full reading journal — tap to upgrade';
-
-    testWidgets('a free reader sees a locked preview, not the real journal', (
-      tester,
-    ) async {
+    testWidgets('there is no journal any more, on either plan', (tester) async {
       await pumpJournal(tester, [
         ReadingEvent(
           type: ReadingEventType.start,
           occurredAt: DateTime.utc(2026, 1, 1),
           title: 'Neuromancer',
         ),
-      ], purchases: _FakePurchasesService(info: _customerInfo(pro: false)));
+      ]);
+      expect(find.text('journal'), findsNothing);
+      expect(find.text('started Neuromancer'), findsNothing);
 
-      expect(find.text('journal'), findsOneWidget);
-      expect(find.text(cta), findsOneWidget);
-      expect(find.textContaining('Neuromancer'), findsNothing);
-      expect(find.text('started The Hobbit'), findsOneWidget);
+      await pumpJournal(
+        tester,
+        [],
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+      );
+      expect(find.text('journal'), findsNothing);
+      expect(find.textContaining('full reading journal'), findsNothing);
     });
 
-    testWidgets('a pro reader sees the real journal, not the locked preview', (
-      tester,
-    ) async {
-      await pumpJournal(tester, [
-        ReadingEvent(
-          type: ReadingEventType.start,
-          occurredAt: DateTime.utc(2026, 1, 1),
-          title: 'Neuromancer',
-        ),
-      ], purchases: _FakePurchasesService(info: _customerInfo(pro: true)));
-
-      expect(find.text('started Neuromancer'), findsOneWidget);
-      expect(find.text(cta), findsNothing);
-      expect(find.text('started The Hobbit'), findsNothing);
-    });
-
-    testWidgets('tapping the locked journal reaches the paywall', (
+    testWidgets('tapping the locked insights reaches the paywall', (
       tester,
     ) async {
       await pumpJournal(
@@ -421,7 +502,10 @@ void main() {
         purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
       );
 
-      final row = find.text(cta);
+      final row = find.text(
+        'cactus pro unlocks your reading trends, genres and tags — '
+        'tap to upgrade',
+      );
       await tester.scrollUntilVisible(
         row,
         200,
@@ -431,6 +515,38 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(PaywallPage), findsOneWidget);
+      expect(
+        tester.widget<PaywallPage>(find.byType(PaywallPage)).feature,
+        PaywallFeature.readingUnlocked,
+      );
+      expect(find.text('Your Reading, Unlocked'), findsOneWidget);
+    });
+
+    testWidgets('a free reader sees reading days, but tags only as a preview', (
+      tester,
+    ) async {
+      await pumpJournal(
+        tester,
+        [],
+        tags: [
+          BookTag(
+            id: 't1',
+            userBookId: 'u1',
+            tag: 'my secret tag',
+            createdAt: DateTime.utc(2026, 1, 1),
+          ),
+        ],
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+      );
+
+      expect(find.text('reading days'), findsOneWidget);
+      expect(
+        find.text('nothing logged in ${DateTime.now().year} yet.'),
+        findsOneWidget,
+      );
+      // The locked preview's tags are invented, never the reader's own.
+      expect(find.text('my secret tag'), findsNothing);
+      expect(find.text('book club'), findsOneWidget);
     });
   });
 }

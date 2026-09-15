@@ -51,7 +51,7 @@ class _InMemoryUserBooks extends UserBookRepository {
   Future<List<LibraryBook>> fetchLibrary() async => const [];
 
   @override
-  Future<StartOutcome> start(String bookId) async {
+  Future<StartOutcome> start(String bookId, {DateTime? startedAt}) async {
     final isNew = !_started.containsKey(bookId);
     final book = UserBook(
       id: 'progress-$bookId',
@@ -99,10 +99,28 @@ LibraryController _libraryController({List<ReadingEvent> events = const []}) {
   );
 }
 
+/// Raises or lowers a pretend on-screen keyboard. The add tab's
+/// currently-reading card, goal and streak hide while it's up — the keyboard
+/// takes their place (see `HomePage._keyboardVisible`) — and a test view has
+/// no keyboard of its own, so these tests put one there.
+Future<void> setKeyboard(WidgetTester tester, {required bool up}) async {
+  if (up) {
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+  } else {
+    tester.view.resetViewInsets();
+  }
+  await tester.pump();
+}
+
+/// Pumps the add tab with the keyboard down (a test view has none), so the
+/// card, goal and streak are showing; [keyboardUp] raises one first.
 Future<void> pumpHome(
   WidgetTester tester, {
   List<ReadingEvent> events = const [],
+  bool keyboardUp = false,
 }) async {
+  addTearDown(tester.view.resetViewInsets);
+  if (keyboardUp) tester.view.viewInsets = const FakeViewPadding(bottom: 300);
   final library = _libraryController(events: events);
   final memory = MemoryController(repository: _EmptyMemoryRepository());
   addTearDown(library.dispose);
@@ -155,10 +173,6 @@ void main() {
     ) async {
       await pumpHome(tester);
       expect(find.text('nothing logged yet — start a book.'), findsOneWidget);
-
-      await tester.enterText(find.byType(TextField), 'u');
-      await tester.pump();
-      expect(find.text('nothing logged yet — start a book.'), findsNothing);
     });
 
     testWidgets('shows the active book once one has been started', (
@@ -176,19 +190,33 @@ void main() {
       expect(find.text('not started'), findsOneWidget);
     });
 
-    testWidgets('disappears the instant typing starts, and returns once '
-        'the field empties', (tester) async {
+    testWidgets('disappears when the keyboard comes up, and returns when '
+        'it goes back down', (tester) async {
       await pumpHome(tester);
       await submit(tester, 'start Dune');
       expect(find.textContaining('currently reading'), findsOneWidget);
 
-      await tester.enterText(find.byType(TextField), 'u');
-      await tester.pump();
+      await setKeyboard(tester, up: true);
       expect(find.textContaining('currently reading'), findsNothing);
 
-      await tester.enterText(find.byType(TextField), '');
-      await tester.pump();
+      await setKeyboard(tester, up: false);
       expect(find.textContaining('currently reading'), findsOneWidget);
+    });
+
+    testWidgets('stays while typing with no keyboard — only the keyboard '
+        'decides', (tester) async {
+      await pumpHome(tester);
+      await tester.enterText(find.byType(TextField), 'u');
+      await tester.pump();
+      expect(find.text('nothing logged yet — start a book.'), findsOneWidget);
+    });
+
+    testWidgets('a page opened with the keyboard up shows none of it', (
+      tester,
+    ) async {
+      await pumpHome(tester, keyboardUp: true);
+      expect(find.text('nothing logged yet — start a book.'), findsNothing);
+      expect(find.text('no streak yet'), findsNothing);
     });
   });
 
@@ -198,18 +226,16 @@ void main() {
       expect(find.text('no streak yet'), findsOneWidget);
     });
 
-    testWidgets('also hides while typing, same as the reading row', (
+    testWidgets('hides with the keyboard, same as the reading row', (
       tester,
     ) async {
       await pumpHome(tester);
       expect(find.text('no streak yet'), findsOneWidget);
 
-      await tester.enterText(find.byType(TextField), 'u');
-      await tester.pump();
+      await setKeyboard(tester, up: true);
       expect(find.text('no streak yet'), findsNothing);
 
-      await tester.enterText(find.byType(TextField), '');
-      await tester.pump();
+      await setKeyboard(tester, up: false);
       expect(find.text('no streak yet'), findsOneWidget);
     });
 

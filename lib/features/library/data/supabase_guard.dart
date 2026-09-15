@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/network/connectivity_controller.dart';
 import '../domain/library_exception.dart';
 
 /// Default ceiling for a single Supabase round-trip. The cache exists to
@@ -27,22 +28,30 @@ Future<T> runSupabase<T>(
   Duration timeout = supabaseTimeout,
 }) async {
   try {
-    return await action().timeout(timeout);
+    final result = await action().timeout(timeout);
+    // Any answer at all proves the backend is reachable — tells the
+    // offline indicator the moment a request gets through, without
+    // waiting for its next probe. A no-op unless connectivity is attached.
+    ConnectivityController.reportReachable();
+    return result;
   } on LibraryException {
     // Already translated further down (e.g. by a row parser) — keep the
     // more specific message instead of flattening it here.
     rethrow;
   } on TimeoutException catch (error) {
+    ConnectivityController.reportUnreachable();
     throw NetworkException(
       'The library took too long to respond. Try again.',
       cause: error,
     );
   } on SocketException catch (error) {
+    ConnectivityController.reportUnreachable();
     throw NetworkException(
       "You're offline — connect to the internet and try again.",
       cause: error,
     );
   } on http.ClientException catch (error) {
+    ConnectivityController.reportUnreachable();
     throw NetworkException(
       "We couldn't reach your library. Try again in a moment.",
       cause: error,

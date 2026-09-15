@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 
@@ -46,7 +46,7 @@ class DetailTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final style = GoogleFonts.inter(fontSize: 15, color: colors.primaryText);
+    final style = context.fonts.body(fontSize: 15, color: colors.primaryText);
     OutlineInputBorder border(Color color) => OutlineInputBorder(
       borderRadius: BorderRadius.circular(AppRadius.md),
       borderSide: BorderSide(color: color),
@@ -76,7 +76,7 @@ class DetailTextField extends StatelessWidget {
           hintText: hintText,
           hintStyle: style.copyWith(color: colors.secondaryText),
           suffixText: suffixText,
-          suffixStyle: GoogleFonts.jetBrainsMono(
+          suffixStyle: context.fonts.interface(
             fontSize: 13,
             color: colors.secondaryText,
           ),

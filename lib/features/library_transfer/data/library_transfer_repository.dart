@@ -64,4 +64,15 @@ class LibraryTransferRepository {
       timeout: const Duration(seconds: 60),
     );
   }
+
+  /// Marks everything now on the shelf as imported and stamps the import
+  /// time on the profile (`mark_library_imported`), returning that stamp —
+  /// the stats baseline. Called right after [replaceLibrary] succeeds; see
+  /// `20260920000000_import_baseline.sql`.
+  Future<DateTime?> markImported() {
+    return runSupabase(() async {
+      final stamp = await _client.rpc<Object?>('mark_library_imported');
+      return stamp is String ? DateTime.tryParse(stamp) : null;
+    }, friendlyMessage: "We couldn't record when you imported.");
+  }
 }

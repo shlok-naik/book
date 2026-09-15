@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../library/domain/library_book.dart';
@@ -49,7 +49,7 @@ class CurrentlyReadingCard extends StatelessWidget {
             children: [
               Text(
                 'currently reading',
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: colors.secondaryText,
@@ -60,7 +60,7 @@ class CurrentlyReadingCard extends StatelessWidget {
                 entry.book.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.fraunces(
+                style: context.fonts.bookTitle(
                   fontSize: 16,
                   height: 1.2,
                   fontWeight: FontWeight.w600,
@@ -78,7 +78,7 @@ class CurrentlyReadingCard extends StatelessWidget {
               ],
               Text(
                 _progressLabel(),
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 12,
                   color: colors.secondaryText,
                 ),

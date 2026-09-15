@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../settings/presentation/widgets/settings_header.dart';
 import '../../domain/book_series.dart';
@@ -114,7 +114,7 @@ class _SeriesRow extends StatelessWidget {
                 position == null
                     ? ''
                     : '#${BookSeries.formatPosition(position)}',
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: colors.secondaryText,
@@ -138,7 +138,7 @@ class _SeriesRow extends StatelessWidget {
                     book.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.jetBrainsMono(
+                    style: context.fonts.interface(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
                       color: colors.primaryText,
@@ -148,7 +148,7 @@ class _SeriesRow extends StatelessWidget {
                     book.author,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(
+                    style: context.fonts.body(
                       fontSize: 13,
                       color: colors.secondaryText,
                     ),
@@ -156,7 +156,7 @@ class _SeriesRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     status,
-                    style: GoogleFonts.jetBrainsMono(
+                    style: context.fonts.interface(
                       fontSize: 12,
                       color: entry.isReading
                           ? colors.accent

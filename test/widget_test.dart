@@ -20,6 +20,7 @@ import 'package:book/features/memory/data/memory_repository.dart';
 import 'package:book/features/memory/domain/memory.dart';
 import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
 import 'package:book/features/settings/presentation/pages/settings_page.dart';
+import 'package:book/features/streaks/presentation/pages/stats_page.dart';
 import 'package:book/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -65,7 +66,7 @@ class _InMemoryUserBookRepository extends UserBookRepository {
   Future<List<LibraryBook>> fetchLibrary() async => const [];
 
   @override
-  Future<StartOutcome> start(String bookId) async {
+  Future<StartOutcome> start(String bookId, {DateTime? startedAt}) async {
     final isNew = _started.add(bookId);
     return StartOutcome(
       UserBook(
@@ -84,6 +85,8 @@ class _InMemoryUserBookRepository extends UserBookRepository {
     ReadingStatus status, {
     int currentPage = 0,
     String? shelfId,
+    DateTime? startedAt,
+    DateTime? finishedAt,
   }) async {
     final isNew = _started.add(bookId);
     return StartOutcome(
@@ -184,6 +187,10 @@ class _FakeReadingEventRepository extends ReadingEventRepository {
 /// In-memory tags and comments, so `add tag`/`add comment` never reach the
 /// uninitialized Supabase client.
 class _InMemoryNotesRepository extends BookNotesRepository {
+  // The stats page's pro "tags" section reads every tag at once.
+  @override
+  Future<List<BookTag>> fetchAllTags() async => const [];
+
   @override
   Future<BookTag> addTag(String userBookId, ReaderTag tag) async => BookTag(
     id: 'book-tag',
@@ -386,7 +393,7 @@ void main() {
     expect(find.text('Commented on "Dune"'), findsOneWidget);
   });
 
-  testWidgets('refuses a tag for a book that is not on the shelf', (
+  testWidgets('tagging a book that is not on the shelf adds it to read first', (
     WidgetTester tester,
   ) async {
     await useDeviceSize(tester);
@@ -399,9 +406,12 @@ void main() {
       ),
     );
 
+    // Free plan: two tags are allowed.
+    await submit(tester, 'make tag sci-fi');
     await submit(tester, 'add tag sci-fi Dune');
+    // The library's own message, since the parser can't know it was added.
     expect(
-      find.text('"Dune" isn\'t on your shelf yet — try "move Dune tbr" first.'),
+      find.text('Added "Dune" to read and tagged it sci-fi'),
       findsOneWidget,
     );
   });
@@ -431,26 +441,26 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
-  testWidgets('make shelf, then move a book onto it by name', (
-    WidgetTester tester,
-  ) async {
-    await useDeviceSize(tester);
-    await tester.pumpWidget(
-      BookApp(
-        libraryController: _newLibraryController(),
-        memoryController: _newMemoryController(),
-        sessionService: _FakeSession(),
-        goalController: goalControllerFor(),
-      ),
-    );
+  testWidgets(
+    'make shelf is refused on the free plan, with an upgrade message',
+    (WidgetTester tester) async {
+      await useDeviceSize(tester);
+      await tester.pumpWidget(
+        BookApp(
+          libraryController: _newLibraryController(),
+          memoryController: _newMemoryController(),
+          sessionService: _FakeSession(),
+          goalController: goalControllerFor(),
+        ),
+      );
 
-    await submit(tester, 'make shelf summer reads');
-    expect(find.text('Made shelf "summer reads"'), findsOneWidget);
-
-    // Unquoted: the library splits the title from the shelf it knows.
-    await submit(tester, 'move Dune summer reads');
-    expect(find.text('Added "Dune" to summer reads'), findsOneWidget);
-  });
+      await submit(tester, 'make shelf summer reads');
+      expect(
+        find.text('Upgrade to cactus pro to make custom shelves.'),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('strikes the command through in place, then clears the field', (
     WidgetTester tester,
@@ -708,12 +718,40 @@ void main() {
     expect(find.text('yearly goal'), findsOneWidget);
   });
 
-  testWidgets('Stats page is reachable and shows the reading journal', (
+  testWidgets('typing memory opens the Memory tab — on the free plan, its '
+      'locked preview', (WidgetTester tester) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '  Memory ');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<IndexedStack>(find.byType(IndexedStack)).index,
+      0,
+      reason: 'switched to the Memory tab',
+    );
+    expect(
+      find.text('cactus pro unlocks your full reading memory — tap to upgrade'),
+      findsOneWidget,
+    );
+    // Not treated as an unrecognized command: no error pill was raised.
+    expect(find.textContaining("didn't recognize"), findsNothing);
+  });
+
+  testWidgets('Stats page is reachable, with reading days and no journal', (
     WidgetTester tester,
   ) async {
     await useDeviceSize(tester);
-    // The journal itself is cactus pro — see stats_page_test.dart's
-    // "pro gate" group for the locked state.
     PlanController.isPro.value = true;
     addTearDown(() => PlanController.isPro.value = false);
     await tester.pumpWidget(
@@ -726,13 +764,47 @@ void main() {
     );
     await goToStatsPage(tester);
 
-    expect(find.text('nothing logged yet — start a book.'), findsOneWidget);
+    expect(
+      find.text('nothing logged in ${DateTime.now().year} yet.'),
+      findsOneWidget,
+    );
+    expect(find.text('journal'), findsNothing);
     expect(find.byType(TextField), findsNothing);
+  });
+
+  // Performance: the stats tab used to be built (and start its own journal
+  // fetch) at launch, before a reader ever opened it.
+  testWidgets('a tab is only built once it is opened, and kept after', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(StatsPage, skipOffstage: false), findsNothing);
+    expect(find.byType(HomePage), findsOneWidget);
+
+    // The tab bar's icon — the add tab's streak readout shares the glyph.
+    await tester.tap(find.byIcon(Icons.local_fire_department_outlined).last);
+    await tester.pumpAndSettle();
+    expect(find.byType(StatsPage), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.menu_book_outlined));
+    await tester.pumpAndSettle();
+    // Still mounted behind the library tab, state intact.
+    expect(find.byType(StatsPage, skipOffstage: false), findsOneWidget);
   });
 
   testWidgets(
     'Stats page says so when the year could not be loaded, rather than '
-    'showing an empty journal',
+    'showing an empty heatmap',
     (WidgetTester tester) async {
       await useDeviceSize(tester);
       PlanController.isPro.value = true;
@@ -749,11 +821,14 @@ void main() {
       );
       await goToStatsPage(tester);
 
-      // An empty journal would be indistinguishable from "you have
-      // never logged anything", so the failure must show instead.
-      expect(find.text('nothing logged yet — start a book.'), findsNothing);
+      // An empty heatmap would be indistinguishable from "you have never
+      // logged anything", so the failure must show instead.
       expect(find.text('You are offline.'), findsOneWidget);
       expect(find.text('try again'), findsOneWidget);
+      expect(
+        find.text('nothing logged in ${DateTime.now().year} yet.'),
+        findsNothing,
+      );
     },
   );
 
@@ -783,6 +858,42 @@ void main() {
     expect(library.match('Dune'), isNotNull);
     // Still in the field, ready to edit or resubmit.
     expect(find.text('delete dune'), findsOneWidget);
+  });
+
+  testWidgets('remove tag with no book asks first, then unmakes the tag', (
+    WidgetTester tester,
+  ) async {
+    await useDeviceSize(tester);
+    final library = _newLibraryController();
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: library,
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+    await submit(tester, 'make tag sci-fi');
+
+    await send(tester, 'remove tag sci-fi');
+    await tester.pumpAndSettle();
+    expect(find.text('remove tag "sci-fi"?'), findsOneWidget);
+    await tester.tap(find.text('cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Kept "sci-fi"'), findsOneWidget);
+    expect(library.tags, hasLength(1));
+
+    // Still in the field: submit it again and confirm this time.
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('remove'));
+    await tester.pumpAndSettle();
+
+    expect(library.tags, isEmpty);
+    expect(find.text('Removed tag "sci-fi"'), findsOneWidget);
+    // Let the pill's own lifetime run out.
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('confirming a delete removes the book', (

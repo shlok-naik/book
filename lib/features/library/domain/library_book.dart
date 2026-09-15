@@ -72,6 +72,10 @@ class LibraryBook {
   String? get seriesId => progress.seriesId;
   double? get seriesPosition => progress.seriesPosition;
 
+  /// How many times this book has been restarted after finishing — see
+  /// `UserBook.rereadCount`.
+  int get rereadCount => progress.rereadCount;
+
   /// Completion in the 0..1 range, or null when the total page count is
   /// unknown (Google Books often omits it) — callers must handle null by
   /// showing "page N" instead of a percentage bar. Finished books read

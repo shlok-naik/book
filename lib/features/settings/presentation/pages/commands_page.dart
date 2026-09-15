@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../logging/domain/command_catalog.dart';
@@ -21,8 +21,10 @@ class CommandsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final free = CommandCatalog.free;
-    final pro = CommandCatalog.all.where((c) => c.proOnly).toList();
+    final byCategory = <CommandCategory, List<CommandReference>>{};
+    for (final command in CommandCatalog.all) {
+      (byCategory[command.category] ??= []).add(command);
+    }
 
     return Scaffold(
       backgroundColor: colors.background,
@@ -47,22 +49,23 @@ class CommandsPage extends StatelessWidget {
                       'type these on the add tab. <book> is a title, '
                       '[date] is optional (YYYY-MM-DD), and a book only '
                       'needs enough of its title to be found.',
-                      style: GoogleFonts.inter(
+                      style: context.fonts.body(
                         fontSize: 13,
                         height: 1.5,
                         color: colors.secondaryText,
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.lg),
-                    SettingsSection(
-                      title: 'everyone',
-                      rows: [for (final command in free) _CommandRow(command)],
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    SettingsSection(
-                      title: 'cactus pro — written for you from a sentence',
-                      rows: [for (final command in pro) _CommandRow(command)],
-                    ),
+                    for (final category in CommandCategory.values)
+                      if (byCategory[category] case final commands?) ...[
+                        const SizedBox(height: AppSpacing.lg),
+                        SettingsSection(
+                          title: category.label,
+                          rows: [
+                            for (final command in commands)
+                              _CommandRow(command),
+                          ],
+                        ),
+                      ],
                   ],
                 ),
               ),
@@ -96,7 +99,7 @@ class _CommandRow extends StatelessWidget {
           children: [
             Text(
               command.syntax,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: colors.primaryText,
@@ -105,7 +108,7 @@ class _CommandRow extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             Text(
               command.description,
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 13,
                 height: 1.5,
                 color: colors.secondaryText,
@@ -123,7 +126,7 @@ class _CommandRow extends StatelessWidget {
               ),
               child: Text(
                 command.example,
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 12,
                   color: colors.accent,
                 ),

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/formatting/numbers.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../domain/library_book.dart';
@@ -43,7 +44,7 @@ class BookTile extends StatelessWidget {
             entry.book.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.fraunces(
+            style: context.fonts.bookTitle(
               fontSize: 14,
               height: 1.2,
               fontWeight: FontWeight.w600,
@@ -55,7 +56,10 @@ class BookTile extends StatelessWidget {
             entry.book.author,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.inter(fontSize: 11, color: colors.secondaryText),
+            style: context.fonts.body(
+              fontSize: 11,
+              color: colors.secondaryText,
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           if (completion != null) ...[
@@ -68,7 +72,7 @@ class BookTile extends StatelessWidget {
           ],
           Text(
             _progressLabel(),
-            style: GoogleFonts.jetBrainsMono(
+            style: context.fonts.interface(
               fontSize: 11,
               color: entry.isFinished ? colors.accent : colors.secondaryText,
             ),
@@ -108,9 +112,7 @@ class BookTile extends StatelessWidget {
     final rating = entry.isFinished ? entry.rating : null;
     if (rating != null) {
       // "4 stars", not "4.0 stars".
-      final stars = rating == rating.roundToDouble()
-          ? rating.toStringAsFixed(0)
-          : rating.toString();
+      final stars = formatCompactNumber(rating);
       buffer.write(' Rated $stars out of 5.');
     }
 
@@ -157,7 +159,7 @@ class _StarRating extends StatelessWidget {
         const SizedBox(width: AppSpacing.xs),
         Text(
           _formatRating(rating),
-          style: GoogleFonts.jetBrainsMono(fontSize: 11, color: color),
+          style: context.fonts.interface(fontSize: 11, color: color),
         ),
       ],
     );
@@ -175,11 +177,7 @@ class _StarRating extends StatelessWidget {
   /// Drops a trailing ".0" ("5" rather than "5.0") but keeps a real half
   /// ("4.5") — mirrors `LogCommandParser`'s own formatting so the
   /// confirmation pill and this label never disagree.
-  static String _formatRating(double rating) {
-    return rating == rating.roundToDouble()
-        ? rating.toInt().toString()
-        : rating.toStringAsFixed(1);
-  }
+  static String _formatRating(double rating) => formatCompactNumber(rating);
 }
 
 /// Hairline progress track. Kept as a plain container pair rather than a

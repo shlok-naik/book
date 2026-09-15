@@ -1,3 +1,4 @@
+import '../../../core/formatting/numbers.dart';
 import 'command_catalog.dart';
 
 // Zero-cost, rule-based parser for Structured mode commands:
@@ -10,6 +11,8 @@ import 'command_catalog.dart';
 //   make series <series name>      add tag <tag> <book>
 //   add series <series> [#n] <book>
 //   add comment <comment> <book>
+//   remove shelf <shelf> [book]    remove tag <tag> [book]
+//   remove series <series> [book]  remove comment [comment] <book>
 //
 // The optional trailing date (`YYYY-MM-DD`) on start/update/finish
 // backdates the reading event it logs, so "I started Dune yesterday"
@@ -37,6 +40,17 @@ import 'command_catalog.dart';
 // (see `LibraryController.moveToShelf`/`addTag`/`addToSeries`), which
 // answers an unknown name with the `make` command that would create it.
 //
+// ## Remove
+//
+// `remove shelf|tag|series` is the undo of both halves: with a book it
+// takes that book out of the collection (the reverse of `move`/`add tag`/
+// `add series`), and with no book it unmakes the collection itself (the
+// reverse of `make`). A quoted name is split here; an unquoted line is
+// handed to the library whole, which splits it against the collections that
+// exist (`LibraryController.resolveRemoval`). `remove comment` names the
+// book, optionally preceded by the comment to remove — without one, the
+// book's latest comment (`LibraryController.resolveCommentRemoval`).
+//
 // ## Where the title ends
 //
 // The `add` family puts its own argument (the tag, the series, the comment)
@@ -55,6 +69,10 @@ enum LogCommandType {
   startIsbn,
   update,
   finish,
+
+  /// `restart <book> [date]` — a finished book back on the reading shelf
+  /// for another pass.
+  restart,
   rate,
   delete,
 
@@ -78,6 +96,20 @@ enum LogCommandType {
 
   /// `add comment <comment> <book>`.
   addComment,
+
+  /// `remove shelf <shelf> [book]` — a book off a custom shelf, or the
+  /// shelf itself.
+  removeShelf,
+
+  /// `remove tag <tag> [book]` — a tag off a book, or the tag itself.
+  removeTag,
+
+  /// `remove series <series> [book]` — a book out of a series, or the
+  /// series itself.
+  removeSeries,
+
+  /// `remove comment [comment] <book>` — one of a book's comments.
+  removeComment,
   remember,
   recommend,
   unknown,
@@ -167,7 +199,9 @@ class ParsedLogCommand {
   /// The whole `<book> <shelf>` of a `move` typed without quotes around the
   /// shelf ("move dune summer reads"), with [title] and [shelf] both null:
   /// `LibraryController.moveToShelfUnsplit` splits it against the shelves
-  /// that exist. Null for every other command, and for a quoted `move`.
+  /// that exist. Likewise the whole remainder of an unquoted
+  /// `remove shelf|tag|series|comment`. Null for every other command, and
+  /// for the quoted forms.
   final String? argument;
 }
 
@@ -206,6 +240,10 @@ abstract final class LogCommandParser {
   );
   static final _finishPattern = RegExp(
     r'^finish\s+(.+?)(?:\s+(\d{4}-\d{2}-\d{2}))?$',
+    caseSensitive: false,
+  );
+  static final _restartPattern = RegExp(
+    r'^restart\s+(.+?)(?:\s+(\d{4}-\d{2}-\d{2}))?$',
     caseSensitive: false,
   );
   static final _ratePattern = RegExp(
@@ -264,6 +302,15 @@ abstract final class LogCommandParser {
   // emit for these two, precisely so a title with its own colon or
   // dash doesn't get split in the wrong place the way a bare space
   // would.
+  // `remove shelf|tag|series|comment <rest>` — the rest is split below: a
+  // leading quoted name/comment here, anything else by the library.
+  static final _removePattern = RegExp(
+    r'^remove\s+(shelf|tag|series|comment)\s+(.+)$',
+    caseSensitive: false,
+  );
+  static final _leadingQuotedPattern = RegExp(
+    r'^(?:"([^"]*)"|“([^”]*)”)(?:\s+(.+))?$',
+  );
   static final _rememberPattern = RegExp(
     r'^remember\s+(.+?)\s*::\s*(.+)$',
     caseSensitive: false,
@@ -281,17 +328,20 @@ abstract final class LogCommandParser {
     'start',
     'update',
     'finish',
+    'restart',
     'rate',
     'delete',
     'move',
     'make',
     'add',
+    'remove',
   ];
 
   /// The second word of the `add` and `make` families — used to pick which
   /// usage to suggest for a mistyped line.
   static const _addKinds = ['tag', 'series', 'comment'];
   static const _makeKinds = ['shelf', 'tag', 'series'];
+  static const _removeKinds = ['shelf', 'tag', 'series', 'comment'];
 
   static ParsedLogCommand parse(String input) {
     final text = input.trim();
@@ -307,9 +357,11 @@ abstract final class LogCommandParser {
       // half, or empty stars, so a finer rating (4.3) would show as one
       // thing and be stored as another. Rounded here so the pill's own
       // optimistic message already matches what rateBook will save.
-      final rating = rawRating == null ? null : _roundToHalfStar(rawRating);
+      final rating = rawRating == null ? null : roundToHalf(rawRating);
       return ParsedLogCommand(
-        message: rating == null ? '' : '"$title" — ${_formatStars(rating)}★',
+        message: rating == null
+            ? ''
+            : '"$title" — ${formatCompactNumber(rating)}★',
         recognized: true,
         type: LogCommandType.rate,
         title: title,
@@ -325,7 +377,7 @@ abstract final class LogCommandParser {
       return ParsedLogCommand(
         message: percent == null
             ? ''
-            : '"$title" — ${_formatPercent(percent)}%${_dateSuffix(date)}',
+            : '"$title" — ${formatCompactNumber(percent)}%${_dateSuffix(date)}',
         recognized: true,
         type: LogCommandType.update,
         title: title,
@@ -359,6 +411,19 @@ abstract final class LogCommandParser {
         message: 'Finished "$title"${_dateSuffix(date)}',
         recognized: true,
         type: LogCommandType.finish,
+        title: title,
+        date: date,
+      );
+    }
+
+    final restart = _restartPattern.firstMatch(text);
+    if (restart != null) {
+      final title = restart.group(1)!.trim();
+      final date = _parseDate(restart.group(2));
+      return ParsedLogCommand(
+        message: 'Restarted "$title"${_dateSuffix(date)}',
+        recognized: true,
+        type: LogCommandType.restart,
         title: title,
         date: date,
       );
@@ -401,6 +466,7 @@ abstract final class LogCommandParser {
       );
     }
 
+    if (_parseRemove(text) case final remove?) return remove;
     if (_parseMove(text) case final move?) return move;
     if (_parseMake(text) case final make?) return make;
 
@@ -430,7 +496,9 @@ abstract final class LogCommandParser {
           : double.tryParse(rawPosition);
       final title = addSeries.group(5)!.trim();
       if (name.isNotEmpty && (rawPosition == null || position != null)) {
-        final number = position == null ? '' : ' #${_formatStars(position)}';
+        final number = position == null
+            ? ''
+            : ' #${formatCompactNumber(position)}';
         return ParsedLogCommand(
           message: 'Filed "$title" under $name$number',
           recognized: true,
@@ -531,6 +599,61 @@ abstract final class LogCommandParser {
     );
   }
 
+  /// `remove shelf|tag|series|comment …` — null when the line isn't one.
+  ///
+  /// The quoted forms are split here: `remove tag "sci fi" Dune` gives the
+  /// tag and the title, `remove tag "sci fi"` the tag alone (unmake it), and
+  /// `remove comment "too slow" Dune` the comment and the title. Anything
+  /// unquoted leaves [ParsedLogCommand.argument] for the library to split.
+  /// The pill always shows the library's own message for these (see
+  /// `HomePage._runCommand`), so [ParsedLogCommand.message] is generic.
+  static ParsedLogCommand? _parseRemove(String text) {
+    final match = _removePattern.firstMatch(text);
+    if (match == null) return null;
+    final kind = match.group(1)!.toLowerCase();
+    final rest = match.group(2)!.trim();
+    final type = switch (kind) {
+      'shelf' => LogCommandType.removeShelf,
+      'tag' => LogCommandType.removeTag,
+      'series' => LogCommandType.removeSeries,
+      _ => LogCommandType.removeComment,
+    };
+
+    final quoted = _leadingQuotedPattern.firstMatch(rest);
+    if (quoted == null) {
+      return ParsedLogCommand(
+        message: 'Removed',
+        recognized: true,
+        type: type,
+        argument: rest,
+      );
+    }
+    final name = (quoted.group(1) ?? quoted.group(2) ?? '').trim();
+    final title = quoted.group(3)?.trim();
+    if (type == LogCommandType.removeComment) {
+      // A comment needs a book; `remove comment "x"` alone names none.
+      if (title == null || title.isEmpty) return null;
+      return ParsedLogCommand(
+        message: 'Removed',
+        recognized: true,
+        type: type,
+        title: title,
+        note: name.isEmpty ? null : name,
+      );
+    }
+    // `remove tag ""` names nothing; fall through to the suggestion.
+    if (name.isEmpty) return null;
+    return ParsedLogCommand(
+      message: 'Removed',
+      recognized: true,
+      type: type,
+      title: title,
+      shelf: type == LogCommandType.removeShelf ? name : null,
+      tag: type == LogCommandType.removeTag ? name : null,
+      series: type == LogCommandType.removeSeries ? name : null,
+    );
+  }
+
   /// `make shelf|tag|series <name>` — null when the line isn't one, or names
   /// nothing (`make tag ""`).
   static ParsedLogCommand? _parseMake(String text) {
@@ -578,8 +701,12 @@ abstract final class LogCommandParser {
     final closest = _closest(words.first.toLowerCase(), _keywords);
     if (closest != null) {
       var keyword = closest;
-      if (closest == 'add' || closest == 'make') {
-        final kinds = closest == 'add' ? _addKinds : _makeKinds;
+      if (closest == 'add' || closest == 'make' || closest == 'remove') {
+        final kinds = switch (closest) {
+          'add' => _addKinds,
+          'make' => _makeKinds,
+          _ => _removeKinds,
+        };
         final kind = words.length > 1
             ? _closest(words[1].toLowerCase(), kinds)
             : null;
@@ -625,24 +752,6 @@ abstract final class LogCommandParser {
   static String _dateSuffix(DateTime? date) {
     if (date == null) return '';
     return ' — ${_months[date.month - 1]} ${date.day}';
-  }
-
-  static double _roundToHalfStar(double value) => (value * 2).round() / 2;
-
-  /// Drops a trailing ".0" ("74%" rather than "74.0%") but keeps a real
-  /// fraction ("74.5%") — same convention as [_formatStars].
-  static String _formatPercent(double percent) {
-    return percent == percent.roundToDouble()
-        ? percent.toInt().toString()
-        : percent.toStringAsFixed(1);
-  }
-
-  /// Drops a trailing ".0" ("5★" rather than "5.0★") but keeps a real
-  /// half ("4.5★") — matches how the library's star row reads a rating.
-  static String _formatStars(double rating) {
-    return rating == rating.roundToDouble()
-        ? rating.toInt().toString()
-        : rating.toStringAsFixed(1);
   }
 
   /// A word only needs to be "close enough" relative to its own length —

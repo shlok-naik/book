@@ -25,7 +25,6 @@ import 'package:book/features/library/presentation/pages/editions_page.dart';
 import 'package:book/features/library/presentation/widgets/book_cover.dart';
 import 'package:book/features/library/presentation/widgets/info_section.dart';
 import 'package:book/features/library/presentation/widgets/tag_selection_sheet.dart';
-import 'package:book/features/paywall/presentation/widgets/soft_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -69,6 +68,26 @@ class _Shelf extends UserBookRepository {
 
   @override
   Future<UserBook> changeShelf(UserBook updated) async => updated;
+
+  final savedDates = <(DateTime, DateTime?)>[];
+
+  @override
+  Future<UserBook> saveDates(
+    String userBookId, {
+    required DateTime startedAt,
+    DateTime? finishedAt,
+  }) async {
+    savedDates.add((startedAt, finishedAt));
+    final row = rows.first.progress;
+    return UserBook(
+      id: userBookId,
+      bookId: _dune.id,
+      currentPage: row.currentPage,
+      status: row.status,
+      startedAt: startedAt.toUtc(),
+      finishedAt: finishedAt?.toUtc(),
+    );
+  }
 
   @override
   Future<UserBook> rate({
@@ -422,6 +441,86 @@ void main() {
     expect(library.findById('progress-1')!.currentPage, 120);
   });
 
+  group('dates', () {
+    LibraryBook dated(ReadingStatus status) => LibraryBook(
+      book: _dune,
+      progress: UserBook(
+        id: 'progress-1',
+        bookId: _dune.id,
+        currentPage: status == ReadingStatus.finished ? 400 : 120,
+        status: status,
+        startedAt: DateTime(2026, 1, 2),
+        finishedAt: status == ReadingStatus.finished
+            ? DateTime(2026, 1, 20)
+            : null,
+      ),
+    );
+
+    testWidgets('a reading book shows its start date, and no finish date', (
+      tester,
+    ) async {
+      await pumpDetail(tester, entry: dated(ReadingStatus.reading));
+      await scrollTo(tester, find.byKey(const ValueKey('book-started-date')));
+
+      expect(find.text('1.2.26'), findsOneWidget);
+      expect(find.byKey(const ValueKey('book-finished-date')), findsNothing);
+    });
+
+    testWidgets('a finished book shows both', (tester) async {
+      await pumpDetail(tester, entry: dated(ReadingStatus.finished));
+      await scrollTo(tester, find.byKey(const ValueKey('book-finished-date')));
+
+      expect(find.text('1.2.26'), findsOneWidget);
+      expect(find.text('1.20.26'), findsOneWidget);
+    });
+
+    testWidgets('a book queued to read has no dates row', (tester) async {
+      await pumpDetail(tester, entry: dated(ReadingStatus.toBeRead));
+      expect(find.byKey(const ValueKey('book-started-date')), findsNothing);
+    });
+
+    testWidgets('picking a new start date saves it', (tester) async {
+      await pumpDetail(tester, entry: dated(ReadingStatus.finished));
+      await scrollTo(tester, find.byKey(const ValueKey('book-started-date')));
+
+      await tester.tap(find.byKey(const ValueKey('book-started-date')));
+      await tester.pumpAndSettle();
+      expect(find.text('started on'), findsWidgets);
+
+      // January 2026 is open; the finish on the 20th bounds the choice.
+      await tester.tap(find.text('5').last);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(shelf.savedDates.single, (
+        DateTime(2026, 1, 5),
+        DateTime(2026, 1, 20),
+      ));
+      expect(find.text('1.5.26'), findsOneWidget);
+    });
+
+    // Regression: the finish picker used to be bounded by the start date, so
+    // a book added straight onto "finished" could only be finished on the
+    // day it was added until the start date was changed first.
+    testWidgets('backdating a finish before the start moves the start with '
+        'it', (tester) async {
+      await pumpDetail(tester, entry: dated(ReadingStatus.finished));
+      await scrollTo(tester, find.byKey(const ValueKey('book-finished-date')));
+
+      await tester.tap(find.byKey(const ValueKey('book-finished-date')));
+      await tester.pumpAndSettle();
+      // Started on the 2nd; the 1st is before it and still pickable.
+      await tester.tap(find.text('1').last);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(shelf.savedDates.single, (
+        DateTime(2026, 1, 1),
+        DateTime(2026, 1, 1),
+      ));
+    });
+  });
+
   group('rating', () {
     testWidgets('is locked until the book is finished', (tester) async {
       await pumpDetail(tester);
@@ -497,7 +596,7 @@ void main() {
     await pumpDetail(tester);
     // A button below the fold isn't built (so has no semantics node)
     // until the list scrolls to it.
-    final button = find.widgetWithText(SoftPillButton, 'select tags');
+    final button = find.text('add tags');
     await scrollTo(tester, button);
     await tester.tap(button);
     await tester.pumpAndSettle();

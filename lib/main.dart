@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
@@ -13,10 +12,20 @@ import 'core/auth/session_service.dart';
 import 'core/diagnostics/app_logger.dart';
 import 'core/diagnostics/crash_reporter.dart';
 import 'core/env/env.dart';
+import 'core/network/connectivity_controller.dart';
+import 'core/offline/offline_store.dart';
+import 'core/offline/pending_write_queue.dart';
+import 'core/offline/sync_coordinator.dart';
+import 'core/offline/sync_scope.dart';
 import 'core/platform/app_icon_controller.dart';
 import 'core/platform/device_name.dart';
+import 'core/purchases/plan_controller.dart';
 import 'core/purchases/purchases_service.dart';
 import 'core/supabase/supabase_service.dart';
+import 'core/theme/app_color_theme.dart';
+import 'core/theme/app_color_theme_controller.dart';
+import 'core/theme/app_font_theme.dart';
+import 'core/theme/app_font_theme_controller.dart';
 import 'core/theme/app_scroll_behavior.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_controller.dart';
@@ -27,12 +36,14 @@ import 'features/library/data/book_cache_repository.dart';
 import 'features/library/data/book_details_repository.dart';
 import 'features/library/data/book_notes_repository.dart';
 import 'features/library/data/google_books_api_client.dart';
+import 'features/library/data/offline_library_cache.dart';
 import 'features/library/data/reading_event_repository.dart';
 import 'features/library/data/user_book_repository.dart';
 import 'features/library/domain/book_details_service.dart';
 import 'features/library/domain/book_lookup_service.dart';
 import 'features/library/presentation/controllers/library_controller.dart';
 import 'features/library/presentation/library_scope.dart';
+import 'features/library/presentation/series_tile_style_controller.dart';
 import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
 import 'features/onboarding/data/onboarding_store.dart';
@@ -153,8 +164,10 @@ Future<void> _bootstrap() async {
   // RevenueCat configuration fails should still get their library, just
   // without entitlement state. Previously this could take the whole
   // startup down.
+  var purchasesConfigured = false;
   try {
     await PurchasesService.configure();
+    purchasesConfigured = true;
   } on Object catch (error, stackTrace) {
     AppLogger.error(
       'main',
@@ -172,11 +185,22 @@ Future<void> _bootstrap() async {
   if (userId != null) {
     CrashReporter.identify(userId);
     AppAnalytics.identify(userId);
-    reportingFailure(
-      const PurchasesService().identify(userId),
-      source: 'main',
-      message: 'Could not restore the RevenueCat identity at startup.',
-    );
+    if (purchasesConfigured) {
+      // Identify first, then read the entitlement: reading it before
+      // `logIn` lands would ask about the anonymous RevenueCat id rather
+      // than the purchaser this uid bought under. Both fire-and-forget —
+      // the stream inside `attach` corrects the plan whenever the store
+      // answers, so neither may hold up the first frame.
+      reportingFailure(
+        const PurchasesService()
+            .identify(userId)
+            .whenComplete(
+              () => PlanController.attach(const PurchasesService()),
+            ),
+        source: 'main',
+        message: 'Could not restore the RevenueCat identity at startup.',
+      );
+    }
     reportingFailure(
       DeviceName.current().then(
         (name) =>
@@ -187,30 +211,44 @@ Future<void> _bootstrap() async {
     );
   }
 
-  // Portrait only. Every screen is laid out for one portrait column, and
-  // the streaks page fits a whole year without scrolling — in landscape
-  // it has nowhere to put December. Also declared in the Android
-  // manifest and the iOS plist, so the OS never even offers the rotation
-  // animation; this covers the case where those are bypassed (an
-  // already-running app during development, mainly).
-  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  // Watching the network is what lets every page header show an offline
+  // mark and lets shelf writes queue instead of failing (see
+  // [ConnectivityController]). Fire-and-forget: the first probe can take a
+  // few seconds, and a load that starts before it answers simply falls back
+  // to the offline cache when its own request fails.
+  unawaited(ConnectivityController.attach());
 
-  // Android 15 draws every app edge-to-edge whether it asks to or not,
-  // so ask — opting in means the insets are correct now rather than the
-  // floating tab bar ending up under the gesture handle later. Every
-  // page already wraps its content in a SafeArea.
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-
-  // Read before the first frame so the app opens on the right screen
-  // rather than flashing one and replacing it. Note this is *not*
-  // "is the reader signed in" — they always are by now, anonymously —
-  // it is "have they been shown around yet". See [OnboardingStore].
-  final introSeen = await const OnboardingStore().hasSeen();
-
-  // Not load-bearing — the settings row just shows "light" a beat
-  // longer if this fails — so it happens after everything the reader's
-  // shelf actually depends on, not before.
-  await AppIconController.initialize();
+  // Everything below is independent and none of it throws, so it runs
+  // concurrently rather than as five sequential round trips to the
+  // platform before the first frame.
+  //
+  // * Portrait only. Every screen is laid out for one portrait column, and
+  //   the streaks page fits a whole year without scrolling — in landscape
+  //   it has nowhere to put December. Also declared in the Android manifest
+  //   and the iOS plist, so the OS never even offers the rotation
+  //   animation; this covers the case where those are bypassed (an
+  //   already-running app during development, mainly).
+  // * Android 15 draws every app edge-to-edge whether it asks to or not, so
+  //   ask — opting in means the insets are correct now rather than the
+  //   floating tab bar ending up under the gesture handle later. Every page
+  //   already wraps its content in a SafeArea.
+  // * The onboarding flag is read before the first frame so the app opens
+  //   on the right screen rather than flashing one and replacing it. Note
+  //   this is *not* "is the reader signed in" — they always are by now,
+  //   anonymously — it is "have they been shown around yet". See
+  //   [OnboardingStore].
+  // * The icon, accent and fonts aren't load-bearing — a failure just leaves
+  //   the defaults — but reading them first avoids a flash of the wrong
+  //   accent.
+  final (_, _, introSeen, _, _, _, _) = await (
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]),
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge),
+    const OnboardingStore().hasSeen(),
+    AppIconController.initialize(),
+    AppColorThemeController.initialize(),
+    AppFontThemeController.initialize(),
+    SeriesTileStyleController.initialize(),
+  ).wait;
 
   runApp(BookApp(showOnboarding: !introSeen));
 }
@@ -283,17 +321,51 @@ class _BookAppState extends State<BookApp> {
   /// caller, so we must not close it.
   GoogleBooksApiClient? _ownedGoogleBooks;
 
+  /// The offline layer — a per-account cache and write queue, and the
+  /// coordinator that drains it. Only built alongside the real library
+  /// graph (an injected test controller has no Supabase behind it to sync
+  /// with) and only for a signed-in uid, which `_bootstrap` guarantees.
+  ({OfflineLibraryCache cache, PendingWriteQueue queue, SyncCoordinator sync})?
+  _offline;
+
+  ({OfflineLibraryCache cache, PendingWriteQueue queue, SyncCoordinator sync})?
+  _buildOffline() {
+    final String? userId;
+    try {
+      userId = Supabase.instance.client.auth.currentUser?.id;
+    } on Object {
+      return null;
+    }
+    if (userId == null) return null;
+
+    final store = FileOfflineStore(accountId: userId);
+    final queue = PendingWriteQueue(store: store);
+    final sync = SyncCoordinator(
+      queue: queue,
+      executor: SupabaseWriteExecutor(),
+    );
+    final cache = OfflineLibraryCache(
+      accountId: userId,
+      store: store,
+      queue: queue,
+      sync: sync,
+      currentUserId: () => Supabase.instance.client.auth.currentUser?.id,
+    );
+    return (cache: cache, queue: queue, sync: sync);
+  }
+
   LibraryController _buildLibraryController() {
     final googleBooks = GoogleBooksApiClient();
     _ownedGoogleBooks = googleBooks;
+    final offline = _offline = _buildOffline();
 
-    return LibraryController(
+    final controller = LibraryController(
       lookup: BookLookupService(
         cache: BookCacheRepository(),
         googleBooks: googleBooks,
       ),
-      userBooks: UserBookRepository(),
-      events: ReadingEventRepository(),
+      userBooks: UserBookRepository(offline: offline?.cache),
+      events: ReadingEventRepository(offline: offline?.cache),
       notes: BookNotesRepository(),
       // Shares the one Google Books client with the title lookup above, so
       // there is a single HTTP client to dispose.
@@ -302,11 +374,20 @@ class _BookAppState extends State<BookApp> {
         googleBooks: googleBooks,
       ),
     );
+
+    if (offline != null) {
+      // Once queued writes reach the server, its answer (triggers and all)
+      // is the truth again — reload rather than trusting the local patches.
+      offline.sync.onSynced = controller.load;
+      offline.sync.start();
+    }
+    return controller;
   }
 
   @override
   void dispose() {
     _ownedGoogleBooks?.dispose();
+    _offline?.sync.dispose();
     if (widget.libraryController == null) _library.dispose();
     if (widget.memoryController == null) _memory.dispose();
     if (widget.goalController == null) _goal.dispose();
@@ -315,54 +396,79 @@ class _BookAppState extends State<BookApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: ThemeController.mode,
-      builder: (context, themeMode, _) {
-        // The status bar sits over the app's own background, so its
-        // icons have to contrast with *that* — with the app forced to
-        // light while the phone is in dark mode, the system's own choice
-        // would render them invisible.
-        final isDark =
-            themeMode == ThemeMode.dark ||
-            (themeMode == ThemeMode.system &&
-                MediaQuery.platformBrightnessOf(context) == Brightness.dark);
+    return ValueListenableBuilder<AppFontTheme>(
+      valueListenable: AppFontThemeController.current,
+      builder: (context, fontTheme, _) => ValueListenableBuilder<AppColorTheme>(
+        valueListenable: AppColorThemeController.current,
+        builder: (context, colorTheme, _) {
+          return ValueListenableBuilder<ThemeMode>(
+            valueListenable: ThemeController.mode,
+            builder: (context, themeMode, _) {
+              // The status bar sits over the app's own background, so its
+              // icons have to contrast with *that* — with the app forced
+              // to light while the phone is in dark mode, the system's
+              // own choice would render them invisible.
+              final isDark =
+                  themeMode == ThemeMode.dark ||
+                  (themeMode == ThemeMode.system &&
+                      MediaQuery.platformBrightnessOf(context) ==
+                          Brightness.dark);
 
-        return AnnotatedRegion<SystemUiOverlayStyle>(
-          value: isDark
-              ? SystemUiOverlayStyle.light
-              : SystemUiOverlayStyle.dark,
-          child: SessionScope(
-            session: _session,
-            child: LibraryScope(
-              controller: _library,
-              child: MemoryScope(
-                controller: _memory,
-                child: GoalScope(
-                  controller: _goal,
-                  child: MaterialApp(
-                    title: 'cactus',
-                    debugShowCheckedModeBanner: false,
-                    theme: AppTheme.light,
-                    darkTheme: AppTheme.dark,
-                    themeMode: themeMode,
-                    scrollBehavior: AppScrollBehavior(),
-                    // Screen views come from each route's own name rather than
-                    // a line in every page's initState — see [AppAnalytics].
-                    navigatorObservers: AppAnalytics.navigatorObservers,
-                    // The intro is a tour, not a gate: `_bootstrap` has
-                    // already opened the session, and [WelcomePage] asks
-                    // for nothing. It shows once per install and replaces
-                    // the whole stack with [RootShell] on the way out.
-                    home: widget.showOnboarding
-                        ? const WelcomePage()
-                        : const RootShell(),
+              return AnnotatedRegion<SystemUiOverlayStyle>(
+                value: isDark
+                    ? SystemUiOverlayStyle.light
+                    : SystemUiOverlayStyle.dark,
+                child: SessionScope(
+                  session: _session,
+                  child: LibraryScope(
+                    controller: _library,
+                    child: MemoryScope(
+                      controller: _memory,
+                      child: GoalScope(
+                        controller: _goal,
+                        child: MaterialApp(
+                          title: 'cactus',
+                          debugShowCheckedModeBanner: false,
+                          theme: AppTheme.lightWith(colorTheme, fontTheme),
+                          darkTheme: AppTheme.darkWith(colorTheme, fontTheme),
+                          themeMode: themeMode,
+                          scrollBehavior: AppScrollBehavior(),
+                          // Screen views come from each route's own name
+                          // rather than a line in every page's initState —
+                          // see [AppAnalytics].
+                          navigatorObservers: AppAnalytics.navigatorObservers,
+                          // The intro is a tour, not a gate: `_bootstrap`
+                          // has already opened the session, and
+                          // [WelcomePage] asks for nothing. It shows once
+                          // per install and replaces the whole stack with
+                          // [RootShell] on the way out.
+                          home: widget.showOnboarding
+                              ? const WelcomePage()
+                              : const RootShell(),
+                          // The offline indicator in every page header reads
+                          // the queue through this; without an offline layer
+                          // (tests) it reads connectivity alone.
+                          builder: (context, child) {
+                            final offline = _offline;
+                            if (offline == null || child == null) {
+                              return child ?? const SizedBox.shrink();
+                            }
+                            return SyncScope(
+                              queue: offline.queue,
+                              coordinator: offline.sync,
+                              child: child,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ),
-        );
-      },
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }

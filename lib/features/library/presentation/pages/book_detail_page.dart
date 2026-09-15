@@ -2,15 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/feedback/app_haptics.dart';
+import '../../../../core/formatting/numbers.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../logging/presentation/widgets/confirmation_pill.dart';
-import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../../../settings/presentation/widgets/settings_header.dart';
 import '../../domain/book.dart';
 import '../../domain/book_edition.dart';
@@ -23,6 +23,7 @@ import '../library_scope.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/detail_text_field.dart';
 import '../widgets/info_section.dart';
+import '../widgets/series_selection_sheet.dart';
 import '../widgets/star_rating_input.dart';
 import '../widgets/tag_selection_sheet.dart';
 import 'editions_page.dart';
@@ -116,6 +117,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
       details: library.details,
       notes: library.notes,
       findTag: library.findTag,
+      onTagsChanged: library.notifyTagsChanged,
     );
     // Loads are async and notify as they land; nothing here depends on
     // them finishing. `load` never throws — each section records its own
@@ -306,12 +308,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     _report(result);
   }
 
-  static String _formatPercent(double percent) {
-    final rounded = (percent * 10).round() / 10;
-    return rounded == rounded.roundToDouble()
-        ? rounded.toInt().toString()
-        : rounded.toStringAsFixed(1);
-  }
+  static String _formatPercent(double percent) => formatCompactNumber(percent);
 
   // ------------------------------------------------------------------ build
 
@@ -390,8 +387,15 @@ class _BookDetailPageState extends State<BookDetailPage> {
         const SizedBox(height: AppSpacing.lg),
         InfoSection(
           title: 'your reading',
-          rows: [_progressRow(entry), _ratingRow(entry)],
+          rows: [
+            _progressRow(entry),
+            // A queued book hasn't been started — there's no date to show.
+            if (entry.status != ReadingStatus.toBeRead) _datesRow(entry),
+            _ratingRow(entry),
+          ],
         ),
+        const SizedBox(height: AppSpacing.lg),
+        _seriesSection(entry, library),
         const SizedBox(height: AppSpacing.lg),
         _tagsSection(detail),
         const SizedBox(height: AppSpacing.lg),
@@ -488,7 +492,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                       )
                     : Text(
                         'save',
-                        style: GoogleFonts.jetBrainsMono(
+                        style: context.fonts.interface(
                           fontSize: 13,
                           color: colors.accent,
                         ),
@@ -504,7 +508,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 error ??
                     "google books doesn't list a page count, so progress is "
                         'by page only.',
-                style: GoogleFonts.inter(
+                style: context.fonts.body(
                   fontSize: 12,
                   color: error == null
                       ? colors.secondaryText
@@ -514,6 +518,99 @@ class _BookDetailPageState extends State<BookDetailPage> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  /// Start and finish dates. Filled in by `start`/`finish` (and moves onto
+  /// the reading or finished shelf), and editable here: each is a button
+  /// opening a date picker bounded to the past, and the controller refuses
+  /// a finish before the start. The finish date only exists for a finished
+  /// book.
+  Widget _datesRow(LibraryBook entry) {
+    final started = entry.progress.startedAt;
+    final finished = entry.isFinished ? entry.progress.finishedAt : null;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _RowLabel('dates'),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: _DateField(
+                  key: const ValueKey('book-started-date'),
+                  label: 'started on',
+                  date: started,
+                  onTap: () => _pickDate(entry, finish: false),
+                ),
+              ),
+              if (entry.isFinished) ...[
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: _DateField(
+                    key: const ValueKey('book-finished-date'),
+                    label: 'finished on',
+                    date: finished,
+                    onTap: () => _pickDate(entry, finish: true),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Opens a date picker for the start ([finish] false) or finish date,
+  /// bounded so an impossible pair can't even be picked — no future dates,
+  /// no start after the finish — then saves through
+  /// [LibraryController.setDates], which checks the same rules.
+  ///
+  /// A finish date *can* be picked before the start: the start moves back
+  /// with it. A book added straight onto "finished" (logging a past read)
+  /// starts and finishes on the day it was added, and bounding its finish
+  /// by that start left a calendar offering only today — with nothing
+  /// saying the start date had to be changed first.
+  Future<void> _pickDate(LibraryBook entry, {required bool finish}) async {
+    AppHaptics.selection();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    DateTime? day(DateTime? value) {
+      if (value == null) return null;
+      final local = value.toLocal();
+      return DateTime(local.year, local.month, local.day);
+    }
+
+    final started = day(entry.progress.startedAt);
+    final finished = day(entry.progress.finishedAt);
+    final first = DateTime(1900);
+    var last = finish ? today : (entry.isFinished ? finished ?? today : today);
+    if (last.isAfter(today)) last = today;
+    var initial = (finish ? finished : started) ?? last;
+    if (initial.isBefore(first)) initial = first;
+    if (initial.isAfter(last)) initial = last;
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: first,
+      lastDate: last,
+      helpText: finish ? 'finished on' : 'started on',
+      routeSettings: const RouteSettings(name: 'book_date_picker'),
+    );
+    if (picked == null || !mounted) return;
+    final startMovesBack =
+        finish && started != null && picked.isBefore(started);
+    await _run(
+      'save that date',
+      () => LibraryScope.read(context).setDates(
+        entry.id,
+        startedAt: finish ? (startMovesBack ? picked : null) : picked,
+        finishedAt: finish ? picked : null,
       ),
     );
   }
@@ -548,7 +645,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
           if (!entry.isFinished)
             Text(
               'finish this book to rate it.',
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 12,
                 color: colors.secondaryText,
               ),
@@ -558,53 +655,82 @@ class _BookDetailPageState extends State<BookDetailPage> {
     );
   }
 
+  Widget _seriesSection(LibraryBook entry, LibraryController library) {
+    final seriesId = entry.seriesId;
+    final label = library.seriesLabelFor(entry);
+
+    return InfoSection(
+      title: 'series',
+      rows: [
+        _ActionRow(
+          label: 'add series',
+          onTap: () => showSeriesSelectionSheet(context, entry.id),
+        ),
+        if (seriesId != null && label != null)
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                _RemovableChip(
+                  label: label,
+                  onRemove: () => _run(
+                    'remove that series',
+                    () => library.removeFromSeriesById(entry.id),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _tagsSection(BookDetailController detail) {
     final colors = context.colors;
     final section = detail.tags;
     final tags = section.data ?? const <BookTag>[];
+    final showsList =
+        (section.isLoading && !section.hasData) ||
+        (section.error != null && !section.hasData) ||
+        tags.isNotEmpty;
 
     return InfoSection(
       title: 'tags',
       rows: [
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (section.isLoading && !section.hasData)
-                _Hint('loading tags…', colors: colors)
-              else if (section.error != null && !section.hasData)
-                _Retry(
-                  message: section.error!,
-                  onRetry: detail.loadTags,
-                  colors: colors,
-                )
-              else if (tags.isNotEmpty) ...[
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    for (final tag in tags)
-                      _TagChip(
-                        tag: tag,
-                        onRemove: BookDetailController.isPending(tag.id)
-                            ? null
-                            : () => _run(
-                                'remove that tag',
-                                () => detail.removeTag(tag.id),
-                              ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-              ],
-              SoftPillButton(
-                label: 'select tags',
-                onPressed: () => showTagSelectionSheet(context, detail),
-              ),
-            ],
-          ),
+        _ActionRow(
+          label: 'add tags',
+          onTap: () => showTagSelectionSheet(context, detail),
         ),
+        if (showsList)
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: section.isLoading && !section.hasData
+                ? _Hint('loading tags…', colors: colors)
+                : section.error != null && !section.hasData
+                ? _Retry(
+                    message: section.error!,
+                    onRetry: detail.loadTags,
+                    colors: colors,
+                  )
+                : Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: [
+                      for (final tag in tags)
+                        _TagChip(
+                          tag: tag,
+                          onRemove: BookDetailController.isPending(tag.id)
+                              ? null
+                              : () => _run(
+                                  'remove that tag',
+                                  () => detail.removeTag(tag.id),
+                                ),
+                        ),
+                    ],
+                  ),
+          ),
       ],
     );
   }
@@ -667,7 +793,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   onPressed: submit,
                   child: Text(
                     'post',
-                    style: GoogleFonts.jetBrainsMono(
+                    style: context.fonts.interface(
                       fontSize: 13,
                       color: colors.accent,
                     ),
@@ -707,7 +833,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         backgroundColor: colors.surface,
         title: Text(
           'delete comment?',
-          style: GoogleFonts.jetBrainsMono(
+          style: context.fonts.interface(
             fontSize: 16,
             fontWeight: FontWeight.w600,
             color: colors.primaryText,
@@ -715,7 +841,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         ),
         content: Text(
           "this can't be undone.",
-          style: GoogleFonts.inter(color: colors.secondaryText),
+          style: context.fonts.body(color: colors.secondaryText),
         ),
         actions: [
           TextButton(
@@ -793,7 +919,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                     width: 132,
                     child: Text(
                       label,
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 12,
                         color: colors.secondaryText,
                       ),
@@ -802,7 +928,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   Expanded(
                     child: SelectableText(
                       value,
-                      style: GoogleFonts.inter(
+                      style: context.fonts.body(
                         fontSize: 14,
                         color: colors.primaryText,
                       ),
@@ -833,6 +959,87 @@ extension on DetailTextField {
 
 /// A small caption inside a row ("progress", "rating"), with an optional
 /// right-aligned readout.
+/// One tappable date on the book page — "started" over "9.1.26", or "—"
+/// with nothing set. A single button node to screen readers.
+class _DateField extends StatelessWidget {
+  const _DateField({
+    super.key,
+    required this.label,
+    required this.date,
+    required this.onTap,
+  });
+
+  final String label;
+  final DateTime? date;
+  final VoidCallback onTap;
+
+  /// `m.d.yy`, no leading zeros — the app's one date format.
+  static String format(DateTime date) {
+    final local = date.toLocal();
+    final year = (local.year % 100).toString().padLeft(2, '0');
+    return '${local.month}.${local.day}.$year';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final value = date;
+    return Semantics(
+      button: true,
+      label:
+          '$label ${value == null ? 'not set' : format(value)}. '
+          'Double tap to change.',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: colors.background,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: colors.divider),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: context.fonts.body(
+                  fontSize: 12,
+                  color: colors.secondaryText,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      value == null ? '—' : format(value),
+                      style: context.fonts.interface(
+                        fontSize: 15,
+                        color: colors.primaryText,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.edit_calendar_outlined,
+                    size: 16,
+                    color: colors.secondaryText,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _RowLabel extends StatelessWidget {
   const _RowLabel(this.text, {this.trailing});
 
@@ -848,7 +1055,7 @@ class _RowLabel extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: GoogleFonts.inter(
+            style: context.fonts.body(
               fontSize: 15,
               fontWeight: FontWeight.w600,
               color: colors.primaryText,
@@ -859,7 +1066,7 @@ class _RowLabel extends StatelessWidget {
           ExcludeSemantics(
             child: Text(
               readout,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 13,
                 color: colors.accent,
               ),
@@ -930,6 +1137,7 @@ class _Heading extends StatelessWidget {
                 title: book.title,
                 author: book.author,
                 coverUrl: book.coverUrl,
+                rereadCount: entry.rereadCount,
               ),
             ),
           ),
@@ -943,7 +1151,7 @@ class _Heading extends StatelessWidget {
                 header: true,
                 child: Text(
                   book.title,
-                  style: GoogleFonts.fraunces(
+                  style: context.fonts.bookTitle(
                     fontSize: 24,
                     height: 1.15,
                     fontWeight: FontWeight.w600,
@@ -957,7 +1165,7 @@ class _Heading extends StatelessWidget {
                   subtitle,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.fraunces(
+                  style: context.fonts.bookTitle(
                     fontSize: 15,
                     height: 1.25,
                     color: colors.secondaryText,
@@ -967,7 +1175,7 @@ class _Heading extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
               Text(
                 book.author,
-                style: GoogleFonts.inter(
+                style: context.fonts.body(
                   fontSize: 14,
                   color: colors.secondaryText,
                 ),
@@ -975,7 +1183,7 @@ class _Heading extends StatelessWidget {
               const SizedBox(height: AppSpacing.md),
               Text(
                 status(entry),
-                style: GoogleFonts.jetBrainsMono(
+                style: context.fonts.interface(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: colors.accent,
@@ -987,7 +1195,7 @@ class _Heading extends StatelessWidget {
                   'you own the '
                   '${owned.format == EditionFormat.ebook ? 'ebook' : 'physical edition'}'
                   '${owned.year == null ? '' : ' (${owned.year})'}',
-                  style: GoogleFonts.jetBrainsMono(
+                  style: context.fonts.interface(
                     fontSize: 12,
                     color: colors.secondaryText,
                   ),
@@ -1052,7 +1260,7 @@ class _FactsStrip extends StatelessWidget {
                   children: [
                     Text(
                       label,
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 11,
                         color: colors.secondaryText,
                       ),
@@ -1062,7 +1270,7 @@ class _FactsStrip extends StatelessWidget {
                       value,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.inter(
+                      style: context.fonts.body(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: colors.primaryText,
@@ -1150,7 +1358,7 @@ class _EditionsRow extends StatelessWidget {
                     children: [
                       Text(
                         'editions',
-                        style: GoogleFonts.inter(
+                        style: context.fonts.body(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: colors.primaryText,
@@ -1162,7 +1370,7 @@ class _EditionsRow extends StatelessWidget {
                           'yours: $ownedLine',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.jetBrainsMono(
+                          style: context.fonts.interface(
                             fontSize: 12,
                             color: colors.accent,
                           ),
@@ -1189,7 +1397,7 @@ class _EditionsRow extends StatelessWidget {
                           )
                         : Text(
                             count,
-                            style: GoogleFonts.inter(
+                            style: context.fonts.body(
                               fontSize: 14,
                               color: colors.secondaryText,
                             ),
@@ -1233,7 +1441,7 @@ class _TagChip extends StatelessWidget {
           children: [
             Text(
               tag.tag,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 13,
                 color: colors.primaryText,
               ),
@@ -1244,6 +1452,60 @@ class _TagChip extends StatelessWidget {
               container: true,
               button: true,
               label: 'Remove tag ${tag.tag}',
+              excludeSemantics: true,
+              child: InkResponse(
+                onTap: onRemove,
+                radius: 16,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  child: Icon(
+                    Icons.close,
+                    size: 14,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// [_TagChip]'s own look, generalised to any label — used for the single
+/// series chip, where there's no `BookTag`-shaped row to carry.
+class _RemovableChip extends StatelessWidget {
+  const _RemovableChip({required this.label, required this.onRemove});
+
+  final String label;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Opacity(
+      opacity: onRemove == null ? 0.5 : 1,
+      child: Container(
+        padding: const EdgeInsets.only(left: AppSpacing.md),
+        decoration: BoxDecoration(
+          color: colors.accent.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: context.fonts.interface(
+                fontSize: 13,
+                color: colors.primaryText,
+              ),
+            ),
+            Semantics(
+              container: true,
+              button: true,
+              label: 'Remove $label',
               excludeSemantics: true,
               child: InkResponse(
                 onTap: onRemove,
@@ -1300,7 +1562,7 @@ class _CommentRow extends StatelessWidget {
           children: [
             Text(
               comment.body,
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 14,
                 height: 1.5,
                 color: colors.primaryText,
@@ -1313,7 +1575,7 @@ class _CommentRow extends StatelessWidget {
                     '${_date(comment.createdAt)}'
                     '${comment.isEdited ? ' · edited' : ''}'
                     '${pending ? ' · saving…' : ''}',
-                    style: GoogleFonts.jetBrainsMono(
+                    style: context.fonts.interface(
                       fontSize: 11,
                       color: colors.secondaryText,
                     ),
@@ -1373,7 +1635,7 @@ class _EditCommentDialogState extends State<_EditCommentDialog> {
       backgroundColor: colors.surface,
       title: Text(
         'edit comment',
-        style: GoogleFonts.jetBrainsMono(
+        style: context.fonts.interface(
           fontSize: 16,
           fontWeight: FontWeight.w600,
           color: colors.primaryText,
@@ -1418,7 +1680,7 @@ class _BlurbState extends State<_Blurb> {
 
   @override
   Widget build(BuildContext context) {
-    final style = GoogleFonts.inter(
+    final style = context.fonts.body(
       fontSize: 14,
       height: 1.6,
       color: widget.colors.primaryText,
@@ -1456,7 +1718,7 @@ class _BlurbState extends State<_Blurb> {
                   semanticsLabel: _expanded
                       ? 'Show less of the description'
                       : 'Show the full description',
-                  style: GoogleFonts.jetBrainsMono(
+                  style: context.fonts.interface(
                     fontSize: 13,
                     color: widget.colors.accent,
                   ),
@@ -1465,6 +1727,49 @@ class _BlurbState extends State<_Blurb> {
           ],
         );
       },
+    );
+  }
+}
+
+/// A row that opens something — the same shape as settings' own
+/// `SettingsRow` (label, chevron), but with no leading icon: these sit
+/// inside an already-titled [InfoSection] ("tags", "series"), so an icon
+/// would repeat what the caption already says.
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.md,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: context.fonts.body(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: colors.primaryText,
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: colors.secondaryText),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1478,7 +1783,7 @@ class _Hint extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
     text,
-    style: GoogleFonts.jetBrainsMono(fontSize: 13, color: colors.secondaryText),
+    style: context.fonts.interface(fontSize: 13, color: colors.secondaryText),
   );
 }
 
@@ -1502,17 +1807,17 @@ class _Retry extends StatelessWidget {
         Expanded(
           child: Text(
             message,
-            style: GoogleFonts.inter(fontSize: 13, color: colors.secondaryText),
+            style: context.fonts.body(
+              fontSize: 13,
+              color: colors.secondaryText,
+            ),
           ),
         ),
         TextButton(
           onPressed: onRetry,
           child: Text(
             'try again',
-            style: GoogleFonts.jetBrainsMono(
-              fontSize: 13,
-              color: colors.accent,
-            ),
+            style: context.fonts.interface(fontSize: 13, color: colors.accent),
           ),
         ),
       ],
@@ -1534,7 +1839,7 @@ class _Gone extends StatelessWidget {
       child: Text(
         "this book isn't on your shelf any more.",
         textAlign: TextAlign.center,
-        style: GoogleFonts.jetBrainsMono(
+        style: context.fonts.interface(
           fontSize: 13,
           color: colors.secondaryText,
         ),

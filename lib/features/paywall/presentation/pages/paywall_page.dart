@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:purchases_flutter/purchases_flutter.dart' show Package;
+import 'package:purchases_flutter/purchases_flutter.dart'
+    show CustomerInfo, Package;
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart'
     show PaywallResult;
 
 import '../../../../core/analytics/app_analytics.dart';
 import '../../../../core/purchases/entitlements.dart';
+import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
@@ -56,6 +58,44 @@ import '../widgets/soft_pill_button.dart';
 /// * colors come from [AppColors] and spacing/radii from
 ///   [AppSpacing] / [AppRadius], so the screen follows the reader's
 ///   light/dark choice like the rest of the flow.
+/// Which pro feature a reader was reaching for when the paywall opened —
+/// decides which chapter the pitch opens on, so tapping the locked stats
+/// lands on "Your Reading, Unlocked" rather than on chapter I and making
+/// the reader swipe to find the thing they just tapped.
+///
+/// Each value names exactly one chapter in [_chapters]; the order of the
+/// enum matches the chapter order, which [chapterIndex] relies on and
+/// `paywall_page_test.dart` pins. [general] is the paywall opened without a
+/// specific feature in mind (settings' "get cactus pro", the once-per-
+/// install intro offer) and starts at the beginning.
+enum PaywallFeature {
+  /// Chapter I — natural-language logging (the add tab's pro path).
+  naturalLanguage,
+
+  /// Chapter II — the Memory tab and `remember`.
+  memory,
+
+  /// Chapter III — `recommend`.
+  recommendations,
+
+  /// Chapter IV — settings' "themes and icons".
+  customisation,
+
+  /// Chapter V — the stats page's locked insights and journal, custom
+  /// shelves/tags/series beyond the free caps, and the Goodreads import.
+  readingUnlocked,
+
+  /// No specific feature — opens on chapter I.
+  general;
+
+  /// The [_ChapterPager] page this feature opens on.
+  int get chapterIndex => this == general ? 0 : index;
+
+  /// Analytics parameter — an enum-like constant, never reader content
+  /// (see the hard rule in CLAUDE.md § Analytics).
+  String get analyticsName => name;
+}
+
 /// Presents [PaywallPage] as the popup it is meant to be: a modal route
 /// that slides up from the bottom edge over the current screen, the way
 /// a near-full-bleed card like this one is expected to arrive, and that
@@ -68,6 +108,10 @@ Future<void> showPaywallPopup(
   BuildContext context, {
   PurchasesService? purchases,
   PaywallPricing? pricing,
+
+  /// What the reader tapped to get here — see [PaywallFeature]. Decides
+  /// the chapter the pitch opens on.
+  PaywallFeature feature = PaywallFeature.general,
 
   /// When set, every way of leaving the popup — buying, restoring, or
   /// just closing it — replaces the popup's own route with this one
@@ -90,6 +134,7 @@ Future<void> showPaywallPopup(
       pageBuilder: (_, _, _) => PaywallPage(
         purchases: purchases,
         pricing: pricing,
+        feature: feature,
         nextRoute: nextRoute,
       ),
       transitionsBuilder: (_, animation, _, child) {
@@ -111,7 +156,13 @@ Future<void> showPaywallPopup(
 }
 
 class PaywallPage extends StatefulWidget {
-  const PaywallPage({super.key, this.pricing, this.purchases, this.nextRoute});
+  const PaywallPage({
+    super.key,
+    this.pricing,
+    this.purchases,
+    this.nextRoute,
+    this.feature = PaywallFeature.general,
+  });
 
   /// Prices to display. Null — the normal production path — has
   /// [_PaywallPageState] fetch the current RevenueCat offering itself
@@ -129,6 +180,9 @@ class PaywallPage extends StatefulWidget {
 
   /// See [showPaywallPopup]'s parameter of the same name.
   final Route<void> Function()? nextRoute;
+
+  /// See [showPaywallPopup]'s parameter of the same name.
+  final PaywallFeature feature;
 
   @override
   State<PaywallPage> createState() => _PaywallPageState();
@@ -242,6 +296,11 @@ class _PaywallPageState extends State<PaywallPage> {
             ? PaywallPricing(
                 monthlyPerMonth: monthly.storeProduct.price,
                 yearlyPerYear: yearly.storeProduct.price,
+                // The store's own localized strings — see
+                // [PaywallPricing]'s "Display" section.
+                monthlyPriceString: monthly.storeProduct.priceString,
+                yearlyPriceString: yearly.storeProduct.priceString,
+                yearlyPerMonthString: yearly.storeProduct.pricePerMonthString,
               )
             : _unavailable;
       });
@@ -249,7 +308,9 @@ class _PaywallPageState extends State<PaywallPage> {
       // arrived and got the "couldn't load pricing" state never saw an
       // offer, and counting them as having seen the paywall would make
       // every conversion rate below it wrong.
-      if (monthly != null && yearly != null) AppAnalytics.paywallViewed();
+      if (monthly != null && yearly != null) {
+        AppAnalytics.paywallViewed(feature: widget.feature.analyticsName);
+      }
     } on PurchasesException {
       if (!mounted) return;
       setState(() => _pricing = _unavailable);
@@ -335,6 +396,7 @@ class _PaywallPageState extends State<PaywallPage> {
         // store call returning — the two come apart often enough that
         // the branch below exists for it.
         AppAnalytics.purchaseCompleted(package.identifier);
+        _publishEntitlement(info);
         _dismissAfterPurchase();
         return;
       }
@@ -360,6 +422,17 @@ class _PaywallPageState extends State<PaywallPage> {
     }
   }
 
+  /// Hands a confirmed entitlement to [PlanController] at once, so every
+  /// gate in the app — the add tab's natural language, the collection caps,
+  /// the locked previews behind this popup — opens the moment it closes,
+  /// rather than whenever RevenueCat's listener next fires. Real SDK only:
+  /// an injected fake is a test, and must not leak into the global flag.
+  void _publishEntitlement(CustomerInfo info) {
+    if (widget.purchases == null) {
+      PlanController.updateEntitlement(_purchases.isPro(info));
+    }
+  }
+
   Future<void> _restore() async {
     setState(() {
       _busy = true;
@@ -371,6 +444,7 @@ class _PaywallPageState extends State<PaywallPage> {
       setState(() => _busy = false);
       if (_purchases.isPro(info)) {
         AppAnalytics.purchaseRestored();
+        _publishEntitlement(info);
         _dismiss();
       } else {
         setState(() => _error = 'No previous purchase found for this account.');
@@ -527,7 +601,12 @@ class _PaywallPageState extends State<PaywallPage> {
                           // the "empty middle" the old marquee-and-two-
                           // spacers layout used to leave behind, now
                           // doing double duty as the pitch itself.
-                          Expanded(child: _ChapterPager(metrics: m)),
+                          Expanded(
+                            child: _ChapterPager(
+                              metrics: m,
+                              initialChapter: widget.feature.chapterIndex,
+                            ),
+                          ),
                           _CommitBlock(
                             metrics: m,
                             pricing: _pricing,
@@ -665,7 +744,7 @@ class _Header extends StatelessWidget {
               // though the glyph is small.
               IconButton(
                 onPressed: onClose,
-                tooltip: 'close',
+                tooltip: 'Close',
                 icon: Icon(Icons.close, color: colors.secondaryText),
               ),
             ],
@@ -690,7 +769,7 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// One "chapter" per feature. [body] is the real pitch, kept to two
+/// One "chapter" per feature — in [PaywallFeature]'s order. [body] is the real pitch, kept to two
 /// short sentences — a book's wide margins only stay airy if the copy
 /// itself stays brief. [filler] is one line of plain placeholder text,
 /// the same role Lorem Ipsum plays in a print layout, just enough to
@@ -731,6 +810,15 @@ const _chapters = <_Chapter>[
         'launcher icons and a warm, hand-tuned reading theme.',
     filler: 'Ut enim ad minim veniam, quis nostrud exercitation ullamco.',
   ),
+  (
+    roman: 'V',
+    title: 'Your Reading, Unlocked',
+    body:
+        'Unlimited shelves, tags and series. Deeper stats — your pace, '
+        'your genres, your trends over time. Bring your whole library '
+        'over from Goodreads in one import.',
+    filler: 'Excepteur sint occaecat cupidatat non proident, sunt in culpa.',
+  ),
 ];
 
 /// The pitch, told as chapters rather than skimmed as a feature list —
@@ -738,17 +826,24 @@ const _chapters = <_Chapter>[
 /// tracks which chapter is open, the same way a book's progress is felt
 /// by the thickness of the pages left in either hand.
 class _ChapterPager extends StatefulWidget {
-  const _ChapterPager({required this.metrics});
+  const _ChapterPager({required this.metrics, this.initialChapter = 0});
 
   final _Metrics metrics;
+
+  /// The chapter open on arrival — [PaywallFeature.chapterIndex]. Only
+  /// read once, when the pager is first built: the reader's own swiping
+  /// owns the page from then on.
+  final int initialChapter;
 
   @override
   State<_ChapterPager> createState() => _ChapterPagerState();
 }
 
 class _ChapterPagerState extends State<_ChapterPager> {
-  final _controller = PageController();
-  int _page = 0;
+  // Clamped so a feature added to [PaywallFeature] ahead of its chapter
+  // can never open the pager past its last page.
+  late int _page = widget.initialChapter.clamp(0, _chapters.length - 1);
+  late final _controller = PageController(initialPage: _page);
 
   @override
   void dispose() {
@@ -1143,7 +1238,7 @@ class _PricingRow extends StatelessWidget {
             children: [
               _PricingCard(
                 label: 'monthly',
-                priceLine: '\$${pricing.monthlyPerMonth.toStringAsFixed(2)}/mo',
+                priceLine: '${pricing.monthlyLabel}/mo',
                 selected: monthlySelected,
                 width: monthlySelected ? selectedWidth : unselectedWidth,
                 height: metrics.pricingCardHeight,
@@ -1157,8 +1252,8 @@ class _PricingRow extends StatelessWidget {
               ),
               _PricingCard(
                 label: 'yearly',
-                priceLine: '\$${pricing.yearlyPerMonth.toStringAsFixed(2)}/mo',
-                subLine: '\$${pricing.yearlyPerYear.toStringAsFixed(0)}/yr',
+                priceLine: '${pricing.yearlyPerMonthLabel}/mo',
+                subLine: '${pricing.yearlyLabel}/yr',
                 // Hidden unless the saving is both real and this card is
                 // the one being emphasised.
                 badge: savings == null ? null : 'save $savings%',

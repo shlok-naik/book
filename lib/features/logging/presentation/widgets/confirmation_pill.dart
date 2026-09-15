@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 
@@ -29,7 +29,7 @@ class ConfirmationPill extends StatelessWidget {
         ),
         child: Text(
           message,
-          style: GoogleFonts.jetBrainsMono(
+          style: context.fonts.interface(
             fontSize: 14,
             color: colors.primaryText,
           ),

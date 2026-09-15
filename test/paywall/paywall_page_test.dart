@@ -181,6 +181,7 @@ Future<void> pumpPaywall(
   PaywallPricing? pricing = PaywallPricing.placeholder,
   PurchasesService? purchases,
   Size size = const Size(1080, 2400),
+  PaywallFeature feature = PaywallFeature.general,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 2.625;
@@ -198,6 +199,7 @@ Future<void> pumpPaywall(
       tester.element(find.byType(_Host)),
       pricing: pricing,
       purchases: purchases,
+      feature: feature,
     ),
   );
   await settleFrames(tester);
@@ -383,6 +385,29 @@ void main() {
   });
 
   group('PaywallPricing', () {
+    test('shows the store\'s localized strings, never a rebuilt dollar '
+        'price', () {
+      const pricing = PaywallPricing(
+        monthlyPerMonth: 3.99,
+        yearlyPerYear: 39.99,
+        monthlyPriceString: '£3.99',
+        yearlyPriceString: '£39.99',
+        yearlyPerMonthString: '£3.33',
+      );
+      expect(pricing.monthlyLabel, '£3.99');
+      expect(pricing.yearlyLabel, '£39.99');
+      expect(pricing.yearlyPerMonthLabel, '£3.33');
+    });
+
+    test('without store strings, the fallback keeps real cents', () {
+      const pricing = PaywallPricing(
+        monthlyPerMonth: 4.99,
+        yearlyPerYear: 39.99,
+      );
+      expect(pricing.yearlyLabel, '\$39.99');
+      expect(PaywallPricing.placeholder.yearlyLabel, '\$40');
+    });
+
     test('rejects non-positive and non-finite prices', () {
       expect(PaywallPricing.placeholder.isValid, isTrue);
       expect(
@@ -665,6 +690,42 @@ void main() {
       expect(find.text('chapter IV'), findsOneWidget);
       expect(find.text('Unparalleled Customisation'), findsOneWidget);
     });
+
+    test('every specific feature names its own chapter', () {
+      final specific = [
+        for (final feature in PaywallFeature.values)
+          if (feature != PaywallFeature.general) feature,
+      ];
+      final chapters = {for (final f in specific) f.chapterIndex};
+      expect(chapters, hasLength(specific.length));
+      expect(PaywallFeature.general.chapterIndex, 0);
+    });
+
+    for (final (feature, roman, title) in [
+      (PaywallFeature.memory, 'II', 'A Mind of Its Own'),
+      (PaywallFeature.customisation, 'IV', 'Unparalleled Customisation'),
+      (PaywallFeature.readingUnlocked, 'V', 'Your Reading, Unlocked'),
+    ]) {
+      testWidgets('opened for ${feature.name}, it starts on chapter $roman', (
+        tester,
+      ) async {
+        await pumpPaywall(tester, feature: feature);
+
+        expect(find.text('chapter $roman'), findsOneWidget);
+        expect(find.text(title), findsOneWidget);
+      });
+    }
+
+    testWidgets('a reader can still swipe back from the chapter it opened on', (
+      tester,
+    ) async {
+      await pumpPaywall(tester, feature: PaywallFeature.customisation);
+
+      await tester.drag(find.byType(PageView), const Offset(400, 0));
+      await settleFrames(tester);
+
+      expect(find.text('chapter III'), findsOneWidget);
+    });
   });
 
   group('accessibility', () {
@@ -704,7 +765,7 @@ void main() {
 
     testWidgets('the close button carries a tooltip', (tester) async {
       await pumpPaywall(tester);
-      expect(find.byTooltip('close'), findsOneWidget);
+      expect(find.byTooltip('Close'), findsOneWidget);
     });
   });
 }

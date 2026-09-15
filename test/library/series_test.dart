@@ -63,6 +63,14 @@ class _FakeSeries extends BookSeriesRepository {
     calls.add((userBookId, seriesId, position));
   }
 
+  final cleared = <String>[];
+
+  @override
+  Future<void> clearSeries(String userBookId) async {
+    if (failure != null) throw failure!;
+    cleared.add(userBookId);
+  }
+
   /// The reader's own series list — what `add series` requires.
   final mine = <BookSeries>[];
 
@@ -88,7 +96,7 @@ class _Shelf extends UserBookRepository {
   Future<List<LibraryBook>> fetchLibrary() async => rows;
 
   @override
-  Future<StartOutcome> start(String bookId) async {
+  Future<StartOutcome> start(String bookId, {DateTime? startedAt}) async {
     started.add(bookId);
     return StartOutcome(
       UserBook(
@@ -267,7 +275,7 @@ void main() {
       final (controller, _) = await _controller([
         _entry(_messiah, ReadingStatus.toBeRead),
       ], series);
-      await controller.makeSeries('Dune');
+      await controller.makeSeries('Dune', isPro: true);
       final made = controller.findSeries('Dune')!;
 
       final result = await controller.addToSeries(
@@ -311,7 +319,7 @@ void main() {
     test('add series refuses a book that is not on the shelf', () async {
       final series = _FakeSeries();
       final (controller, _) = await _controller([], series);
-      await controller.makeSeries('Dune');
+      await controller.makeSeries('Dune', isPro: true);
 
       final result = await controller.addToSeries('Dune', 'Dune');
       expect(result.success, isFalse);
@@ -325,7 +333,7 @@ void main() {
       final (controller, _) = await _controller([
         _entry(_dune, ReadingStatus.reading),
       ], series);
-      await controller.makeSeries('Dune');
+      await controller.makeSeries('Dune', isPro: true);
 
       final result = await controller.addToSeries('Dune', 'Dune');
       expect(result.success, isFalse);

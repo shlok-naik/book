@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/formatting/numbers.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 
 /// Five tappable stars with half-star precision: tapping the left half of
@@ -62,9 +63,7 @@ class _StarRatingInputState extends State<StarRatingInput> {
     return KeyEventResult.handled;
   }
 
-  static String _format(double rating) => rating == rating.roundToDouble()
-      ? rating.toInt().toString()
-      : rating.toStringAsFixed(1);
+  static String _format(double rating) => formatCompactNumber(rating);
 
   @override
   Widget build(BuildContext context) {
@@ -102,10 +101,7 @@ class _StarRatingInputState extends State<StarRatingInput> {
           const SizedBox(width: AppSpacing.sm),
           Text(
             _format(rating),
-            style: GoogleFonts.jetBrainsMono(
-              fontSize: 14,
-              color: colors.accent,
-            ),
+            style: context.fonts.interface(fontSize: 14, color: colors.accent),
           ),
         ],
       ],

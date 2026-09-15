@@ -23,6 +23,12 @@ abstract final class ShelfRules {
   /// * **did not finish** — progress is kept. How far a reader got before
   ///   giving up is exactly the thing worth remembering about a DNF.
   ///
+  /// Moving into "reading" stamps `startedAt` ([at], or now) — a book moved
+  /// onto the reading shelf is being started, whether from the queue, a
+  /// DNF picked back up, or a finished book read again — so the start date
+  /// on the book page always describes the current read. It stays editable
+  /// there afterwards.
+  ///
   /// Moving anywhere but "finished" clears `finishedAt`, so the column
   /// never claims a finish date for a book that isn't finished. The rating
   /// is left alone (see `LibraryBook.rating`). The manual shelf position is
@@ -41,9 +47,16 @@ abstract final class ShelfRules {
     if (progress.status == target) return progress;
 
     return switch (target) {
-      ReadingStatus.toBeRead || ReadingStatus.reading => progress.copyWith(
+      ReadingStatus.toBeRead => progress.copyWith(
         status: target,
         currentPage: 0,
+        clearFinishedAt: true,
+        clearShelfPosition: true,
+      ),
+      ReadingStatus.reading => progress.copyWith(
+        status: target,
+        currentPage: 0,
+        startedAt: (at ?? DateTime.now()).toUtc(),
         clearFinishedAt: true,
         clearShelfPosition: true,
       ),

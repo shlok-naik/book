@@ -74,7 +74,13 @@ abstract final class AppAnalytics {
   /// The paywall finished loading its prices and is on screen. Fired
   /// there rather than on navigation, so it counts readers who actually
   /// saw an offer — not ones who hit a spinner and left.
-  static void paywallViewed() => _log('paywall_viewed');
+  ///
+  /// [feature] is the [PaywallFeature] name the reader tapped to open it
+  /// (`memory`, `customisation`, `general`…) — an enum constant, so it
+  /// tells which locked surface converts without sending anything a
+  /// reader wrote.
+  static void paywallViewed({String feature = 'general'}) =>
+      _log('paywall_viewed', {'feature': feature});
 
   /// A reader chose a plan. [plan] is a package identifier from
   /// RevenueCat (`monthly`, `annual`), never a price or a currency.

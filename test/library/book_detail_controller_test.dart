@@ -101,8 +101,14 @@ class FakeNotes extends BookNotesRepository {
     return saved;
   }
 
+  /// Fails only [removeTag] — so an add can succeed while a removal fails.
+  LibraryException? removeFailure;
+
   @override
-  Future<void> removeTag(String tagId) => _write();
+  Future<void> removeTag(String tagId) async {
+    await _write();
+    if (removeFailure != null) throw removeFailure!;
+  }
 
   @override
   Future<BookComment> addComment(String userBookId, String body) async {
@@ -284,6 +290,30 @@ void main() {
 
       expect(result.success, isFalse);
       expect(controller.tags.data!.single.id, id);
+    });
+
+    // Regression: a failed removal used to restore the whole list as it was
+    // before, erasing a tag that was added — and saved — in the meantime.
+    test('a failed remove puts back only that tag, keeping one added while '
+        'it was out', () async {
+      await controller.addTag('sci-fi');
+      final id = controller.tags.data!.single.id;
+      final gate = notes.gate = Completer<void>();
+      notes.removeFailure = const NetworkException("You're offline");
+
+      final removal = controller.removeTag(id);
+      final add = controller.addTag('cosy');
+      gate.complete();
+      await Future.wait([removal, add]);
+
+      expect(
+        controller.tags.data!.map((t) => t.tag),
+        unorderedEquals(['sci-fi', 'cosy']),
+      );
+      expect(
+        controller.tags.data!.any((t) => BookDetailController.isPending(t.id)),
+        isFalse,
+      );
     });
   });
 

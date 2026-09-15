@@ -5,7 +5,8 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../widgets/natural_language_wall.dart';
-import 'theme_preference_page.dart';
+import '../widgets/tier_label.dart';
+import 'goodreads_prompt_page.dart';
 import 'tutorial_step_page.dart';
 
 /// Step 2 of the post-welcome sequence — the Pro-tier half of the
@@ -19,12 +20,16 @@ class NaturalLanguageTutorialPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return TutorialStepPage(
       topContent: const NaturalLanguageWall(),
+      // The first pro step — where the tour crosses from what a reader
+      // already has into what cactus pro adds. The label, plus the
+      // opening line below, is what marks that crossing.
+      tier: OnboardingTier.pro,
       heading: 'or just talk naturally',
       description: const _TutorialCopy(),
       onContinue: () => Navigator.of(context).push(
         MaterialPageRoute(
-          settings: const RouteSettings(name: 'onboarding_theme_preference'),
-          builder: (_) => const ThemePreferencePage(),
+          settings: const RouteSettings(name: 'onboarding_goodreads_prompt'),
+          builder: (_) => const GoodreadsPromptPage(),
         ),
       ),
     );
@@ -41,6 +46,11 @@ class _TutorialCopy extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const Text(
+          'everything so far is free. from here on, the tour shows what '
+          'cactus pro adds.',
+        ),
+        const SizedBox(height: AppSpacing.sm),
         const Text(
           'in the Pro tier, you can use natural language to do the '
           'same actions and express emotions, which are saved in '

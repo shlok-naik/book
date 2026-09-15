@@ -75,6 +75,70 @@ void main() {
       });
     });
 
+    group('remove', () {
+      test('an unquoted remove hands the whole remainder to the library', () {
+        final shelf = LogCommandParser.parse('remove shelf summer reads Dune');
+        expect(shelf.recognized, isTrue);
+        expect(shelf.type, LogCommandType.removeShelf);
+        expect(shelf.argument, 'summer reads Dune');
+        expect(shelf.shelf, isNull);
+        expect(shelf.title, isNull);
+
+        expect(
+          LogCommandParser.parse('REMOVE tag sci-fi').type,
+          LogCommandType.removeTag,
+        );
+        expect(
+          LogCommandParser.parse('remove series the expanse').argument,
+          'the expanse',
+        );
+      });
+
+      test('a quoted name is split here, with or without a book', () {
+        final withBook = LogCommandParser.parse(
+          'remove tag "space opera" Dune',
+        );
+        expect(withBook.type, LogCommandType.removeTag);
+        expect(withBook.tag, 'space opera');
+        expect(withBook.title, 'Dune');
+        expect(withBook.argument, isNull);
+
+        final alone = LogCommandParser.parse('remove series “The Expanse”');
+        expect(alone.series, 'The Expanse');
+        expect(alone.title, isNull);
+
+        expect(LogCommandParser.parse('remove shelf ""').recognized, isFalse);
+      });
+
+      test(
+        'remove comment takes an optional quoted comment before the book',
+        () {
+          final named = LogCommandParser.parse(
+            'remove comment "too slow" Dune',
+          );
+          expect(named.type, LogCommandType.removeComment);
+          expect(named.note, 'too slow');
+          expect(named.title, 'Dune');
+
+          final latest = LogCommandParser.parse('remove comment Dune Messiah');
+          expect(latest.argument, 'Dune Messiah');
+          expect(latest.title, isNull);
+
+          // A quoted comment with no book names nothing to remove it from.
+          expect(
+            LogCommandParser.parse('remove comment "too slow"').recognized,
+            isFalse,
+          );
+        },
+      );
+
+      test('a mistyped remove suggests the closest remove usage', () {
+        final typo = LogCommandParser.parse('remov tagg sci-fi Dune');
+        expect(typo.recognized, isFalse);
+        expect(typo.message, contains('remove tag <tag> [book]'));
+      });
+    });
+
     group('make', () {
       test('make shelf takes the rest of the line, quoted or not', () {
         final plain = LogCommandParser.parse('make shelf  summer   reads ');
@@ -337,6 +401,23 @@ void main() {
         expect(result.title, 'Dune');
         expect(result.date, DateTime(2026, 8, 31));
         expect(result.message, 'Finished "Dune" — Aug 31');
+      });
+
+      test('restart with no date behaves exactly like start', () {
+        final result = LogCommandParser.parse('restart Dune');
+        expect(result.recognized, isTrue);
+        expect(result.type, LogCommandType.restart);
+        expect(result.title, 'Dune');
+        expect(result.date, isNull);
+        expect(result.message, 'Restarted "Dune"');
+      });
+
+      test('restart with a date', () {
+        final result = LogCommandParser.parse('restart Dune 2026-08-31');
+        expect(result.type, LogCommandType.restart);
+        expect(result.title, 'Dune');
+        expect(result.date, DateTime(2026, 8, 31));
+        expect(result.message, 'Restarted "Dune" — Aug 31');
       });
 
       test(

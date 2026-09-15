@@ -3,14 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../logging/presentation/widgets/confirmation_pill.dart';
+import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/book_series.dart';
 import '../../domain/collections.dart';
@@ -19,9 +20,11 @@ import '../../domain/library_search.dart';
 import '../../domain/user_book.dart';
 import '../controllers/library_controller.dart';
 import '../library_scope.dart';
+import '../series_tile_style_controller.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/book_tile.dart';
 import '../widgets/collections_sheet.dart';
+import '../widgets/series_cover.dart';
 import 'book_detail_page.dart';
 import 'series_page.dart';
 
@@ -133,8 +136,8 @@ class LibraryPage extends StatefulWidget {
 
 class _LibraryPageState extends State<LibraryPage> {
   /// The floating bottom bar's footprint, so the last row of covers
-  /// isn't hidden behind it — same constant the streaks page uses.
-  static const _barFootprint = 108.0;
+  /// isn't hidden behind it.
+  static const _barFootprint = BottomSwitcher.pageFootprint;
 
   static const _messageLifetime = Duration(seconds: 3);
 
@@ -160,12 +163,28 @@ class _LibraryPageState extends State<LibraryPage> {
 
   /// Shelves collapsed to just their heading — in-memory only, so a fresh
   /// visit to the library always starts from this same default rather than
-  /// remembering a prior toggle. Finished and did not finish start closed —
-  /// a reader opens the library to see what to read next, not what's
-  /// behind them. Ignored while searching: collapsing a shelf and then
+  /// remembering a prior toggle. To read, finished and did not finish start
+  /// closed —
+  /// a reader opens the library to see what they're reading now, not the
+  /// queue ahead or what's behind them. Ignored while searching: collapsing a shelf and then
   /// finding a match in it should still show that match rather than hide
   /// it.
+  /// Series groups a reader has double-tapped open — in-memory only, like
+  /// [_collapsed]. A series entirely on one shelf normally shows as one
+  /// grouped tile there; double-tapping it spreads it back out into its own
+  /// book tiles (so each can be dragged elsewhere), and double-tapping any
+  /// of those books folds the group again.
+  final _expandedSeries = <String>{};
+
+  void _toggleSeriesExpanded(String groupId) {
+    AppHaptics.selection();
+    setState(() {
+      if (!_expandedSeries.add(groupId)) _expandedSeries.remove(groupId);
+    });
+  }
+
   final _collapsed = <ShelfRef>{
+    const StatusShelfRef(ReadingStatus.toBeRead),
     const StatusShelfRef(ReadingStatus.finished),
     const StatusShelfRef(ReadingStatus.dnf),
   };
@@ -204,8 +223,13 @@ class _LibraryPageState extends State<LibraryPage> {
     super.initState();
     // Deferred to after the first frame: load() notifies synchronously
     // to raise its loading flag, and notifying mid-build is illegal.
+    // Skipped when the shelf already loaded (the shell loads it at launch,
+    // and this tab is built the first time it's opened) — pull to refresh
+    // is how a reader asks for a fresh copy.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) LibraryScope.read(context).load();
+      if (!mounted) return;
+      final library = LibraryScope.read(context);
+      if (!library.hasLoaded) unawaited(library.load());
     });
   }
 
@@ -459,8 +483,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
     final dragging = _draggingId != null;
     final filtering = _searching && _query.isNotEmpty;
+    final allGroups = controller.seriesGroups;
     final groups = [
-      for (final group in controller.seriesGroups)
+      for (final group in allGroups)
         if (!filtering ||
             group.entries.any(_visible) ||
             LibrarySearch.normalize(
@@ -481,14 +506,25 @@ class _LibraryPageState extends State<LibraryPage> {
     // while searching, since a search result is one specific book, not the
     // whole series it belongs to.
     final collapsedByShelf = <ShelfRef, List<SeriesGroup>>{};
+    // Books of a group the reader spread out, by id — each knows which
+    // group double-tapping it folds back into.
+    final expandedSeriesByEntry = <String, SeriesGroup>{};
     if (!filtering) {
-      for (final group in controller.seriesGroups) {
+      for (final group in allGroups) {
         if (group.entries.length < 2) continue;
+        // Where each book is actually *shown* — a shelf that didn't load
+        // falls back to the status section, and so must the group.
         final refs = {
-          for (final entry in group.entries) ShelfRef.of(entry.progress),
+          for (final entry in group.entries) controller.placementOf(entry),
         };
         if (refs.length != 1) continue;
-        (collapsedByShelf[refs.single] ??= []).add(group);
+        if (_expandedSeries.contains(group.id)) {
+          for (final entry in group.entries) {
+            expandedSeriesByEntry[entry.id] = group;
+          }
+        } else {
+          (collapsedByShelf[refs.single] ??= []).add(group);
+        }
       }
     }
 
@@ -534,6 +570,8 @@ class _LibraryPageState extends State<LibraryPage> {
             _BookGrid(
               entries: sections[shelf.ref]!,
               collapsedSeries: collapsedByShelf[shelf.ref] ?? const [],
+              expandedSeriesByEntry: expandedSeriesByEntry,
+              onToggleSeriesExpanded: _toggleSeriesExpanded,
               shelf: shelf.ref,
               shelves: shelves,
               // Finished and dropped books are shown faded, so the shelves
@@ -570,7 +608,9 @@ class _BookGrid extends StatelessWidget {
     required this.onDragEnded,
     required this.onMove,
     required this.onOpen,
+    required this.onToggleSeriesExpanded,
     this.collapsedSeries = const [],
+    this.expandedSeriesByEntry = const {},
     this.dimmed = false,
   });
 
@@ -580,6 +620,11 @@ class _BookGrid extends StatelessWidget {
   /// grouped tile in place of their individual ones. See
   /// [_LibraryPageState._buildSlivers].
   final List<SeriesGroup> collapsedSeries;
+
+  /// Books whose series the reader spread out, with the group each folds
+  /// back into. See [_LibraryPageState._expandedSeries].
+  final Map<String, SeriesGroup> expandedSeriesByEntry;
+  final ValueChanged<String> onToggleSeriesExpanded;
   final ShelfRef shelf;
 
   /// Every section on the page, in page order — where keyboard and
@@ -645,9 +690,11 @@ class _BookGrid extends StatelessWidget {
                   key: ValueKey('shelf-series-${item.id}'),
                   group: item,
                   size: Size(tileWidth, tileHeight),
+                  onDoubleTap: () => onToggleSeriesExpanded(item.id),
                 );
               }
               final (bookIndex, entry) = item as (int, LibraryBook);
+              final expandedInto = expandedSeriesByEntry[entry.id];
               return _DraggableBookTile(
                 // Keyed on the progress row so Flutter reuses the right
                 // element when a book moves between sections.
@@ -665,6 +712,9 @@ class _BookGrid extends StatelessWidget {
                 onDragEnded: onDragEnded,
                 onMove: onMove,
                 onOpen: onOpen,
+                onCollapseSeries: expandedInto == null
+                    ? null
+                    : () => onToggleSeriesExpanded(expandedInto.id),
               );
             }, childCount: items.length),
           );
@@ -680,20 +730,31 @@ class _BookGrid extends StatelessWidget {
 /// instead of that row's fixed width. Never draggable: it represents more
 /// than one shelf position at once, so there's no single place to drop it.
 class _SeriesGroupTile extends StatelessWidget {
-  const _SeriesGroupTile({super.key, required this.group, required this.size});
+  const _SeriesGroupTile({
+    super.key,
+    required this.group,
+    required this.size,
+    required this.onDoubleTap,
+  });
 
   final SeriesGroup group;
   final Size size;
 
+  /// Spreads the group back out into its own book tiles — see
+  /// [_LibraryPageState._toggleSeriesExpanded].
+  final VoidCallback onDoubleTap;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final covers = group.entries.take(3).toList();
     final coverHeight = size.width / BookCover.aspectRatio;
 
     return Semantics(
       button: true,
       label: '${group.name} series, ${group.summary}.',
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'Show its books'): onDoubleTap,
+      },
       excludeSemantics: true,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -701,37 +762,23 @@ class _SeriesGroupTile extends StatelessWidget {
           AppHaptics.selection();
           unawaited(openSeries(context, group));
         },
+        onDoubleTap: onDoubleTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              height: coverHeight,
+            _SeriesCoverFan(
+              group: group,
               width: size.width,
-              child: Stack(
-                children: [
-                  for (final (i, entry) in covers.indexed.toList().reversed)
-                    Positioned(
-                      left: i * (size.width * 0.18),
-                      top: i * 4.0,
-                      bottom: 0,
-                      child: SizedBox(
-                        width: size.width * 0.6 - i * 4,
-                        child: BookCover(
-                          title: entry.book.title,
-                          author: entry.book.author,
-                          coverUrl: entry.displayBook.coverUrl,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+              height: coverHeight,
+              coverWidth: size.width * 0.6,
+              step: size.width * 0.18,
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
               group.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: colors.primaryText,
@@ -741,13 +788,84 @@ class _SeriesGroupTile extends StatelessWidget {
               group.summary,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 11,
                 color: colors.secondaryText,
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Up to three of a series' covers fanned left to right, the first on top —
+/// shared by the series row above the shelves and a series grouped into one
+/// shelf tile, so the two can never drift apart.
+class _SeriesCoverFan extends StatelessWidget {
+  const _SeriesCoverFan({
+    required this.group,
+    required this.width,
+    required this.height,
+    required this.coverWidth,
+    required this.step,
+  });
+
+  final SeriesGroup group;
+  final double width;
+  final double height;
+
+  /// The front cover's width; each one behind is 4px narrower.
+  final double coverWidth;
+
+  /// How far right each cover behind sits from the one in front.
+  final double step;
+
+  @override
+  Widget build(BuildContext context) {
+    // Settings' "series tiles" switch: a patchwork of the covers instead of
+    // the fanned stack.
+    return ValueListenableBuilder<bool>(
+      valueListenable: SeriesTileStyleController.patchwork,
+      builder: (context, patchwork, _) => patchwork
+          ? SizedBox(
+              height: height,
+              width: width,
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: coverWidth,
+                  child: SeriesPatchworkCover(entries: group.entries),
+                ),
+              ),
+            )
+          : _fan(),
+    );
+  }
+
+  Widget _fan() {
+    final covers = group.entries.take(3).toList();
+    return SizedBox(
+      height: height,
+      width: width,
+      child: Stack(
+        children: [
+          for (final (i, entry) in covers.indexed.toList().reversed)
+            Positioned(
+              left: i * step,
+              top: i * 4.0,
+              bottom: 0,
+              child: SizedBox(
+                width: coverWidth - i * 4,
+                child: BookCover(
+                  title: entry.book.title,
+                  author: entry.book.author,
+                  coverUrl: entry.displayBook.coverUrl,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -787,6 +905,7 @@ class _DraggableBookTile extends StatefulWidget {
     required this.onDragEnded,
     required this.onMove,
     required this.onOpen,
+    this.onCollapseSeries,
   });
 
   final LibraryBook entry;
@@ -802,6 +921,10 @@ class _DraggableBookTile extends StatefulWidget {
   final VoidCallback onDragEnded;
   final void Function(String id, ShelfRef shelf, int index) onMove;
   final ValueChanged<LibraryBook> onOpen;
+
+  /// Folds this book's spread-out series back into one tile; null unless
+  /// the reader spread it out. See [_LibraryPageState._expandedSeries].
+  final VoidCallback? onCollapseSeries;
 
   @override
   State<_DraggableBookTile> createState() => _DraggableBookTileState();
@@ -842,6 +965,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
       // The owned edition's cover when the reader picked one.
       coverUrl: widget.entry.displayBook.coverUrl,
       dimmed: widget.dimmed,
+      rereadCount: widget.entry.rereadCount,
     ),
   );
 
@@ -888,6 +1012,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => widget.onOpen(entry),
+        onDoubleTap: widget.onCollapseSeries,
         child: _tile(),
       ),
     );
@@ -1007,6 +1132,8 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
       if (!widget.isLast)
         const CustomSemanticsAction(label: 'Move later'): () =>
             _moveWithinShelf(1),
+      const CustomSemanticsAction(label: 'Collapse series'):
+          ?widget.onCollapseSeries,
     };
   }
 }
@@ -1064,7 +1191,7 @@ class _SectionHeading extends StatelessWidget {
                     children: [
                       AnimatedDefaultTextStyle(
                         duration: const Duration(milliseconds: 150),
-                        style: GoogleFonts.jetBrainsMono(
+                        style: context.fonts.interface(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: active ? colors.accent : colors.secondaryText,
@@ -1224,7 +1351,7 @@ class _Header extends StatelessWidget {
                 _HeaderIcon(
                   key: const ValueKey('library-make-collections'),
                   icon: Icons.add,
-                  label: 'Make a shelf, tag or series',
+                  label: 'Make or remove shelves, tags, series and books',
                   color: colors.secondaryText,
                   onTap: onOpenCollections,
                 ),
@@ -1296,7 +1423,7 @@ class _SearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final style = GoogleFonts.jetBrainsMono(
+    final style = context.fonts.interface(
       fontSize: 15,
       color: colors.primaryText,
     );
@@ -1353,7 +1480,7 @@ class _SeriesHeading extends StatelessWidget {
         ),
         child: Text(
           'series',
-          style: GoogleFonts.jetBrainsMono(
+          style: context.fonts.interface(
             fontSize: 16,
             fontWeight: FontWeight.w600,
             color: context.colors.secondaryText,
@@ -1387,7 +1514,6 @@ class _SeriesRow extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
         itemBuilder: (context, index) {
           final group = groups[index];
-          final covers = group.entries.take(3).toList();
           return Semantics(
             button: true,
             label: '${group.name} series, ${group.summary}.',
@@ -1404,35 +1530,19 @@ class _SeriesRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      height: _coverWidth / BookCover.aspectRatio,
+                    _SeriesCoverFan(
+                      group: group,
                       width: _tileWidth,
-                      child: Stack(
-                        children: [
-                          for (final (i, entry)
-                              in covers.indexed.toList().reversed)
-                            Positioned(
-                              left: i * 22.0,
-                              top: i * 4.0,
-                              bottom: 0,
-                              child: SizedBox(
-                                width: _coverWidth - i * 4,
-                                child: BookCover(
-                                  title: entry.book.title,
-                                  author: entry.book.author,
-                                  coverUrl: entry.displayBook.coverUrl,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
+                      height: _coverWidth / BookCover.aspectRatio,
+                      coverWidth: _coverWidth,
+                      step: 22,
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
                       group.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: colors.primaryText,
@@ -1442,7 +1552,7 @@ class _SeriesRow extends StatelessWidget {
                       group.summary,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 11,
                         color: colors.secondaryText,
                       ),
@@ -1484,7 +1594,7 @@ class _Message extends StatelessWidget {
             Text(
               text,
               textAlign: TextAlign.center,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 13,
                 height: 1.6,
                 color: colors.secondaryText,
@@ -1496,7 +1606,7 @@ class _Message extends StatelessWidget {
                 onPressed: onAction,
                 child: Text(
                   label,
-                  style: GoogleFonts.jetBrainsMono(
+                  style: context.fonts.interface(
                     fontSize: 13,
                     color: colors.accent,
                   ),

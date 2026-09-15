@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../domain/book_note.dart';
@@ -106,7 +106,7 @@ class _TagSelectionSheetState extends State<TagSelectionSheet> {
                     header: true,
                     child: Text(
                       'select tags',
-                      style: GoogleFonts.jetBrainsMono(
+                      style: context.fonts.interface(
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
                         color: colors.primaryText,
@@ -118,7 +118,7 @@ class _TagSelectionSheetState extends State<TagSelectionSheet> {
                     Text(
                       "you haven't made any tags yet — make one from the "
                       "library's + panel.",
-                      style: GoogleFonts.inter(
+                      style: context.fonts.body(
                         fontSize: 13,
                         height: 1.5,
                         color: colors.secondaryText,
@@ -195,7 +195,7 @@ class _SelectableTagChip extends StatelessWidget {
                 ],
                 Text(
                   tag.name,
-                  style: GoogleFonts.jetBrainsMono(
+                  style: context.fonts.interface(
                     fontSize: 13,
                     color: colors.primaryText,
                   ),

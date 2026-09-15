@@ -1,6 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:purchases_flutter/purchases_flutter.dart' show CustomerInfo;
 
 import '../../../../core/auth/session_scope.dart';
@@ -10,11 +11,13 @@ import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/purchases/plan_controller.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_sheet.dart';
 import '../../../library/presentation/library_scope.dart';
+import '../../../library/presentation/series_tile_style_controller.dart';
 import '../../../library_transfer/presentation/library_exporter.dart';
 import '../../../library_transfer/presentation/pages/import_page.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
@@ -96,7 +99,21 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
+    PlanController.isPro.addListener(_onPlanChanged);
     _refresh();
+  }
+
+  @override
+  void dispose() {
+    PlanController.isPro.removeListener(_onPlanChanged);
+    super.dispose();
+  }
+
+  /// The pro-gated rows below read [PlanController.isPro], so a plan
+  /// change anywhere (the debug toggle, a purchase pushed from another
+  /// device) redraws them.
+  void _onPlanChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _refresh() async {
@@ -104,6 +121,15 @@ class _SettingsPageState extends State<SettingsPage> {
       final info = await _purchases.customerInfo;
       if (!mounted) return;
       setState(() => _info = info);
+      // A fresh read here — after a purchase, a restore, or Customer
+      // Center — is the newest word on the entitlement; hand it to the
+      // app-wide flag too rather than leaving the other tabs to wait for
+      // RevenueCat's listener. Only for the real SDK — an injected fake
+      // is a test, and must not leak into the global flag the next test
+      // reads.
+      if (widget.purchases == null) {
+        PlanController.updateEntitlement(_purchases.isPro(info));
+      }
     } on PurchasesException catch (error) {
       if (!mounted) return;
       setState(() => _error = error.message);
@@ -160,8 +186,16 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _upgrade() async {
-    await showPaywallPopup(context, purchases: widget.purchases);
+  /// Opens the paywall on the chapter for whichever locked row was tapped
+  /// — see [PaywallFeature].
+  Future<void> _upgrade([
+    PaywallFeature feature = PaywallFeature.general,
+  ]) async {
+    await showPaywallPopup(
+      context,
+      purchases: widget.purchases,
+      feature: feature,
+    );
     // A purchase made in there is invisible to this page otherwise — the
     // card above would still say "free plan" until the next launch.
     if (mounted) await _refresh();
@@ -171,7 +205,13 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final info = _info;
+    // Two different questions. [isPro] is "does this account actually
+    // hold a subscription" — the card's PRO badge and the "get cactus
+    // pro" row must never claim one that the debug override faked.
+    // [unlocked] is "should pro features open", which is what every
+    // gated row asks, and matches every other gate in the app.
     final isPro = info != null && _purchases.isPro(info);
+    final unlocked = isPro || PlanController.isPro.value;
     final session = _session;
     final error = _error;
 
@@ -206,7 +246,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(height: AppSpacing.sm),
                       Text(
                         error,
-                        style: GoogleFonts.inter(
+                        style: context.fonts.body(
                           fontSize: 13,
                           color: colors.secondaryText,
                         ),
@@ -220,7 +260,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           SettingsRow(
                             icon: Icons.auto_awesome,
                             label: 'get cactus pro',
-                            onTap: _busy ? null : _upgrade,
+                            onTap: _busy ? null : () => _upgrade(),
                           ),
                         SettingsRow(
                           icon: Icons.manage_accounts_outlined,
@@ -237,15 +277,23 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: AppSpacing.lg),
                     const _ReadingSection(),
                     const SizedBox(height: AppSpacing.lg),
-                    _LibraryDataSection(exporter: widget.exporter),
+                    _LibraryDataSection(
+                      exporter: widget.exporter,
+                      isPro: unlocked,
+                      onLocked: _busy
+                          ? null
+                          : () => _upgrade(PaywallFeature.readingUnlocked),
+                    ),
                     const SizedBox(height: AppSpacing.lg),
                     const _HelpSection(),
                     const SizedBox(height: AppSpacing.lg),
                     const _AppearanceSection(),
                     const SizedBox(height: AppSpacing.lg),
                     _CustomisationSection(
-                      isPro: isPro,
-                      onLocked: _busy ? null : _upgrade,
+                      isPro: unlocked,
+                      onLocked: _busy
+                          ? null
+                          : () => _upgrade(PaywallFeature.customisation),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     SettingsSection(
@@ -289,6 +337,7 @@ class _ReadingSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     final goals = GoalScope.of(context);
     final goal = goals.goal;
     return SettingsSection(
@@ -307,17 +356,39 @@ class _ReadingSection extends StatelessWidget {
             showGoalSheet(context);
           },
         ),
+        ValueListenableBuilder<bool>(
+          valueListenable: SeriesTileStyleController.patchwork,
+          builder: (context, patchwork, _) => SettingsRow(
+            icon: Icons.grid_view_outlined,
+            label: 'series tiles',
+            trailing: Switch(
+              value: patchwork,
+              activeThumbColor: colors.accent,
+              onChanged: (value) {
+                AppHaptics.selection();
+                unawaited(SeriesTileStyleController.select(value));
+              },
+            ),
+          ),
+        ),
       ],
     );
   }
 }
 
-/// Getting a library out (CSV) and in (a Goodreads export, which replaces
-/// the library). Both free.
+/// Getting a library out (CSV, free) and in (a Goodreads import, cactus
+/// pro — replaces the whole library, so it's gated the same "faded, never
+/// hidden" way [_CustomisationSection] gates themes and icons).
 class _LibraryDataSection extends StatefulWidget {
-  const _LibraryDataSection({this.exporter});
+  const _LibraryDataSection({
+    this.exporter,
+    required this.isPro,
+    required this.onLocked,
+  });
 
   final LibraryExporter? exporter;
+  final bool isPro;
+  final VoidCallback? onLocked;
 
   @override
   State<_LibraryDataSection> createState() => _LibraryDataSectionState();
@@ -358,21 +429,33 @@ class _LibraryDataSectionState extends State<_LibraryDataSection> {
               label: _exporting ? 'exporting…' : 'export as csv',
               onTap: _exporting ? null : _export,
             ),
-            SettingsRow(
-              icon: Icons.upload_file_outlined,
-              label: 'import from goodreads',
-              onTap: () {
-                AppHaptics.selection();
-                openGoodreadsImport(context);
-              },
-            ),
+            widget.isPro
+                ? SettingsRow(
+                    icon: Icons.upload_file_outlined,
+                    label: 'import from goodreads',
+                    onTap: () {
+                      AppHaptics.selection();
+                      openGoodreadsImport(context);
+                    },
+                  )
+                : Opacity(
+                    opacity: 0.4,
+                    child: SettingsRow(
+                      icon: Icons.upload_file_outlined,
+                      label: 'import from goodreads',
+                      onTap: widget.onLocked,
+                    ),
+                  ),
           ],
         ),
         if (message != null) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(
             message,
-            style: GoogleFonts.inter(fontSize: 13, color: colors.secondaryText),
+            style: context.fonts.body(
+              fontSize: 13,
+              color: colors.secondaryText,
+            ),
           ),
         ],
       ],

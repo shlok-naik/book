@@ -44,25 +44,72 @@ class StreaksController extends ChangeNotifier {
       if (events.any((event) => event.type != ReadingEventType.delete)) day,
   };
 
+  /// How many journaled commands landed on each local day — the stats
+  /// page's heatmap intensity. Same exclusion as [loggedDays]: `delete`
+  /// isn't a moment worth journaling, so it adds nothing, and a day of
+  /// only deletes is absent.
+  Map<DateTime, int> get activityByDay => {
+    for (final MapEntry(key: day, value: events) in _byDay.entries)
+      if (events.where((e) => e.type != ReadingEventType.delete).length
+          case final count when count > 0)
+        day: count,
+  };
+
   /// Forgets what was loaded and loads [year] again — after the whole
   /// library was replaced (an import, a linked account's library).
+  ///
+  /// Supersedes a load already in flight rather than joining it: that one
+  /// started before the library changed, so its answer is stale and is
+  /// discarded when it lands.
   Future<void> reload(int year) {
     _loadedYear = null;
     _byDay = const {};
+    _generation++;
+    _inFlight = null;
     return load(year);
   }
 
-  /// (Re)loads [year]. A second call for the same year that's already
-  /// loaded is a no-op — the streaks page calls this once, on mount, and
-  /// relies on [applyEvent] afterwards to pick up new commands rather
-  /// than reloading the whole year again.
-  Future<void> load(int year) async {
-    if (_isLoading || _loadedYear == year) return;
+  /// Bumped by every load that starts (and by [reload]); a load whose
+  /// generation is no longer current when its fetch returns throws its
+  /// answer away.
+  int _generation = 0;
+  Future<void>? _inFlight;
+  int? _inFlightYear;
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  /// (Re)loads [year]. A call for the year that's already loaded is a
+  /// no-op, and a call for the year already *loading* joins that load —
+  /// the streaks page calls this once, on mount, and relies on
+  /// [applyEvent] afterwards to pick up new commands rather than reloading
+  /// the whole year again.
+  Future<void> load(int year) {
+    if (_loadedYear == year) return Future.value();
+    final inFlight = _inFlight;
+    if (inFlight != null && _inFlightYear == year) return inFlight;
+    final generation = ++_generation;
+    _inFlightYear = year;
+    return _inFlight = _load(year, generation).whenComplete(() {
+      if (generation == _generation) _inFlight = null;
+    });
+  }
+
+  Future<void> _load(int year, int generation) async {
     _isLoading = true;
-    notifyListeners();
+    _notify();
 
     try {
       final rows = await events.fetchForYear(year);
+      if (generation != _generation) return;
       final grouped = <DateTime, List<ReadingEvent>>{};
       for (final event in rows) {
         final key = _dayKey(event.occurredAt.toLocal());
@@ -72,6 +119,7 @@ class StreaksController extends ChangeNotifier {
       _loadedYear = year;
       _errorMessage = null;
     } on LibraryException catch (error) {
+      if (generation != _generation) return;
       // Surfaced rather than swallowed: an empty journal and a failed
       // load used to look identical to the reader, so a Supabase outage
       // read as "you have never logged anything".
@@ -82,6 +130,7 @@ class StreaksController extends ChangeNotifier {
         error: error,
       );
     } on Object catch (error, stackTrace) {
+      if (generation != _generation) return;
       _errorMessage = "We couldn't load your streak history.";
       AppLogger.error(
         'StreaksController',
@@ -90,8 +139,10 @@ class StreaksController extends ChangeNotifier {
         stackTrace: stackTrace,
       );
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (generation == _generation) {
+        _isLoading = false;
+        _notify();
+      }
     }
   }
 
@@ -110,7 +161,7 @@ class StreaksController extends ChangeNotifier {
       ..._byDay,
       key: [...?_byDay[key], event],
     };
-    notifyListeners();
+    _notify();
   }
 
   /// Drops every already-loaded event for [title] — the in-memory
@@ -131,6 +182,6 @@ class StreaksController extends ChangeNotifier {
     }
     if (!changed) return;
     _byDay = next;
-    notifyListeners();
+    _notify();
   }
 }

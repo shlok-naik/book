@@ -38,6 +38,23 @@ LibraryBook _entry(
 
 void main() {
   group('ShelfRules.enter', () {
+    test('moving into reading stamps the start date; to read does not', () {
+      final at = DateTime.utc(2026, 9, 1);
+      final started = ShelfRules.enter(
+        _entry('a', ReadingStatus.toBeRead),
+        ReadingStatus.reading,
+        at: at,
+      );
+      expect(started.startedAt, at);
+
+      final queued = ShelfRules.enter(
+        _entry('a', ReadingStatus.reading),
+        ReadingStatus.toBeRead,
+        at: at,
+      );
+      expect(queued.startedAt, isNull);
+    });
+
     test('to read and reading reset progress to page 0', () {
       for (final target in [ReadingStatus.toBeRead, ReadingStatus.reading]) {
         final from = target == ReadingStatus.reading

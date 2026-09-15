@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/analytics/app_analytics.dart';
 import '../../../../core/auth/session_service.dart';
@@ -11,6 +10,7 @@ import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/platform/device_name.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/confirm_dialog.dart';
@@ -204,7 +204,7 @@ class _LibraryConflictPageState extends State<LibraryConflictPage> {
     final account = _accountSummary;
     final device = _deviceSummary;
     final error = _error;
-    final body = GoogleFonts.inter(
+    final body = context.fonts.body(
       fontSize: 14,
       height: 1.5,
       color: colors.secondaryText,
@@ -282,7 +282,7 @@ class _LibraryConflictPageState extends State<LibraryConflictPage> {
                             onPressed: _load,
                             child: Text(
                               'try again',
-                              style: GoogleFonts.jetBrainsMono(
+                              style: context.fonts.interface(
                                 fontSize: 14,
                                 color: colors.accent,
                               ),
@@ -323,11 +323,11 @@ class _Option extends StatelessWidget {
     final started = _LibraryConflictPageState._date(summary.createdAt);
     final lastUsed = _LibraryConflictPageState._date(summary.lastSeenAt);
     final books = _LibraryConflictPageState._books(summary.bookCount);
-    final label = GoogleFonts.jetBrainsMono(
+    final label = context.fonts.interface(
       fontSize: 12,
       color: colors.secondaryText,
     );
-    final value = GoogleFonts.jetBrainsMono(
+    final value = context.fonts.interface(
       fontSize: 14,
       fontWeight: FontWeight.w600,
       color: colors.primaryText,
@@ -368,7 +368,7 @@ class _Option extends StatelessWidget {
                     Expanded(
                       child: Text(
                         heading,
-                        style: GoogleFonts.jetBrainsMono(
+                        style: context.fonts.interface(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: colors.primaryText,

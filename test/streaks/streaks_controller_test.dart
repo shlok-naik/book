@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:book/features/library/data/reading_event_repository.dart';
 import 'package:book/features/library/domain/library_exception.dart';
 import 'package:book/features/library/domain/reading_event.dart';
@@ -317,6 +319,50 @@ void main() {
       expect(controller.eventsFor(DateTime(2026, 3, 5)), isNotEmpty);
     });
   });
+
+  group('load races', () {
+    test('reload supersedes a load already in flight, and its stale answer '
+        'is discarded', () async {
+      final events = _GatedReadingEventRepository();
+      final controller = StreaksController(events: events);
+
+      final stale = controller.load(2026);
+      // The library is replaced (an import) while that load is out.
+      final reload = controller.reload(2026);
+      events.answer(0, [
+        _event(ReadingEventType.start, DateTime.utc(2026, 1, 1), title: 'Old'),
+      ]);
+      events.answer(1, [
+        _event(ReadingEventType.start, DateTime.utc(2026, 2, 2), title: 'New'),
+      ]);
+      await Future.wait([stale, reload]);
+
+      expect(controller.isLoading, isFalse);
+      expect(controller.days, [DateTime(2026, 2, 2)]);
+    });
+
+    test('a second load of the same year joins the one in flight', () async {
+      final events = _GatedReadingEventRepository();
+      final controller = StreaksController(events: events);
+
+      final first = controller.load(2026);
+      final second = controller.load(2026);
+      events.answer(0, const []);
+      await Future.wait([first, second]);
+
+      expect(events.requests, 1);
+    });
+
+    test('a load that lands after dispose does not notify', () async {
+      final events = _GatedReadingEventRepository();
+      final controller = StreaksController(events: events);
+      final load = controller.load(2026);
+      controller.dispose();
+
+      events.answer(0, const []);
+      await expectLater(load, completes);
+    });
+  });
 }
 
 /// Fails the first fetch and succeeds afterwards — what a transient
@@ -335,4 +381,21 @@ class _FailOnceThenSucceed extends ReadingEventRepository {
     }
     return List.of(rows);
   }
+}
+
+/// Holds every fetch open until the test answers it, by request index.
+class _GatedReadingEventRepository extends ReadingEventRepository {
+  final _pending = <Completer<List<ReadingEvent>>>[];
+
+  int get requests => _pending.length;
+
+  @override
+  Future<List<ReadingEvent>> fetchForYear(int year) {
+    final completer = Completer<List<ReadingEvent>>();
+    _pending.add(completer);
+    return completer.future;
+  }
+
+  void answer(int index, List<ReadingEvent> rows) =>
+      _pending[index].complete(rows);
 }

@@ -124,7 +124,16 @@ class HalfSheetScaffold extends StatelessWidget {
                     left: 0,
                     child: SafeArea(
                       child: IconButton(
-                        icon: Icon(Icons.arrow_back, color: colors.primaryText),
+                        // The same back chevron every other pushed screen
+                        // uses (settings pages, the scanner). The tooltip is
+                        // what names it to a screen reader — without one an
+                        // icon button is announced as just "button".
+                        tooltip: 'Back',
+                        icon: Icon(
+                          Icons.chevron_left,
+                          size: 24,
+                          color: colors.primaryText,
+                        ),
                         onPressed: () => Navigator.of(context).maybePop(),
                       ),
                     ),

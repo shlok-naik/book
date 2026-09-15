@@ -1,3 +1,4 @@
+import '../../../core/formatting/numbers.dart';
 import '../../library/domain/book_series.dart';
 import '../../library/domain/library_book.dart';
 import '../../library/domain/user_book.dart';
@@ -94,7 +95,5 @@ abstract final class LibraryExport {
 
   static String _pad(int value) => value.toString().padLeft(2, '0');
 
-  static String _number(double value) => value == value.roundToDouble()
-      ? value.toInt().toString()
-      : value.toStringAsFixed(1);
+  static String _number(double value) => formatCompactNumber(value);
 }

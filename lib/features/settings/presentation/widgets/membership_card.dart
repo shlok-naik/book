@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/auth/session_service.dart';
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../data/profile_repository.dart';
@@ -128,6 +129,16 @@ class _MembershipCardState extends State<MembershipCard> {
     return '${local.month}.${local.day}.$year';
   }
 
+  /// The card's outline — see the comment where it's used. Resolved to an
+  /// opaque color (blended onto the panel) so the 1.5px stroke doesn't
+  /// double up where it overlaps the panel's own anti-aliased edge.
+  static Color _outline(AppColors colors, {required bool isLight}) {
+    return Color.alphaBlend(
+      colors.primaryText.withValues(alpha: isLight ? 1 : 0.55),
+      colors.background,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -147,10 +158,17 @@ class _MembershipCardState extends State<MembershipCard> {
         DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            // A pure black outline, deliberately not a theme token — it's
-            // what gives the card a drawn, cut-out edge instead of just a
-            // soft drop shadow, in both light and dark mode alike.
-            border: Border.all(color: Colors.black, width: 1.5),
+            // A drawn, cut-out ink edge rather than just a soft drop
+            // shadow. It used to be a hardcoded `Colors.black`, which in
+            // dark mode is near-invisible against a charcoal page (and a
+            // shadow can't separate dark-on-dark either), so the card
+            // blended straight into the settings background. The
+            // primary-text token contrasts in both themes: ink on cream,
+            // and — softened so it doesn't glare — soft white on charcoal.
+            border: Border.all(
+              color: _outline(colors, isLight: isLight),
+              width: 1.5,
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: isLight ? 0.14 : 0.5),
@@ -198,7 +216,7 @@ class _MembershipCardState extends State<MembershipCard> {
                       const SizedBox(height: AppSpacing.lg),
                       Text(
                         'member since',
-                        style: GoogleFonts.inter(
+                        style: context.fonts.body(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.8,
@@ -215,7 +233,7 @@ class _MembershipCardState extends State<MembershipCard> {
                         _loading
                             ? '···'
                             : (joinedAt == null ? '—' : _dateLabel(joinedAt)),
-                        style: GoogleFonts.jetBrainsMono(
+                        style: context.fonts.interface(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                           color: onPanel,
@@ -242,7 +260,7 @@ class _MembershipCardState extends State<MembershipCard> {
             child: Text(
               'Your shelf lives on this device only. Add an email and it '
               'follows you to the next one.',
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 12,
                 height: 1.5,
                 color: colors.secondaryText,
@@ -351,7 +369,7 @@ class _EmailLine extends StatelessWidget {
               Flexible(
                 child: Text(
                   anonymous ? 'add email' : session.email!,
-                  style: GoogleFonts.inter(
+                  style: context.fonts.body(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: onPanel,
@@ -390,7 +408,7 @@ class _ProBadge extends StatelessWidget {
       ),
       child: Text(
         'PRO',
-        style: GoogleFonts.inter(
+        style: context.fonts.body(
           fontSize: 11,
           fontWeight: FontWeight.w800,
           color: foreground,

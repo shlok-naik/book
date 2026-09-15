@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 
@@ -31,7 +31,7 @@ class SettingsSection extends StatelessWidget {
           ),
           child: Text(
             title,
-            style: GoogleFonts.jetBrainsMono(
+            style: context.fonts.interface(
               fontSize: 12,
               fontWeight: FontWeight.w600,
               color: colors.secondaryText,
@@ -106,7 +106,7 @@ class SettingsRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: GoogleFonts.inter(
+              style: context.fonts.body(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
                 color: colors.primaryText,
@@ -118,7 +118,7 @@ class SettingsRow extends StatelessWidget {
               padding: const EdgeInsets.only(left: AppSpacing.sm),
               child: Text(
                 readout,
-                style: GoogleFonts.inter(
+                style: context.fonts.body(
                   fontSize: 14,
                   color: colors.secondaryText,
                 ),

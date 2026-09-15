@@ -51,7 +51,7 @@ class _InMemoryUserBookRepository extends UserBookRepository {
   Future<List<LibraryBook>> fetchLibrary() async => const [];
 
   @override
-  Future<StartOutcome> start(String bookId) async {
+  Future<StartOutcome> start(String bookId, {DateTime? startedAt}) async {
     final isNew = _started.add(bookId);
     return StartOutcome(
       UserBook(
@@ -248,14 +248,14 @@ void main() {
     (tester) async {
       await useDeviceSize(tester);
       final ai = FakeAiCommandParser(
-        commands: const ['finish Dune', 'start Mockingbird'],
+        commands: const ['rate Dune 9', 'start Mockingbird'],
       );
       final library = _newLibraryController();
       await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
 
       await tester.enterText(
         find.byType(TextField),
-        'finish Dune and start Mockingbird',
+        'rate Dune 9 and start Mockingbird',
       );
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
@@ -266,7 +266,7 @@ void main() {
         findsOneWidget,
       );
 
-      // "finish Dune" fails — the book was never started. Two more
+      // "rate Dune 9" fails — out of range, so nothing is even added. Two more
       // zero-duration pumps flush `_runCommand`'s own await without
       // advancing the 750ms hold that follows it, so this catches the
       // pill before "start Mockingbird" gets its own turn and message.
@@ -278,7 +278,7 @@ void main() {
       expect(
         find.widgetWithText(
           ConfirmationPill,
-          'You haven\'t started "Dune" yet — try "start Dune" first.',
+          'Ratings are between 0.5 and 5 stars.',
         ),
         findsOneWidget,
       );
@@ -300,7 +300,7 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
       await tester.pumpAndSettle();
       expect(find.byType(InstructionRow), findsNothing);
-      expect(find.text('finish Dune and start Mockingbird'), findsNothing);
+      expect(find.text('rate Dune 9 and start Mockingbird'), findsNothing);
       expect(find.byType(CommandInput), findsOneWidget);
     },
   );

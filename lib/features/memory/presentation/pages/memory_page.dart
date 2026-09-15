@@ -1,10 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
+import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../paywall/presentation/pages/paywall_page.dart';
+import '../../../paywall/presentation/pro_gate.dart';
+import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/memory.dart';
 import '../controllers/memory_controller.dart';
@@ -45,19 +49,34 @@ const _noteLineHeight = 16 * 1.5;
 /// squeezed under a subscription card that had nothing to do with them.
 /// The account material that used to share that page now lives behind
 /// the gear in [TopBar].
+///
+/// A cactus pro page, gated the way the stats page's journal is: a free
+/// reader who opens the tab (or types `memory` on the add tab) sees a
+/// faded preview of invented notes and "cactus pro unlocks your full
+/// reading memory", and tapping it opens the paywall on the memory
+/// chapter ([PaywallFeature.memory]) — see [_LockedMemory]. It used to
+/// skip the page entirely and throw the paywall up over the add tab, so a
+/// free reader never saw what the tab even was.
 class MemoryPage extends StatefulWidget {
-  const MemoryPage({super.key});
+  const MemoryPage({super.key, this.purchases});
+
+  /// Injection point for tests: a fake wrapping fake customer info
+  /// instead of the real RevenueCat SDK. Null in the app.
+  final PurchasesService? purchases;
 
   @override
   State<MemoryPage> createState() => _MemoryPageState();
 }
 
-class _MemoryPageState extends State<MemoryPage> {
-  /// The floating bottom bar's total footprint (bar height + its own
-  /// gap + the name label + its margin from the screen edge) — see
-  /// bottom_switcher.dart's _outerHeight (70) and root_shell.dart. Same
-  /// value every other tab uses.
-  static const _barFootprint = 108.0;
+class _MemoryPageState extends State<MemoryPage> with ProGateState<MemoryPage> {
+  @override
+  PurchasesService? get purchasesOverride => widget.purchases;
+
+  @override
+  PaywallFeature get paywallFeature => PaywallFeature.memory;
+
+  /// The floating bottom bar's footprint — see [BottomSwitcher.pageFootprint].
+  static const _barFootprint = BottomSwitcher.pageFootprint;
 
   @override
   void initState() {
@@ -105,7 +124,10 @@ class _MemoryPageState extends State<MemoryPage> {
               children: [
                 const TopBar(title: 'memory'),
                 const SizedBox(height: AppSpacing.lg),
-                _MemoryJournal(controller: memory),
+                if (isProUnlocked)
+                  _MemoryJournal(controller: memory)
+                else
+                  _LockedMemory(busy: unlockBusy, onTap: unlockPro),
               ],
             ),
           ),
@@ -130,7 +152,7 @@ class _MemoryJournal extends StatelessWidget {
     if (controller.isLoading && controller.memories.isEmpty) {
       return Text(
         'loading memories…',
-        style: GoogleFonts.jetBrainsMono(
+        style: context.fonts.interface(
           fontSize: 14,
           color: colors.secondaryText,
         ),
@@ -141,7 +163,7 @@ class _MemoryJournal extends StatelessWidget {
     if (error != null && controller.memories.isEmpty) {
       return Text(
         error,
-        style: GoogleFonts.inter(
+        style: context.fonts.body(
           fontSize: 14,
           height: 1.5,
           color: colors.secondaryText,
@@ -154,7 +176,7 @@ class _MemoryJournal extends StatelessWidget {
         'nothing remembered yet — on cactus pro, say something like '
         '"i loved the ending of dune" and it\'ll show up here, and '
         'shape what recommend suggests next.',
-        style: GoogleFonts.jetBrainsMono(
+        style: context.fonts.interface(
           fontSize: 14,
           height: 1.4,
           color: colors.secondaryText,
@@ -196,6 +218,101 @@ class _MemoryJournal extends StatelessWidget {
       memories.map((m) => m.createdAt).reduce((a, b) => a.isAfter(b) ? a : b);
 }
 
+/// What a free reader sees in place of their memories: the same
+/// [_MemoryGroup] layout the real journal renders, faded and inert, over
+/// invented notes rather than anything of the reader's own — plus the line
+/// naming the way out. The whole block is one tap target, the exact
+/// treatment the stats page's `_LockedJournal` gives the reading journal.
+class _LockedMemory extends StatelessWidget {
+  const _LockedMemory({required this.busy, required this.onTap});
+
+  final bool busy;
+  final VoidCallback onTap;
+
+  static final _preview = [
+    (
+      title: 'The Hobbit',
+      memories: [
+        Memory(
+          id: 'preview-1',
+          note: 'felt like a warm blanket on a cold night',
+          bookTitle: 'The Hobbit',
+          createdAt: DateTime(2026, 9, 12),
+        ),
+      ],
+    ),
+    (
+      title: 'Dune',
+      memories: [
+        Memory(
+          id: 'preview-2',
+          note: 'the desert scenes stayed with me for days',
+          bookTitle: 'Dune',
+          createdAt: DateTime(2026, 9, 10),
+        ),
+        Memory(
+          id: 'preview-3',
+          note: 'slow start, but the ending was worth it',
+          bookTitle: 'Dune',
+          createdAt: DateTime(2026, 9, 11),
+        ),
+      ],
+    ),
+  ];
+
+  static Future<MemoryActionResult> _inert(String _) async =>
+      const MemoryActionResult.failure('');
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Semantics(
+      button: true,
+      label:
+          'Reading memory, locked. Upgrade to cactus pro to unlock. '
+          'Double tap to upgrade.',
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: const ValueKey('locked-memory'),
+        onTap: busy ? null : onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Opacity(
+              opacity: 0.4,
+              child: IgnorePointer(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final (i, group) in _preview.indexed) ...[
+                      if (i > 0) const SizedBox(height: _groupSpacing),
+                      _MemoryGroup(
+                        title: group.title,
+                        memories: group.memories,
+                        onForget: _inert,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'cactus pro unlocks your full reading memory — tap to upgrade',
+              style: context.fonts.interface(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colors.accent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// One book's title, then every note about it — oldest first, the order
 /// they were actually remembered in, so a book's own notes read
 /// top-to-bottom like the rest of the story.
@@ -221,7 +338,7 @@ class _MemoryGroup extends StatelessWidget {
         // uses — a book name is this journal's "day".
         Text(
           title,
-          style: GoogleFonts.jetBrainsMono(
+          style: context.fonts.interface(
             fontSize: 13,
             fontWeight: FontWeight.w600,
             color: colors.secondaryText,
@@ -264,7 +381,7 @@ class _MemoryLine extends StatelessWidget {
             label: title == null ? memory.note : '$title. ${memory.note}',
             child: Text(
               memory.note,
-              style: GoogleFonts.jetBrainsMono(
+              style: context.fonts.interface(
                 fontSize: 16,
                 height: 1.5,
                 color: colors.primaryText,
