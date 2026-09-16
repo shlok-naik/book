@@ -5,6 +5,7 @@ import '../../../library/data/google_book.dart';
 import '../../../library/domain/book_lookup_service.dart';
 import '../../../library/domain/library_book.dart';
 import '../../../library/domain/library_exception.dart';
+import '../../domain/reading_taste.dart';
 import '../../domain/recommendation_seeds.dart';
 
 /// One recommendation row's state.
@@ -101,8 +102,11 @@ class BookSearchController extends ChangeNotifier {
   /// Fills the recommendation rows for [books] — the reader's shelf. Only
   /// refetches when the rows it would show changed ([RecommendationSeeds]),
   /// so opening the tab again, or a progress update, costs nothing.
-  Future<void> loadRecommendations(List<LibraryBook> books) async {
-    final seeds = RecommendationSeeds.from(books);
+  Future<void> loadRecommendations(
+    List<LibraryBook> books, {
+    List<ReadingTaste> tastes = const [],
+  }) async {
+    final seeds = RecommendationSeeds.from(books, tastes: tastes);
     if (listEquals(seeds, _seeds)) return;
     _seeds = seeds;
     _rows = [

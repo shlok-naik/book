@@ -22,6 +22,7 @@ import '../../../logging/presentation/widgets/confirmation_pill.dart';
 import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../controllers/book_search_controller.dart';
+import '../reading_tastes_controller.dart';
 import '../widgets/book_preview_sheet.dart';
 import '../widgets/book_rows.dart';
 
@@ -67,17 +68,24 @@ class _SearchPageState extends State<SearchPage> {
     // After the first frame: the shelf may still be loading, and the
     // controller notifies synchronously.
     WidgetsBinding.instance.addPostFrameCallback((_) => _refreshRows());
+    ReadingTastesController.tastes.addListener(_refreshRows);
   }
 
   void _refreshRows() {
     if (!mounted) return;
     final library = LibraryScope.read(context);
     if (!library.hasLoaded || ConnectivityController.isOffline.value) return;
-    unawaited(_search!.loadRecommendations(library.books));
+    unawaited(
+      _search!.loadRecommendations(
+        library.books,
+        tastes: ReadingTastesController.tastes.value,
+      ),
+    );
   }
 
   @override
   void dispose() {
+    ReadingTastesController.tastes.removeListener(_refreshRows);
     _timer?.cancel();
     _messageTimer?.cancel();
     _search?.dispose();

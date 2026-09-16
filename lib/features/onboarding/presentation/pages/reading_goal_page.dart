@@ -8,7 +8,7 @@ import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_picker.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
-import 'one_more_thing_page.dart';
+import 'reading_tastes_page.dart';
 
 /// Onboarding's second question: how many books this year. Picked with
 /// steppers and presets — no text field, like everything else in the intro
@@ -32,8 +32,8 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
   void _next() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'onboarding_one_more_thing'),
-        builder: (_) => const OneMoreThingPage(),
+        settings: const RouteSettings(name: 'onboarding_reading_tastes'),
+        builder: (_) => const ReadingTastesPage(),
       ),
     );
   }

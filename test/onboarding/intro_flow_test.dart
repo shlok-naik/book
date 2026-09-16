@@ -25,15 +25,19 @@ import 'package:book/features/onboarding/presentation/pages/goodreads_prompt_pag
 import 'package:book/features/onboarding/presentation/pages/natural_language_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.dart';
 import 'package:book/features/onboarding/presentation/pages/reading_goal_page.dart';
+import 'package:book/features/onboarding/presentation/pages/reading_tastes_page.dart';
 import 'package:book/features/onboarding/presentation/pages/speed_up_prompt_page.dart';
 import 'package:book/features/onboarding/presentation/pages/tags_comments_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/theme_preference_page.dart';
 import 'package:book/features/onboarding/presentation/pages/welcome_page.dart';
+import 'package:book/features/search/domain/reading_taste.dart';
+import 'package:book/features/search/presentation/reading_tastes_controller.dart';
 import 'package:book/features/shell/presentation/pages/root_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_goals.dart';
 
@@ -167,7 +171,9 @@ Future<void> tapContinue(WidgetTester tester) => tapPill(tester, 'continue');
 
 void main() {
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     addTearDown(() => ThemeController.select(ThemeMode.system));
+    addTearDown(ReadingTastesController.reset);
   });
 
   testWidgets('walks welcome → tutorials → look → finish, asking for nothing', (
@@ -225,6 +231,9 @@ void main() {
     await tapContinue(tester);
 
     expect(find.byType(ReadingGoalPage), findsOneWidget);
+    await tapContinue(tester);
+
+    expect(find.byType(ReadingTastesPage), findsOneWidget);
     await tapContinue(tester);
 
     expect(find.byType(OneMoreThingPage), findsOneWidget);
@@ -327,7 +336,30 @@ void main() {
 
     expect(repository.saved, [13]);
     expect(goals.goal, 13);
+    expect(find.byType(ReadingTastesPage), findsOneWidget);
+  });
+
+  testWidgets('after the goal, the tastes picked are saved for search', (
+    tester,
+  ) async {
+    await walkToGoal(tester, GoalController(repository: FakeGoalRepository()));
+    await tapPill(tester, 'skip for now');
+    expect(find.byType(ReadingTastesPage), findsOneWidget);
+
+    for (final key in ['taste-fantasy', 'taste-mystery']) {
+      final chip = find.byKey(ValueKey(key));
+      await tester.ensureVisible(chip);
+      await tester.tap(chip);
+      await settle(tester);
+    }
+    await tapContinue(tester);
+
+    expect(ReadingTastesController.tastes.value, [
+      ReadingTaste.fantasy,
+      ReadingTaste.mystery,
+    ]);
     expect(find.byType(OneMoreThingPage), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets('the goal question can be skipped without saving anything', (
@@ -339,6 +371,6 @@ void main() {
     await tapPill(tester, 'skip for now');
 
     expect(repository.saved, isEmpty);
-    expect(find.byType(OneMoreThingPage), findsOneWidget);
+    expect(find.byType(ReadingTastesPage), findsOneWidget);
   });
 }

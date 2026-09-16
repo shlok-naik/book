@@ -13,6 +13,8 @@ import 'package:book/features/goals/presentation/goal_scope.dart';
 import 'package:book/features/logging/domain/command_catalog.dart';
 import 'package:book/features/logging/presentation/parser_mode_controller.dart';
 import 'package:book/features/paywall/presentation/pages/paywall_page.dart';
+import 'package:book/features/search/domain/reading_taste.dart';
+import 'package:book/features/search/presentation/reading_tastes_controller.dart';
 import 'package:book/features/settings/data/profile_repository.dart';
 import 'package:book/features/settings/presentation/pages/commands_page.dart';
 import 'package:book/features/settings/presentation/pages/customisation_page.dart';
@@ -340,6 +342,26 @@ void main() {
   });
 
   group('profile', () {
+    testWidgets('reading tastes open a picker that saves as you tap', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(ReadingTastesController.reset);
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
+
+      expect(find.text('none yet'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('profile-reading-tastes')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('taste-fantasy')));
+      await tester.pumpAndSettle();
+
+      expect(ReadingTastesController.tastes.value, [ReadingTaste.fantasy]);
+    });
+
     testWidgets('holds the email row and the memory row', (tester) async {
       await pumpSettings(
         tester,
@@ -535,6 +557,8 @@ void main() {
       // here by definition; a release build tree-shakes it away.
       final beta = find.byKey(const ValueKey('parser-mode-beta'));
       await tester.scrollUntilVisible(beta, 200);
+      await tester.ensureVisible(beta);
+      await tester.pumpAndSettle();
       expect(find.text('pretend plan'), findsNothing);
       expect(find.text('classic'), findsOneWidget);
       expect(find.text('pro ai'), findsOneWidget);

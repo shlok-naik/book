@@ -50,6 +50,7 @@ import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
 import 'features/onboarding/data/onboarding_store.dart';
 import 'features/onboarding/presentation/pages/welcome_page.dart';
+import 'features/search/presentation/reading_tastes_controller.dart';
 import 'features/settings/data/profile_repository.dart';
 import 'features/shell/presentation/pages/root_shell.dart';
 import 'features/shell/presentation/start_page_controller.dart';
@@ -245,7 +246,7 @@ Future<void> _bootstrap() async {
   // * The icon, accent and fonts aren't load-bearing — a failure just leaves
   //   the defaults — but reading them first avoids a flash of the wrong
   //   accent.
-  final (_, _, introSeen, _, _, _, _, _, _) = await (
+  final (_, _, introSeen, _, _, _, _, _) = await (
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]),
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge),
     const OnboardingStore().hasSeen(),
@@ -253,8 +254,11 @@ Future<void> _bootstrap() async {
     AppColorThemeController.initialize(),
     AppFontThemeController.initialize(),
     SeriesTileStyleController.initialize(),
-    StartPageController.initialize(),
-    ParserModeController.initialize(),
+    Future.wait([
+      StartPageController.initialize(),
+      ParserModeController.initialize(),
+      ReadingTastesController.initialize(),
+    ]),
   ).wait;
 
   runApp(BookApp(showOnboarding: !introSeen));

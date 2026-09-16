@@ -1,6 +1,7 @@
 import '../../library/domain/library_book.dart';
 import '../../library/domain/user_book.dart';
 import '../../streaks/domain/reading_stats.dart';
+import 'reading_taste.dart';
 
 /// One row of recommendations on the search tab: what it's called and the
 /// Google Books query that fills it.
@@ -27,9 +28,17 @@ class RecommendationSeed {
 ///   else the one they finished most recently;
 /// * **more in (genre)** — their most-read genre among finished books
 ///   ([ReadingStats.genreOf]), when there is one;
-/// * **classics to start with** — only for a shelf with nothing to go on.
+/// * **(taste) for you** — one row per kind of book the reader said they
+///   like ([ReadingTaste], from onboarding or settings), up to three, right
+///   after the author row;
+/// * **classics to start with** — only when there's nothing else to go on.
 abstract final class RecommendationSeeds {
-  static List<RecommendationSeed> from(List<LibraryBook> books) {
+  static const maxTasteRows = 3;
+
+  static List<RecommendationSeed> from(
+    List<LibraryBook> books, {
+    List<ReadingTaste> tastes = const [],
+  }) {
     final seeds = <RecommendationSeed>[];
 
     final author = _anchorAuthor(books);
@@ -42,8 +51,18 @@ abstract final class RecommendationSeeds {
       );
     }
 
+    for (final taste in tastes.take(maxTasteRows)) {
+      seeds.add(
+        RecommendationSeed(
+          label: '${taste.label} for you',
+          query: 'subject:"${taste.subject}"',
+        ),
+      );
+    }
+
     final genre = _topGenre(books);
-    if (genre != null) {
+    final covered = {for (final taste in tastes) taste.subject.toLowerCase()};
+    if (genre != null && !covered.contains(genre.toLowerCase())) {
       seeds.add(
         RecommendationSeed(
           label: 'more in ${genre.toLowerCase()}',

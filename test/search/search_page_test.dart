@@ -12,6 +12,7 @@ import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
 import 'package:book/features/library/presentation/library_scope.dart';
 import 'package:book/features/library/presentation/pages/book_detail_page.dart';
+import 'package:book/features/search/domain/reading_taste.dart';
 import 'package:book/features/search/domain/recommendation_seeds.dart';
 import 'package:book/features/search/presentation/pages/search_page.dart';
 import 'package:book/features/search/presentation/pages/volume_detail_page.dart';
@@ -172,6 +173,18 @@ void main() {
       expect(seeds.first.query, 'inauthor:"Frank Herbert"');
       expect(seeds, hasLength(2));
       expect(seeds.last.label, startsWith('more in '));
+    });
+
+    test('tastes add a row each, and stand in for classics', () {
+      final seeds = RecommendationSeeds.from(
+        const [],
+        tastes: [ReadingTaste.fantasy, ReadingTaste.mystery],
+      );
+      expect(seeds.map((s) => s.label), [
+        'fantasy for you',
+        'mystery & thriller for you',
+      ]);
+      expect(seeds.first.query, 'subject:"fantasy"');
     });
 
     test('an empty shelf starts with classics', () {

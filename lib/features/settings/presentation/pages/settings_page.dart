@@ -23,6 +23,9 @@ import '../../../library_transfer/presentation/pages/import_page.dart';
 import '../../../logging/presentation/parser_mode_controller.dart';
 import '../../../memory/presentation/pages/memory_page.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
+import '../../../search/domain/reading_taste.dart';
+import '../../../search/presentation/reading_tastes_controller.dart';
+import '../../../search/presentation/widgets/reading_tastes_picker.dart';
 import '../../../shell/presentation/start_page_controller.dart';
 import '../../data/profile_repository.dart';
 import '../widgets/membership_card.dart';
@@ -389,6 +392,23 @@ class _ProfileSection extends StatelessWidget {
           icon: anonymous ? Icons.mail_outline : Icons.edit_outlined,
           label: anonymous ? 'link your email' : 'change email',
           onTap: onEmail,
+        ),
+        ValueListenableBuilder<List<ReadingTaste>>(
+          valueListenable: ReadingTastesController.tastes,
+          builder: (context, tastes, _) => SettingsRow(
+            key: const ValueKey('profile-reading-tastes'),
+            icon: Icons.local_library_outlined,
+            label: 'reading tastes',
+            value: switch (tastes.length) {
+              0 => 'none yet',
+              1 => tastes.single.label,
+              final n => '$n picked',
+            },
+            onTap: () {
+              AppHaptics.selection();
+              unawaited(showReadingTastesSheet(context));
+            },
+          ),
         ),
         SettingsRow(
           icon: Icons.bookmark_border,
