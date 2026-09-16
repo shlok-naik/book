@@ -27,9 +27,23 @@ class GoogleBooksApiClient {
     http.Client? client,
     Duration? timeout,
     Future<Map<String, String>> Function()? authHeaders,
+    List<Duration>? retryDelays,
   }) : _client = client ?? http.Client(),
        _timeout = timeout ?? const Duration(seconds: 12),
-       _authHeaders = authHeaders ?? _sessionHeaders;
+       _authHeaders = authHeaders ?? _sessionHeaders,
+       _retryDelays = retryDelays ?? defaultRetryDelays;
+
+  /// How long to wait before each retry of a request Google answered with a
+  /// 503/5xx or 429. Google Books sheds load with a fast 503 — the logs show
+  /// bursts of them within a second of each other (an import's parallel
+  /// lookups, a recommendation row), mostly gone a moment later — so a short
+  /// back-off turns most of them into answers instead of error messages.
+  static const defaultRetryDelays = [
+    Duration(milliseconds: 600),
+    Duration(milliseconds: 1500),
+  ];
+
+  final List<Duration> _retryDelays;
 
   final http.Client _client;
 
@@ -138,16 +152,10 @@ class GoogleBooksApiClient {
   Uri _uri(String base, Map<String, String> query) =>
       Uri.parse(base).replace(queryParameters: query.isEmpty ? null : query);
 
-  /// One GET, with every transport/status/parse failure translated into a
-  /// [LibraryException]. [subject] names the request in the user-facing
-  /// timeout message ("Book search timed out", "Book info timed out").
-  Future<Map<String, dynamic>> _getJson(
-    Uri uri, {
-    required String subject,
-  }) async {
-    final http.Response response;
+  /// One attempt at [uri], transport failures translated.
+  Future<http.Response> _send(Uri uri, {required String subject}) async {
     try {
-      response = await _client
+      return await _client
           .get(uri, headers: await _authHeaders())
           .timeout(_timeout);
     } on TimeoutException catch (error) {
@@ -165,6 +173,21 @@ class GoogleBooksApiClient {
         "We couldn't reach Google Books. Try again in a moment.",
         cause: error,
       );
+    }
+  }
+
+  /// One GET, with every transport/status/parse failure translated into a
+  /// [LibraryException]. [subject] names the request in the user-facing
+  /// timeout message ("Book search timed out", "Book info timed out").
+  Future<Map<String, dynamic>> _getJson(
+    Uri uri, {
+    required String subject,
+  }) async {
+    var response = await _send(uri, subject: subject);
+    for (final delay in _retryDelays) {
+      if (response.statusCode < 500 && response.statusCode != 429) break;
+      await Future<void>.delayed(delay);
+      response = await _send(uri, subject: subject);
     }
 
     // The edge function passes Google's status through; its own 504 (Google

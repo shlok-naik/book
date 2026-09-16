@@ -14,6 +14,7 @@ import 'package:book/features/library/presentation/library_scope.dart';
 import 'package:book/features/library/presentation/pages/book_detail_page.dart';
 import 'package:book/features/search/domain/recommendation_seeds.dart';
 import 'package:book/features/search/presentation/pages/search_page.dart';
+import 'package:book/features/search/presentation/pages/volume_detail_page.dart';
 import 'package:book/features/search/presentation/widgets/book_picker_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -267,6 +268,31 @@ void main() {
 
       expect(controller.finished.single.book.title, 'The Hobbit');
       expect(controller.finished.single.currentPage, 300);
+    });
+
+    testWidgets('see all details opens the Google Books page, which can add '
+        'the book too', (tester) async {
+      final controller = await pumpSearch(
+        tester,
+        volumes: [_volume('gb-hobbit', 'The Hobbit', 'J.R.R. Tolkien')],
+      );
+
+      await type(tester, 'hobbit');
+      await tester.tap(find.byKey(const ValueKey('search-volume-gb-hobbit')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('preview-details')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VolumeDetailPage), findsOneWidget);
+      expect(find.text('from google books'), findsOneWidget);
+      expect(find.text('The Hobbit'), findsWidgets);
+      expect(find.text('300'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('preview-want-to-read')));
+      await tester.pumpAndSettle();
+
+      expect(controller.toBeRead.single.book.title, 'The Hobbit');
+      expect(find.text('open book'), findsOneWidget);
     });
 
     testWidgets('says so when nothing matches anywhere', (tester) async {
