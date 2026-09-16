@@ -441,7 +441,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(library.findById('progress-1')!.currentPage, 100);
-    expect(find.text('"Dune" — pg 100'), findsOneWidget);
+    expect(find.text('On page 100 of "Dune"'), findsOneWidget);
   });
 
   testWidgets('an out-of-range page is explained and not saved', (

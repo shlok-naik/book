@@ -12,11 +12,9 @@ import 'package:book/features/library/domain/library_book.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
 import 'package:book/features/library/presentation/library_scope.dart';
-import 'package:book/features/logging/domain/log_command_parser.dart';
 import 'package:book/features/logging/presentation/pages/home_page.dart';
 import 'package:book/features/logging/presentation/widgets/command_input.dart';
 import 'package:book/features/logging/presentation/widgets/confirmation_pill.dart';
-import 'package:book/features/logging/presentation/widgets/instruction_row.dart';
 import 'package:book/features/memory/data/memory_repository.dart';
 import 'package:book/features/memory/domain/memory.dart';
 import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
@@ -200,8 +198,18 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  testWidgets('a sentence is swapped for its extracted commands, which run in '
-      'order and clear back to an empty input', (tester) async {
+  /// Submits [text] and lets the extraction and every line resolve —
+  /// without running the field's accept animation to its end.
+  Future<void> send(WidgetTester tester, String text) async {
+    await tester.enterText(find.byType(TextField), text);
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump();
+    }
+  }
+
+  testWidgets('a sentence runs its actions and says what happened in words, '
+      'never showing the commands', (tester) async {
     await useDeviceSize(tester);
     final ai = FakeAiCommandParser(
       commands: const ['start Dune', 'update Dune 120'],
@@ -209,140 +217,90 @@ void main() {
     final library = _newLibraryController();
     await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
 
-    await tester.enterText(
-      find.byType(TextField),
-      "I started Dune and I'm on page 120",
-    );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pump();
-    await tester.pump();
+    await send(tester, "I started Dune and I'm on page 120");
 
     expect(ai.extractCommandsCalls, 1);
-    // The typed sentence is gone the moment extraction succeeds —
-    // CommandInput itself is swapped out, not just cleared — and the
-    // extracted commands take its place, each an InstructionRow
-    // rendered with RichText (not a plain Text) in that same style.
-    expect(find.byType(CommandInput), findsNothing);
-    expect(find.text("I started Dune and I'm on page 120"), findsNothing);
-    expect(find.text('start Dune', findRichText: true), findsOneWidget);
-    expect(find.text('update Dune 120', findRichText: true), findsOneWidget);
-
-    // First command's action resolves and its checkmark/strike plays,
-    // then the second starts.
-    await tester.pump(const Duration(milliseconds: 800));
-    await tester.pump(const Duration(milliseconds: 800));
-
-    // Both done — the list sits for a few seconds (the confirmation
-    // pill's own lifetime), then fades out and a fresh, empty
-    // CommandInput comes right back in its place.
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
-    expect(find.text('start Dune', findRichText: true), findsNothing);
-    expect(find.text('update Dune 120', findRichText: true), findsNothing);
+    expect(library.inProgress.single.currentPage, 120);
+    // The field never leaves, so neither does the keyboard.
     expect(find.byType(CommandInput), findsOneWidget);
-  });
-
-  testWidgets(
-    'a failing command does not block the rest, and any success crosses '
-    'out the whole sentence',
-    (tester) async {
-      await useDeviceSize(tester);
-      final ai = FakeAiCommandParser(
-        commands: const ['rate Dune 9', 'start Mockingbird'],
-      );
-      final library = _newLibraryController();
-      await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
-
-      await tester.enterText(
-        find.byType(TextField),
-        'rate Dune 9 and start Mockingbird',
-      );
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      await tester.pump();
-
-      expect(
-        find.text('start Mockingbird', findRichText: true),
-        findsOneWidget,
-      );
-
-      // "rate Dune 9" fails — out of range, so nothing is even added. Two more
-      // zero-duration pumps flush `_runCommand`'s own await without
-      // advancing the 750ms hold that follows it, so this catches the
-      // pill before "start Mockingbird" gets its own turn and message.
-      await tester.pump();
-      await tester.pump();
-      // A recognized command the library actually rejected also pops
-      // the same pill the manual path would show for that exact
-      // failure — same message, same widget.
-      expect(
-        find.widgetWithText(ConfirmationPill, 'Rate 0.5–5 stars.'),
-        findsOneWidget,
-      );
-
-      // A failure pauses the whole sequence for the pill's own full
-      // lifetime (long enough to actually read it) before "start
-      // Mockingbird" gets its turn.
-      await tester.pump(const Duration(seconds: 3));
-      // Its own success only needs its checkmark read, not a full pill
-      // lifetime, before the loop finishes.
-      await tester.pump(const Duration(milliseconds: 800));
-      expect(find.byIcon(Icons.check_circle), findsWidgets);
-
-      // A mixed result (one failed, one didn't) still fades out and
-      // clears itself on its own after a few seconds, same as a fully
-      // successful list — and the typed sentence, already swapped out
-      // the moment extraction succeeded, never comes back; a fresh,
-      // empty CommandInput takes its place instead.
-      await tester.pump(const Duration(seconds: 3));
-      await tester.pumpAndSettle();
-      expect(find.byType(InstructionRow), findsNothing);
-      expect(find.text('rate Dune 9 and start Mockingbird'), findsNothing);
-      expect(find.byType(CommandInput), findsOneWidget);
-    },
-  );
-
-  testWidgets('an unrecognized extracted line runs through the exact same '
-      'unrecognized-command path a manual line would', (tester) async {
-    await useDeviceSize(tester);
-    // The AI returning "read Dune" would be its own extraction mistake
-    // (not one of the five real commands) — [_runCommand] treats it
-    // exactly like a manual typo: the parser's own suggestion pops
-    // the pill, same as it would for a typed line.
-    final ai = FakeAiCommandParser(commands: const ['read Dune']);
-    final library = _newLibraryController();
-    await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
-
-    await tester.enterText(find.byType(TextField), 'I read some of Dune');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pump();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 800));
-    await tester.pump(const Duration(milliseconds: 800));
-
+    expect(find.textContaining('start Dune', findRichText: true), findsNothing);
+    expect(
+      find.textContaining('update Dune', findRichText: true),
+      findsNothing,
+    );
     expect(
       find.widgetWithText(
         ConfirmationPill,
-        LogCommandParser.parse('read Dune').message,
+        'Started "Dune" · On page 120 of "Dune"',
       ),
       findsOneWidget,
     );
 
-    // A failure pauses on its own pill for a full read (this is the
-    // only line, so the loop itself doesn't finish until this
-    // elapses), then the list fades out after its own further hold —
-    // two full pill lifetimes altogether, plus the fade itself.
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
-    expect(find.text('read Dune', findRichText: true), findsNothing);
-
-    // The typed sentence was already swapped out for the extracted
-    // line the moment the AI returned it — once that line's own run
-    // finishes (whether it succeeded or not), a fresh, empty
-    // CommandInput comes back rather than the original text.
-    expect(find.text('I read some of Dune'), findsNothing);
     expect(find.byType(CommandInput), findsOneWidget);
+    expect(find.text("I started Dune and I'm on page 120"), findsNothing);
+    expect(tester.testTextInput.hasAnyClients, isTrue);
+  });
+
+  testWidgets('a failing action does not stop the rest, and both outcomes are '
+      'said together', (tester) async {
+    await useDeviceSize(tester);
+    final ai = FakeAiCommandParser(
+      commands: const ['rate Dune 9', 'start Mockingbird'],
+    );
+    final library = _newLibraryController();
+    await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
+
+    await send(tester, 'rate Dune 9 and start Mockingbird');
+
+    // Successes first, then what failed — in one pill.
+    expect(library.inProgress, hasLength(1));
+    expect(
+      find.textContaining(RegExp(r'^Started ".+" · Rate 0\.5–5 stars\.$')),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a line that is not a command is just not understood — no '
+      'command syntax suggested', (tester) async {
+    await useDeviceSize(tester);
+    final ai = FakeAiCommandParser(commands: const ['read Dune']);
+    final library = _newLibraryController();
+    await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
+
+    await send(tester, 'I read some of Dune');
+
+    expect(
+      find.widgetWithText(ConfirmationPill, "Didn't catch that."),
+      findsOneWidget,
+    );
+    // Rejected: the sentence stays in the field to fix.
+    expect(find.text('I read some of Dune'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('an empty extraction is not understood either', (tester) async {
+    await useDeviceSize(tester);
+    final ai = FakeAiCommandParser(commands: const []);
+    final library = _newLibraryController();
+    await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
+
+    await send(tester, 'good morning');
+
+    expect(
+      find.widgetWithText(ConfirmationPill, "Didn't catch that."),
+      findsOneWidget,
+    );
+    expect(find.textContaining('gibberish', findRichText: true), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
   });
 
   testWidgets(
@@ -371,57 +329,6 @@ void main() {
     },
   );
 
-  testWidgets(
-    'an empty extraction falls back to a single "gibberish" line, which '
-    'fails the same way any other unrecognized line does',
-    (tester) async {
-      await useDeviceSize(tester);
-      // The prompt asks the model itself to return ["gibberish"] rather than
-      // [] when it finds nothing — this fake stands in for the rare
-      // reply that doesn't comply, proving the defensive fallback in
-      // `_runAi` covers it the exact same way.
-      final ai = FakeAiCommandParser(commands: const []);
-      final library = _newLibraryController();
-      await tester.pumpWidget(_harness(HomePage(aiParser: ai), library));
-
-      await tester.enterText(find.byType(TextField), 'good morning');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 800));
-
-      expect(
-        find.textContaining('gibberish', findRichText: true),
-        findsOneWidget,
-      );
-      expect(
-        find.widgetWithText(
-          ConfirmationPill,
-          LogCommandParser.parse('gibberish').message,
-        ),
-        findsOneWidget,
-      );
-
-      // A failure pauses on its own pill for a full read (this is the
-      // only line, so the loop itself doesn't finish until this
-      // elapses), then the list fades out after its own further hold —
-      // two full pill lifetimes altogether, plus the fade itself.
-      await tester.pump(const Duration(seconds: 3));
-      await tester.pump(const Duration(seconds: 3));
-      await tester.pumpAndSettle();
-      expect(
-        find.textContaining('gibberish', findRichText: true),
-        findsNothing,
-      );
-
-      // The typed sentence was already swapped out for the "gibberish"
-      // fallback line — once its run finishes, a fresh, empty
-      // CommandInput comes back rather than the original text.
-      expect(find.text('good morning'), findsNothing);
-      expect(find.byType(CommandInput), findsOneWidget);
-    },
-  );
-
   group('remember and recommend', () {
     testWidgets('remember saves a memory on cactus pro', (tester) async {
       await useDeviceSize(tester);
@@ -440,10 +347,7 @@ void main() {
       await tester.pump();
 
       expect(
-        find.widgetWithText(
-          ConfirmationPill,
-          'Remembered "Dune" — loved the ending',
-        ),
+        find.widgetWithText(ConfirmationPill, 'Remembered that about "Dune"'),
         findsOneWidget,
       );
       expect(memory.memories, hasLength(1));

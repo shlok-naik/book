@@ -1106,7 +1106,7 @@ class LibraryController extends ChangeNotifier {
       ),
       successMessage: finished
           ? 'Finished "${entry.book.title}"'
-          : '"${entry.book.title}" — pg $page',
+          : 'On page $page of "${entry.book.title}"',
       // Reaching the last page via `update` still reads as a finish in
       // the journal — matches the "Finished ..." pill this same call
       // just showed, rather than "read up to page" the last page.
@@ -1323,8 +1323,9 @@ class LibraryController extends ChangeNotifier {
     final result = await _rateEntry(entry, rating);
     if (!resolved.added || !result.success) return result;
     return LibraryActionResult.success(
-      'Added "${entry.book.title}" as finished — '
-      '${formatCompactNumber(roundToHalf(rating))}★',
+      'Added "${entry.book.title}" as finished, rated '
+      '${formatCompactNumber(roundToHalf(rating))} '
+      '${roundToHalf(rating) == 1 ? 'star' : 'stars'}',
       true,
     );
   }
@@ -1382,7 +1383,8 @@ class LibraryController extends ChangeNotifier {
       notifyListeners();
       _logEvent(ReadingEventType.rate, entry.book.title, value: rounded);
       return LibraryActionResult.success(
-        '"${entry.book.title}" — ${formatCompactNumber(rounded)}★',
+        'Rated "${entry.book.title}" ${formatCompactNumber(rounded)} '
+        '${rounded == 1 ? 'star' : 'stars'}',
       );
     } on LibraryException catch (error) {
       _upsertLocal(previous);
@@ -1476,7 +1478,7 @@ class LibraryController extends ChangeNotifier {
       return LibraryActionResult.success(
         resolved.added
             ? 'Added "${entry.book.title}" to read and tagged it ${saved.tag}'
-            : 'Tagged "${entry.book.title}" ${saved.tag}',
+            : 'Tagged "${entry.book.title}" as ${saved.tag}',
         resolved.added,
       );
     } on LibraryException catch (error) {

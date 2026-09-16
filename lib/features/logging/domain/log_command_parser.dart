@@ -377,7 +377,8 @@ abstract final class LogCommandParser {
       return ParsedLogCommand(
         message: rating == null
             ? ''
-            : '"$title" — ${formatCompactNumber(rating)}★',
+            : 'Rated "$title" ${formatCompactNumber(rating)} '
+                  '${rating == 1 ? 'star' : 'stars'}',
         recognized: true,
         type: LogCommandType.rate,
         title: title,
@@ -393,7 +394,8 @@ abstract final class LogCommandParser {
       return ParsedLogCommand(
         message: percent == null
             ? ''
-            : '"$title" — ${formatCompactNumber(percent)}%${_dateSuffix(date)}',
+            : '${formatCompactNumber(percent)}% through "$title"'
+                  '${_dateSuffix(date)}',
         recognized: true,
         type: LogCommandType.update,
         title: title,
@@ -408,7 +410,7 @@ abstract final class LogCommandParser {
       final page = update.group(2)!;
       final date = _parseDate(update.group(3));
       return ParsedLogCommand(
-        message: '"$title" — pg $page${_dateSuffix(date)}',
+        message: 'On page $page of "$title"${_dateSuffix(date)}',
         recognized: true,
         type: LogCommandType.update,
         title: title,
@@ -494,7 +496,7 @@ abstract final class LogCommandParser {
       // not a tag; fall through to the "did you mean" suggestion.
       if (tag.isNotEmpty) {
         return ParsedLogCommand(
-          message: 'Tagged "$title" $tag',
+          message: 'Tagged "$title" as $tag',
           recognized: true,
           type: LogCommandType.addTag,
           title: title,
@@ -562,7 +564,7 @@ abstract final class LogCommandParser {
       final title = remember.group(1)!.trim();
       final note = remember.group(2)!.trim();
       return ParsedLogCommand(
-        message: 'Remembered "$title" — $note',
+        message: 'Remembered that about "$title"',
         recognized: true,
         type: LogCommandType.remember,
         title: title,
@@ -779,7 +781,7 @@ abstract final class LogCommandParser {
   /// ones.
   static String _dateSuffix(DateTime? date) {
     if (date == null) return '';
-    return ' — ${_months[date.month - 1]} ${date.day}';
+    return ' on ${_months[date.month - 1]} ${date.day}';
   }
 
   /// A word only needs to be "close enough" relative to its own length —

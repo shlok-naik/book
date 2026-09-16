@@ -337,13 +337,13 @@ void main() {
     expect(find.text('Started "Dune"'), findsOneWidget);
 
     await submit(tester, 'update Dune 120');
-    expect(find.text('"Dune" — pg 120'), findsOneWidget);
+    expect(find.text('On page 120 of "Dune"'), findsOneWidget);
 
     await submit(tester, 'finish Dune');
     expect(find.text('Finished "Dune"'), findsOneWidget);
 
     await submit(tester, 'rate Dune 5');
-    expect(find.text('"Dune" — 5★'), findsOneWidget);
+    expect(find.text('Rated "Dune" 5 stars'), findsOneWidget);
   });
 
   for (final (command, confirmation) in [
@@ -384,7 +384,7 @@ void main() {
     await submit(tester, 'make tag sci-fi');
     expect(find.text('Made tag "sci-fi"'), findsOneWidget);
     await submit(tester, 'add tag sci-fi Dune');
-    expect(find.text('Tagged "Dune" sci-fi'), findsOneWidget);
+    expect(find.text('Tagged "Dune" as sci-fi'), findsOneWidget);
 
     await submit(tester, 'add comment "slow first half" Dune');
     expect(find.text('Commented on "Dune"'), findsOneWidget);
@@ -593,7 +593,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.textContaining('Not recognized'), findsOneWidget);
+    expect(find.text("Didn't catch that."), findsOneWidget);
   });
 
   testWidgets(
@@ -674,12 +674,12 @@ void main() {
       await tester.enterText(find.byType(TextField), 'gibberish');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
-      expect(find.textContaining('Not recognized'), findsOneWidget);
+      expect(find.text("Didn't catch that."), findsOneWidget);
       // Let the lifetime timer fire, then pump incrementally so the
       // fade-out animation it kicks off actually ticks to completion.
       await tester.pump(const Duration(seconds: 3));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Not recognized'), findsNothing);
+      expect(find.text("Didn't catch that."), findsNothing);
     },
   );
 

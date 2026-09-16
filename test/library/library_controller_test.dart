@@ -1551,7 +1551,7 @@ void main() {
       final result = await controller.addTag('dune', 'sci-fi');
 
       expect(result.success, isTrue);
-      expect(result.message, 'Tagged "Dune" sci-fi');
+      expect(result.message, 'Tagged "Dune" as sci-fi');
       expect(notes.tags.single, ('progress-book-1', 'sci-fi'));
     });
 
@@ -1887,7 +1887,7 @@ void main() {
       final result = await controller.updateProgress('dune', 120);
 
       expect(result.success, isTrue);
-      expect(result.message, '"Dune" — pg 120');
+      expect(result.message, 'On page 120 of "Dune"');
       expect(controller.inProgress.single.currentPage, 120);
       expect(controller.inProgress.single.completion, closeTo(0.3, 0.001));
 
@@ -2291,7 +2291,7 @@ void main() {
       final result = await controller.rateBook('dune', 4.5);
 
       expect(result.success, isTrue);
-      expect(result.message, '"Dune" — 4.5★');
+      expect(result.message, 'Rated "Dune" 4.5 stars');
       expect(controller.finished.single.rating, 4.5);
 
       await Future<void>.delayed(Duration.zero);
@@ -2316,7 +2316,7 @@ void main() {
       expect(result.success, isTrue);
       expect(
         result.message,
-        '"Dune" — 4.5★',
+        'Rated "Dune" 4.5 stars',
         reason: '4.3 is closer to 4.5 than 4.0',
       );
       expect(controller.finished.single.rating, 4.5);
@@ -2330,7 +2330,11 @@ void main() {
 
       final result = await controller.rateBook('Dune', 4.2);
 
-      expect(result.message, '"Dune" — 4★', reason: '4.2 rounds down to 4.0');
+      expect(
+        result.message,
+        'Rated "Dune" 4 stars',
+        reason: '4.2 rounds down to 4.0',
+      );
       expect(controller.finished.single.rating, 4.0);
     });
 
@@ -2356,7 +2360,7 @@ void main() {
 
         expect(result.success, isTrue);
         expect(result.addedToLibrary, isTrue);
-        expect(result.message, 'Added "Dune" as finished — 4.5★');
+        expect(result.message, 'Added "Dune" as finished, rated 4.5 stars');
         expect(controller.finished.single.rating, 4.5);
       },
     );

@@ -28,18 +28,13 @@ import '../parser_mode_controller.dart';
 import '../widgets/command_input.dart';
 import '../widgets/confirmation_pill.dart';
 import '../widgets/currently_reading_card.dart';
-import '../widgets/instruction_row.dart';
 import '../widgets/reading_streak.dart';
 import 'isbn_scanner_page.dart';
 
-/// One AI-extracted command line and where it stands in its own
-/// execution — see [InstructionState].
-class _Instruction {
-  _Instruction(this.text);
-
-  final String text;
-  InstructionState state = InstructionState.pending;
-}
+/// Marks text as the AI working on it — the "still thinking" shimmer.
+const _aiGradient = LinearGradient(
+  colors: [Color(0xFF2DD4BF), Color(0xFF8B5CF6), Color(0xFFEC4899)],
+);
 
 /// Slides a gradient sideways by a fraction of its own bounds — the
 /// standard recipe for a shimmer effect, paired with a repeating
@@ -117,11 +112,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   static bool _keyboardVisible(BuildContext context) =>
       MediaQuery.viewInsetsOf(context).bottom > 0;
 
-  /// AI-extracted commands from the reader's last submitted sentence,
-  /// null whenever the plain-message pill should show instead — only
-  /// ever populated on the "cactus pro" AI path, never the manual one.
-  List<_Instruction>? _instructions;
-
   /// True from the moment a sentence is handed to the AI until it comes
   /// back (however that turns out) — [build] uses this to tint
   /// [CommandInput]'s still-visible typed text with [_aiGradient]
@@ -134,15 +124,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     vsync: this,
     duration: _messageFadeIn,
     reverseDuration: _messageFadeOut,
-  );
-
-  /// Starts each new [_instructions] list fully visible (no fade in —
-  /// the swap from the typed sentence is instant) and is only ever
-  /// animated in reverse, once, right before the list is cleared.
-  late final _instructionsOpacity = AnimationController(
-    vsync: this,
-    value: 1,
-    duration: _messageFadeOut,
   );
 
   /// Drives [_SlidingGradientTransform] while [_aiThinking] — a quick,
@@ -184,7 +165,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void dispose() {
     _focusNode.dispose();
     _messageOpacity.dispose();
-    _instructionsOpacity.dispose();
     _thinkingGradient.dispose();
     _messageTimer?.cancel();
     super.dispose();
@@ -252,12 +232,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // to the shelf ("delete dune" → "delete Dune") — so it keeps the field's
     // own accept/shake instead of turning into an instruction list.
     if (commands.length == 1 &&
+        LogCommandParser.parse(commands.single).recognized &&
         (commands.single == command.trim() ||
             LogCommandParser.parse(command).recognized)) {
       return _runManual(commands.single);
     }
-    _showInstructions(commands);
-    return CommandOutcome.accepted;
+    return _runLines(commands);
   }
 
   /// Which book an action meant, from the book picker: a shelf book's own
@@ -403,28 +383,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return result.success ? CommandOutcome.accepted : CommandOutcome.rejected;
   }
 
-  /// Sends a free-form sentence to the AI and, once it comes back, swaps
-  /// the typed sentence out for the extracted lines themselves —
-  /// [build] renders [_instructions] in the exact spot and exact style
-  /// [CommandInput] occupied, so the paragraph reads as if it just
-  /// turned into those commands rather than sitting alongside them. A
-  /// sentence with nothing recognizable in it still comes back as one
-  /// line — the edge function's own prompt asks for the literal word
-  /// "gibberish" in that case rather than an empty list — so that line
-  /// goes through the same swap and the same unrecognized-command path
-  /// as any other, instead of needing a special case here.
+  /// Sends a free-form sentence to the AI and runs the actions it finds
+  /// ([_runLines]) — the reader only ever sees what happened, in words,
+  /// never the commands in between. A sentence with nothing recognizable
+  /// in it still comes back as one line — the edge function's prompt asks
+  /// for the literal word "gibberish" rather than an empty list.
   ///
-  /// Fires [_runInstructions] without waiting on it: by the time this
-  /// returns, [CommandInput] has already been replaced (see [build]),
-  /// so there's nothing left for its own accept/shake to apply to —
-  /// running the lines is now entirely [_instructions]' and
-  /// [InstructionRow]'s job.
-  ///
-  /// An AI failure itself (not a line inside it — the extraction call
-  /// itself) is reported through the same pill and rejects the line
-  /// outright, before anything is even attempted — [CommandInput] is
-  /// still there to shake in that case, never a silent fallback to
-  /// manual parsing, and never a retry.
+  /// An AI failure itself (the extraction call, not a line inside it) is
+  /// reported through the same pill and rejects the line outright — never
+  /// a silent fallback to manual parsing, and never a retry.
   Future<CommandOutcome> _runAi(String command) async {
     setState(() => _aiThinking = true);
     _thinkingGradient.repeat();
@@ -472,80 +439,56 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _thinkingGradient.stop();
     if (!mounted) return CommandOutcome.rejected;
 
-    // The prompt asks for a literal "gibberish" line rather than
-    // an empty list when it finds nothing — this is a defensive fallback
-    // for the rare reply that doesn't comply, not the normal path.
+    // The prompt asks for a literal "gibberish" line rather than an empty
+    // list when it finds nothing — this is a defensive fallback for a reply
+    // that doesn't comply.
     setState(() => _aiThinking = false);
-    _showInstructions(commands.isEmpty ? const ['gibberish'] : commands);
-    return CommandOutcome.accepted;
+    return _runLines(commands.isEmpty ? const ['gibberish'] : commands);
   }
 
-  /// Swaps the typed sentence for [commands] and runs them in order — see
-  /// [_runAi] and [_runInstructions].
-  void _showInstructions(List<String> commands) {
-    _instructionsOpacity.value = 1;
-    setState(() {
-      _message = null;
-      _instructions = [for (final line in commands) _Instruction(line)];
-    });
-    unawaited(_runInstructions());
-  }
+  static const _notUnderstood = "Didn't catch that.";
 
-  /// Runs [_instructions] one at a time, in order, each through
-  /// [_runCommand] — only ever marking a line [InstructionState.done]
-  /// once that has actually resolved for it, never optimistically. A
-  /// failing line never permanently stops the rest — every extracted
-  /// line still gets its own independent attempt, same as if the
-  /// reader had submitted each on its own line in Free mode — but it
-  /// does pause the sequence on its own pill for a full read (see the
-  /// success/failure branch below) before the next line gets its turn,
-  /// since a success' checkmark reads at a glance but a failure is the
-  /// one thing here worth actually stopping to read.
-  ///
-  /// A failing line also shakes in place — [InstructionRow]'s own
-  /// version of [CommandInput]'s reject shake. The whole list clears
-  /// itself on its own once every line has had its turn, same lifetime
-  /// as the confirmation pill, regardless of whether every line
-  /// succeeded or some didn't. Clearing [_instructions] is what brings
-  /// a fresh, empty [CommandInput] back (see [build]).
-  Future<void> _runInstructions() async {
-    final instructions = _instructions;
-    if (instructions == null) return;
-
-    for (final instruction in instructions) {
-      final result = await _runCommand(instruction.text);
-      if (!mounted) return;
-      if (!result.cancelled) _feedback(success: result.success);
-      _showMessage(result.message, _toneOf(result));
-
-      setState(() {
-        instruction.state = result.success
-            ? InstructionState.done
-            : InstructionState.error;
-      });
-
-      // A success just needs its strike/checkmark read before the next
-      // line starts. A failure pauses the whole sequence for the
-      // pill's own full lifetime instead — the error is the one thing
-      // here worth stopping to actually read, not just glimpse before
-      // it's replaced.
-      await Future<void>.delayed(
-        result.success || result.cancelled
-            ? const Duration(milliseconds: 750)
-            : _messageLifetime,
-      );
-      if (!mounted) return;
+  /// Runs a sentence's actions in order, each through [_runCommand], and
+  /// says how it went in one plain-language pill — "Added "Doctor Sleep" to
+  /// read · Finished "Dune"" — never showing the commands themselves. The
+  /// field stays exactly where it is (and so does the keyboard): it strikes
+  /// through when anything was done and shakes when nothing was. A line
+  /// that isn't a command at all fails as [_notUnderstood], not with the
+  /// command-syntax suggestion the classic parser gives.
+  Future<CommandOutcome> _runLines(List<String> lines) async {
+    final done = <String>[];
+    final failed = <String>[];
+    String? cancelledMessage;
+    for (final line in lines) {
+      final result = LogCommandParser.parse(line).recognized
+          ? await _runCommand(line)
+          : (success: false, cancelled: false, message: _notUnderstood);
+      if (!mounted) return CommandOutcome.rejected;
+      if (result.cancelled) {
+        cancelledMessage = result.message;
+      } else if (result.success) {
+        if (result.message.isNotEmpty) done.add(result.message);
+      } else if (!failed.contains(result.message)) {
+        failed.add(result.message);
+      }
     }
 
-    // Give the reader a moment with the finished list up, then fade it
-    // out — same lifetime as the confirmation pill, so nothing lingers
-    // on screen indefinitely, and the same fade the pill itself uses
-    // rather than an abrupt disappearance.
-    await Future<void>.delayed(_messageLifetime);
-    if (!mounted) return;
-    await _instructionsOpacity.reverse();
-    if (!mounted) return;
-    setState(() => _instructions = null);
+    if (done.isEmpty && failed.isEmpty) {
+      if (cancelledMessage != null) {
+        _showMessage(cancelledMessage, ConfirmationTone.neutral);
+      }
+      return CommandOutcome.dismissed;
+    }
+    _feedback(success: done.isNotEmpty);
+    _showMessage(
+      [...done, ...failed].join(' · '),
+      failed.isEmpty
+          ? ConfirmationTone.success
+          : done.isEmpty
+          ? ConfirmationTone.failure
+          : ConfirmationTone.neutral,
+    );
+    return done.isNotEmpty ? CommandOutcome.accepted : CommandOutcome.rejected;
   }
 
   static bool _isRemoval(LogCommandType type) => switch (type) {
@@ -858,10 +801,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     });
   }
 
-  /// The one type style shared by [CommandInput] and, once the AI's
-  /// extracted lines replace it, every [InstructionRow] — so a command
-  /// reads exactly like it was typed there itself, just swapped in
-  /// rather than edited into.
+  /// The command field's type style.
   TextStyle _inputStyle(AppColors colors) {
     return context.fonts.interface(
       fontSize: 16,
@@ -874,7 +814,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final message = _message;
-    final instructions = _instructions;
     // Reactive: rebuilds this page the moment a shelf command changes
     // which book is most recently active, same as any other LibraryScope
     // read in a build method.
@@ -891,16 +830,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       style: _inputStyle(colors),
     );
     if (_aiThinking) {
-      // A sliding, mirror-tiled version of [aiGradient] — same colors
-      // [InstructionRow] uses for the generated commands below, just
-      // in motion while there's nothing generated yet to look at.
+      // A sliding, mirror-tiled gradient while the AI works.
       commandInput = AnimatedBuilder(
         animation: _thinkingGradient,
         child: commandInput,
         builder: (context, child) => ShaderMask(
           blendMode: BlendMode.srcIn,
           shaderCallback: (bounds) => LinearGradient(
-            colors: aiGradient.colors,
+            colors: _aiGradient.colors,
             tileMode: TileMode.mirror,
             transform: _SlidingGradientTransform(_thinkingGradient.value),
           ).createShader(bounds),
@@ -930,41 +867,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 // other tab despite sharing the exact same TopBar.
                 const TopBar(title: 'add'),
                 const SizedBox(height: AppSpacing.lg),
-                Expanded(
-                  // The field stays mounted (and focused) under the
-                  // instruction list, so running a sentence's commands
-                  // never drops the keyboard.
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Visibility(
-                        visible: instructions == null,
-                        maintainState: true,
-                        maintainAnimation: true,
-                        child: commandInput,
-                      ),
-                      if (instructions != null)
-                        FadeTransition(
-                          opacity: _instructionsOpacity,
-                          child: Align(
-                            alignment: Alignment.topLeft,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                for (final instruction in instructions)
-                                  InstructionRow(
-                                    text: instruction.text,
-                                    state: instruction.state,
-                                    style: _inputStyle(colors),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
+                Expanded(child: commandInput),
                 FadeTransition(
                   opacity: _messageOpacity,
                   child: message != null

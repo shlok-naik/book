@@ -23,14 +23,14 @@ void main() {
         final result = LogCommandParser.parse('update Dune 100');
         expect(result.page, 100);
         expect(result.percent, isNull);
-        expect(result.message, '"Dune" — pg 100');
+        expect(result.message, 'On page 100 of "Dune"');
       });
 
       test('a number followed by % is a percentage', () {
         final result = LogCommandParser.parse('update Dune 100%');
         expect(result.page, isNull);
         expect(result.percent, 100);
-        expect(result.message, '"Dune" — 100%');
+        expect(result.message, '100% through "Dune"');
         expect(LogCommandParser.parse('update Dune 74.5 %').percent, 74.5);
       });
     });
@@ -188,7 +188,7 @@ void main() {
         expect(result.type, LogCommandType.addTag);
         expect(result.tag, 'sci-fi');
         expect(result.title, 'Dune Messiah');
-        expect(result.message, 'Tagged "Dune Messiah" sci-fi');
+        expect(result.message, 'Tagged "Dune Messiah" as sci-fi');
       });
 
       test('a quoted tag can contain spaces, straight or curly quotes', () {
@@ -257,17 +257,17 @@ void main() {
       expect(result.title, 'The Shining');
       expect(result.percent, 74);
       expect(result.page, isNull);
-      expect(result.message, '"The Shining" — 74%');
+      expect(result.message, '74% through "The Shining"');
     });
 
     test('update percent keeps a real fraction but drops a trailing '
         '".0"', () {
       final wholeNumber = LogCommandParser.parse('update Dune 50%');
-      expect(wholeNumber.message, '"Dune" — 50%');
+      expect(wholeNumber.message, '50% through "Dune"');
 
       final fraction = LogCommandParser.parse('update Dune 50.5%');
       expect(fraction.percent, 50.5);
-      expect(fraction.message, '"Dune" — 50.5%');
+      expect(fraction.message, '50.5% through "Dune"');
     });
 
     test('rate takes just a number, no trailing "stars"', () {
@@ -275,7 +275,7 @@ void main() {
       expect(result.type, LogCommandType.rate);
       expect(result.title, 'Dune');
       expect(result.rating, 5);
-      expect(result.message, '"Dune" — 5★');
+      expect(result.message, 'Rated "Dune" 5 stars');
       // The old "rate Dune 5 stars" form is no longer accepted.
       expect(LogCommandParser.parse('rate Dune 5 stars').recognized, isFalse);
     });
@@ -283,11 +283,11 @@ void main() {
     test('rounds a rating to the nearest half star', () {
       final closerToHalf = LogCommandParser.parse('rate Dune 4.3');
       expect(closerToHalf.rating, 4.5);
-      expect(closerToHalf.message, '"Dune" — 4.5★');
+      expect(closerToHalf.message, 'Rated "Dune" 4.5 stars');
 
       final closerToWhole = LogCommandParser.parse('rate Dune 4.2');
       expect(closerToWhole.rating, 4.0);
-      expect(closerToWhole.message, '"Dune" — 4★');
+      expect(closerToWhole.message, 'Rated "Dune" 4 stars');
     });
 
     test('suggests the closest keyword for a small typo', () {
@@ -329,7 +329,7 @@ void main() {
       expect(result.type, LogCommandType.remember);
       expect(result.title, 'Dune');
       expect(result.note, 'loved the ending');
-      expect(result.message, 'Remembered "Dune" — loved the ending');
+      expect(result.message, 'Remembered that about "Dune"');
     });
 
     test('remember requires the "::" separator, not just a space', () {
@@ -382,7 +382,7 @@ void main() {
         expect(result.type, LogCommandType.start);
         expect(result.title, 'Dune');
         expect(result.date, DateTime(2026, 8, 31));
-        expect(result.message, 'Started "Dune" — Aug 31');
+        expect(result.message, 'Started "Dune" on Aug 31');
       });
 
       test('update takes a date after the page number, not before', () {
@@ -392,7 +392,7 @@ void main() {
         expect(result.title, 'Dune');
         expect(result.page, 120);
         expect(result.date, DateTime(2026, 8, 31));
-        expect(result.message, '"Dune" — pg 120 — Aug 31');
+        expect(result.message, 'On page 120 of "Dune" on Aug 31');
       });
 
       test('finish with a date', () {
@@ -400,7 +400,7 @@ void main() {
         expect(result.type, LogCommandType.finish);
         expect(result.title, 'Dune');
         expect(result.date, DateTime(2026, 8, 31));
-        expect(result.message, 'Finished "Dune" — Aug 31');
+        expect(result.message, 'Finished "Dune" on Aug 31');
       });
 
       test('restart with no date behaves exactly like start', () {
@@ -417,7 +417,7 @@ void main() {
         expect(result.type, LogCommandType.restart);
         expect(result.title, 'Dune');
         expect(result.date, DateTime(2026, 8, 31));
-        expect(result.message, 'Restarted "Dune" — Aug 31');
+        expect(result.message, 'Restarted "Dune" on Aug 31');
       });
 
       test(
