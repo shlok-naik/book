@@ -19,6 +19,7 @@ import 'package:book/features/logging/presentation/pages/home_page.dart';
 import 'package:book/features/memory/data/memory_repository.dart';
 import 'package:book/features/memory/domain/memory.dart';
 import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
+import 'package:book/features/memory/presentation/pages/memory_page.dart';
 import 'package:book/features/settings/presentation/pages/settings_page.dart';
 import 'package:book/features/streaks/presentation/pages/stats_page.dart';
 import 'package:book/main.dart';
@@ -718,7 +719,7 @@ void main() {
     expect(find.text('yearly goal'), findsOneWidget);
   });
 
-  testWidgets('typing memory opens the Memory tab — on the free plan, its '
+  testWidgets('typing memory opens the memory page — on the free plan, its '
       'locked preview', (WidgetTester tester) async {
     await useDeviceSize(tester);
     await tester.pumpWidget(
@@ -735,11 +736,7 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
-    expect(
-      tester.widget<IndexedStack>(find.byType(IndexedStack)).index,
-      0,
-      reason: 'switched to the Memory tab',
-    );
+    expect(find.byType(MemoryPage), findsOneWidget);
     expect(
       find.text('cactus pro unlocks your full reading memory — tap to upgrade'),
       findsOneWidget,

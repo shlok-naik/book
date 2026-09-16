@@ -14,10 +14,26 @@ import '../../domain/profile_exception.dart';
 import '../pages/email_sheet.dart';
 import '../pages/library_conflict_page.dart';
 
+/// Links an email to this device's account, or changes the one it has —
+/// what settings' profile row does. Resolves true when the library on this
+/// device was swapped for the email account's (a second device), so the
+/// caller can reload whatever it shows about the account.
+Future<bool> editAccountEmail(
+  BuildContext context, {
+  required SessionService session,
+}) async {
+  final result = await showEmailSheet(context, session: session);
+  if (result == null || !context.mounted) return false;
+  final existing = result.existingAccount;
+  if (existing == null) return false;
+  await openLibraryConflict(context, session: session, account: existing);
+  return true;
+}
+
 /// The settings screen's own "cactus" card — a flat membership card,
 /// not another settings row: the wordmark and a PRO badge on top, when
-/// the account was created underneath, and the email address (or a
-/// prompt to add one) below that, over a few low-opacity accent waves
+/// the account was created underneath, and — once one is linked — the
+/// email address below that, over a few low-opacity accent waves
 /// washing across the bottom. No photo, no name field — reading the
 /// card top to bottom is the whole account.
 ///
@@ -28,13 +44,11 @@ import '../pages/library_conflict_page.dart';
 /// shadow, the border-radius and the wave, not because its color
 /// fights the theme.
 ///
-/// The email line is the *only* way to reach [showEmailSheet] now: the
-/// settings screen's old "account" section — a read-only email row plus
-/// a separate "change email" row — is gone, folded into this one
-/// tappable line. It's also where "sign out" used to sit in spirit: the
-/// uid *is* the shelf, so ending a session would lose a library rather
-/// than protect one — changing the address it answers to is what a
-/// reader actually wants here. See `SessionService.signOut`.
+/// The card only *shows* the account. Linking or changing the email is
+/// settings' profile row ([editAccountEmail]) — a plain, labelled button a
+/// reader can find, rather than a pill on a card they had to guess was
+/// tappable. There is still no "sign out": the uid *is* the shelf, so
+/// ending a session would lose a library rather than protect one.
 class MembershipCard extends StatefulWidget {
   const MembershipCard({
     super.key,
@@ -99,26 +113,6 @@ class _MembershipCardState extends State<MembershipCard> {
       if (!mounted) return;
       setState(() => _loading = false);
     }
-  }
-
-  /// Both account rows used to lead here; now this line is the only one
-  /// that does. Same sheet, same two Supabase calls either way — see
-  /// [showEmailSheet].
-  Future<void> _editEmail() async {
-    final result = await showEmailSheet(context, session: widget.session);
-    if (result == null || !mounted) return;
-    final existing = result.existingAccount;
-    if (existing != null) {
-      await openLibraryConflict(
-        context,
-        session: widget.session,
-        account: existing,
-      );
-      if (!mounted) return;
-      _loading = true;
-      await _loadProfile();
-    }
-    if (mounted) setState(() {});
   }
 
   /// `m.d.yy`, no leading zeros — matches the streak journal's own date
@@ -240,12 +234,13 @@ class _MembershipCardState extends State<MembershipCard> {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.xxl),
-                      _EmailLine(
-                        session: session,
-                        onPanel: onPanel,
-                        panel: panel,
-                        onTap: _editEmail,
-                      ),
+                      if (session.email case final email?
+                          when !session.isAnonymous)
+                        _EmailLine(email: email, onPanel: onPanel, panel: panel)
+                      else
+                        // Keeps the wave under the same stretch of card
+                        // whether or not there's an email to sit on it.
+                        const SizedBox(height: _EmailLine.height),
                     ],
                   ),
                 ),
@@ -316,70 +311,53 @@ class _WavePainter extends CustomPainter {
       oldDelegate.color != color;
 }
 
-/// The email line, styled as a small pill "join" button while the shelf
-/// has no address yet, and as plain (but still tappable) text once one
-/// is linked — a button invites the reader to add something; a fact
-/// doesn't need to shout. Sits on a solid backing chip so the waves
-/// behind it never fight its legibility.
+/// The linked email, on a solid backing chip so the waves behind it
+/// never fight its legibility. Not tappable — see [MembershipCard].
 class _EmailLine extends StatelessWidget {
   const _EmailLine({
-    required this.session,
+    required this.email,
     required this.onPanel,
     required this.panel,
-    required this.onTap,
   });
 
-  final SessionService session;
+  final String email;
   final Color onPanel;
   final Color panel;
-  final VoidCallback onTap;
+
+  /// The chip's height, reserved even when there's no email yet.
+  static const height = 26.0;
 
   @override
   Widget build(BuildContext context) {
-    final anonymous = session.isAnonymous;
-
     return Semantics(
-      button: true,
-      label: anonymous
-          ? 'Back up with email'
-          : 'Change email, currently ${session.email}',
+      label: 'Email, $email',
       excludeSemantics: true,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm,
-            vertical: AppSpacing.xs,
-          ),
-          decoration: BoxDecoration(
-            color: panel.withValues(alpha: 0.82),
-            border: Border.all(color: onPanel.withValues(alpha: 0.35)),
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                anonymous ? Icons.mail_outline : Icons.edit_outlined,
-                size: 14,
-                color: onPanel,
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  anonymous ? 'add email' : session.email!,
-                  style: context.fonts.body(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: onPanel,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+      child: Container(
+        height: height,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: panel.withValues(alpha: 0.82),
+          border: Border.all(color: onPanel.withValues(alpha: 0.35)),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.mail_outline, size: 14, color: onPanel),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                email,
+                style: context.fonts.body(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: onPanel,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

@@ -14,11 +14,14 @@ import '../../../logging/presentation/pages/home_page.dart';
 import '../../../memory/presentation/pages/memory_page.dart';
 import '../../../paywall/data/intro_offer_store.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
+import '../../../search/presentation/pages/search_page.dart';
 import '../../../streaks/presentation/pages/stats_page.dart';
+import '../start_page_controller.dart';
 import '../widgets/bottom_switcher.dart';
 
-/// Hosts the four top-level pages — memory, stats, library, and the
-/// log — and switches between them with a floating glass tab bar.
+/// Hosts the four top-level pages — search, stats, library, and the
+/// log — and switches between them with a floating glass tab bar. Which
+/// one it opens on is the reader's choice ([StartPageController]).
 ///
 /// Also a safety net for the pro paywall: [FoundersNotePage], the last
 /// real screen of onboarding, already shows it once and marks
@@ -29,12 +32,10 @@ import '../widgets/bottom_switcher.dart';
 /// never landed. Either way it never brings the popup up unprompted
 /// more than once. Every later route to it is one the reader chose —
 /// the "get cactus pro" row in settings, a pro-only command, or tapping a
-/// locked preview (the Memory tab's, the stats page's).
+/// locked preview (the memory page's, the stats page's).
 ///
-/// The Memory tab itself is no longer gated here: it always opens, and
-/// `MemoryPage` shows a free reader a locked preview of what the tab
-/// holds rather than the shell throwing a paywall over whichever tab they
-/// were on — see `MemoryPage`.
+/// Memory is no longer a tab: it opens from settings' profile section, or
+/// by typing a bare `memory` on the add tab ([openMemoryPage]).
 class RootShell extends StatefulWidget {
   const RootShell({super.key, this.introOffer, this.purchases});
 
@@ -51,10 +52,12 @@ class RootShell extends StatefulWidget {
 }
 
 class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
-  /// The "+" / log page is the default screen.
-  int _index = 3;
-
-  static const _memoryIndex = 0;
+  /// Where the reader chose to start — the add tab unless they changed it.
+  int _index = switch (StartPageController.page.value) {
+    StartPage.search => 0,
+    StartPage.library => 2,
+    StartPage.add => 3,
+  };
 
   late final IntroOfferStore _introOffer =
       widget.introOffer ?? const IntroOfferStore();
@@ -63,15 +66,18 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
       widget.purchases ?? const PurchasesService();
 
   late final _pages = [
-    MemoryPage(purchases: widget.purchases),
+    const SearchPage(),
     StatsPage(purchases: widget.purchases),
     const LibraryPage(),
-    HomePage(onOpenMemory: () => _selectTab(_memoryIndex)),
+    HomePage(
+      onOpenMemory: () =>
+          unawaited(openMemoryPage(context, purchases: widget.purchases)),
+    ),
   ];
 
   /// Tabs that have been opened at least once. A tab is built the first
   /// time it's shown and kept alive after, rather than all four at launch:
-  /// the stats and memory tabs each start their own fetches and entitlement
+  /// the stats tab starts their own fetches and entitlement
   /// checks on mount (the year's journal a second time, alongside the add
   /// tab's streak), and every mounted tab rebuilds on every shelf change
   /// whether it's visible or not.

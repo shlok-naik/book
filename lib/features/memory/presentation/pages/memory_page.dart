@@ -8,8 +8,7 @@ import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
 import '../../../paywall/presentation/pro_gate.dart';
-import '../../../shell/presentation/widgets/bottom_switcher.dart';
-import '../../../shell/presentation/widgets/top_bar.dart';
+import '../../../settings/presentation/widgets/settings_header.dart';
 import '../../domain/memory.dart';
 import '../controllers/memory_controller.dart';
 import '../memory_scope.dart';
@@ -32,6 +31,21 @@ const _entrySpacing = AppSpacing.sm;
 /// supposed to guarantee between one line and the next.
 const _noteLineHeight = 16 * 1.5;
 
+/// Opens [MemoryPage]. The one way it should be pushed — from settings'
+/// profile section, or a bare `memory` typed on the add tab — so the route
+/// always carries its analytics name.
+Future<void> openMemoryPage(
+  BuildContext context, {
+  PurchasesService? purchases,
+}) {
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'memory'),
+      builder: (_) => MemoryPage(purchases: purchases),
+    ),
+  );
+}
+
 /// The reader's saved notes on how a book made them feel — what "cactus
 /// pro"'s `remember` command writes, and what `recommend` grounds its
 /// picks in.
@@ -44,14 +58,12 @@ const _noteLineHeight = 16 * 1.5;
 /// with the most recently added-to book first, and a book's own notes
 /// oldest first underneath it, so both read top-to-bottom like a story.
 ///
-/// A whole tab rather than a section of a profile page: these are the
-/// reader's own words about their own reading, and they were previously
-/// squeezed under a subscription card that had nothing to do with them.
-/// The account material that used to share that page now lives behind
-/// the gear in [TopBar].
+/// A page pushed from settings' **profile** section (see
+/// [openMemoryPage]), wearing [SettingsHeader] like every other page
+/// opened from there. It used to be a tab; the search tab took its slot.
 ///
 /// A cactus pro page, gated the way the stats page's journal is: a free
-/// reader who opens the tab (or types `memory` on the add tab) sees a
+/// reader who opens the page (or types `memory` on the add tab) sees a
 /// faded preview of invented notes and "cactus pro unlocks your full
 /// reading memory", and tapping it opens the paywall on the memory
 /// chapter ([PaywallFeature.memory]) — see [_LockedMemory]. It used to
@@ -74,9 +86,6 @@ class _MemoryPageState extends State<MemoryPage> with ProGateState<MemoryPage> {
 
   @override
   PaywallFeature get paywallFeature => PaywallFeature.memory;
-
-  /// The floating bottom bar's footprint — see [BottomSwitcher.pageFootprint].
-  static const _barFootprint = BottomSwitcher.pageFootprint;
 
   @override
   void initState() {
@@ -105,10 +114,11 @@ class _MemoryPageState extends State<MemoryPage> with ProGateState<MemoryPage> {
     final memory = MemoryScope.of(context);
 
     return Scaffold(
+      backgroundColor: context.colors.background,
       body: SafeArea(
         child: Padding(
-          // Same insets as the streaks and library headers, so all four
-          // tabs' gears sit at the exact same position.
+          // Same insets as settings, so the heading doesn't move when this
+          // page is pushed over it.
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.xl,
             AppSpacing.md,
@@ -116,13 +126,11 @@ class _MemoryPageState extends State<MemoryPage> with ProGateState<MemoryPage> {
             0,
           ),
           child: SingleChildScrollView(
-            padding: const EdgeInsets.only(
-              bottom: _MemoryPageState._barFootprint,
-            ),
+            padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const TopBar(title: 'memory'),
+                const SettingsHeader(title: 'memory'),
                 const SizedBox(height: AppSpacing.lg),
                 if (isProUnlocked)
                   _MemoryJournal(controller: memory)
