@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
@@ -21,6 +23,7 @@ class BookCover extends StatelessWidget {
     this.isbn,
     this.dimmed = false,
     this.rereadCount = 0,
+    this.finished = false,
   });
 
   final String title;
@@ -36,9 +39,13 @@ class BookCover extends StatelessWidget {
   final bool dimmed;
 
   /// How many times this book has been restarted after finishing
-  /// (`restart <book>`) — 0 draws nothing; 1/2/3+ draw a bronze/silver/gold
-  /// medal in the corner. See `UserBook.rereadCount`.
+  /// (`restart <book>`, or "read again" on the book page). 0 draws nothing;
+  /// otherwise star stickers go in the corner — see [RereadStickers].
   final int rereadCount;
+
+  /// Whether the book is finished right now — a finished re-read earns its
+  /// second sticker.
+  final bool finished;
 
   static const aspectRatio = 2 / 3;
 
@@ -66,7 +73,10 @@ class BookCover extends StatelessWidget {
                 Positioned(
                   top: AppSpacing.xs,
                   right: AppSpacing.xs,
-                  child: _RereadBadge(rereadCount: rereadCount),
+                  child: RereadStickers(
+                    rereadCount: rereadCount,
+                    finished: finished,
+                  ),
                 ),
               ],
             ),
@@ -74,52 +84,103 @@ class BookCover extends StatelessWidget {
   }
 }
 
-/// The bronze/silver/gold medal for a book restarted 1/2/3+ times.
-class _RereadBadge extends StatelessWidget {
-  const _RereadBadge({required this.rereadCount});
+/// Star-shaped stickers for a re-read book. Restarting puts one on the
+/// cover and finishing that pass adds a second: bronze for the first
+/// re-read, silver for the second, gold for the third. It stops there — a
+/// fourth re-read still counts, but the cover stays at two gold stars.
+class RereadStickers extends StatelessWidget {
+  const RereadStickers({
+    super.key,
+    required this.rereadCount,
+    required this.finished,
+  });
 
   final int rereadCount;
+  final bool finished;
 
   static const _bronze = Color(0xFFCD7F32);
   static const _silver = Color(0xFFC0C0C0);
   static const _gold = Color(0xFFFFD700);
 
-  Color get _color => switch (rereadCount) {
-    1 => _bronze,
-    2 => _silver,
-    _ => _gold,
-  };
+  static const size = 20.0;
+
+  /// 1 bronze, 2 silver, 3+ gold.
+  static int tierOf(int rereadCount) => rereadCount.clamp(1, 3);
+
+  /// One sticker while the re-read is under way, two once it's finished.
+  static int countOf({required bool finished}) => finished ? 2 : 1;
 
   @override
   Widget build(BuildContext context) {
+    final tier = tierOf(rereadCount);
+    final count = countOf(finished: finished);
+    final color = switch (tier) {
+      1 => _bronze,
+      2 => _silver,
+      _ => _gold,
+    };
+    final metal = switch (tier) {
+      1 => 'bronze',
+      2 => 'silver',
+      _ => 'gold',
+    };
     return Semantics(
-      label: switch (rereadCount) {
-        1 => 'Read twice',
-        2 => 'Read 3 times',
-        final n => 'Read ${n + 1} times',
-      },
-      child: Container(
-        width: 22,
-        height: 22,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: _color,
-          boxShadow: const [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 2,
-              offset: Offset(0, 1),
+      label: 'Read again: $count $metal ${count == 1 ? 'star' : 'stars'}',
+      excludeSemantics: true,
+      child: Row(
+        key: ValueKey('reread-stickers-$metal-$count'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < count; i++) ...[
+            if (i > 0) const SizedBox(width: 2),
+            SizedBox(
+              width: size,
+              height: size,
+              child: CustomPaint(painter: _StarPainter(color)),
             ),
           ],
-        ),
-        child: const Icon(
-          Icons.workspace_premium,
-          size: 14,
-          color: Colors.black54,
-        ),
+        ],
       ),
     );
   }
+}
+
+class _StarPainter extends CustomPainter {
+  const _StarPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final outer = size.shortestSide / 2;
+    final inner = outer * 0.48;
+    final path = Path();
+    for (var i = 0; i < 10; i++) {
+      final radius = i.isEven ? outer : inner;
+      final angle = -math.pi / 2 + i * math.pi / 5;
+      final point = center + Offset(math.cos(angle), math.sin(angle)) * radius;
+      if (i == 0) {
+        path.moveTo(point.dx, point.dy);
+      } else {
+        path.lineTo(point.dx, point.dy);
+      }
+    }
+    path.close();
+    canvas.drawShadow(path, Colors.black, 1.5, false);
+    canvas.drawPath(path, Paint()..color = color);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = Colors.black26
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _StarPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class _CoverPlaceholder extends StatelessWidget {

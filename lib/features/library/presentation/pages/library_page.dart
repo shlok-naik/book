@@ -1045,6 +1045,7 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
       isbn: widget.entry.displayBook.isbn13 ?? widget.entry.displayBook.isbn10,
       dimmed: widget.dimmed,
       rereadCount: widget.entry.rereadCount,
+      finished: widget.entry.isFinished,
     ),
   );
 
