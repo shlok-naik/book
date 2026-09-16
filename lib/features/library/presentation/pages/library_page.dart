@@ -12,6 +12,7 @@ import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../logging/presentation/widgets/confirmation_pill.dart';
+import '../../../settings/presentation/widgets/settings_header.dart';
 import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/book_series.dart';
@@ -25,7 +26,9 @@ import '../series_tile_style_controller.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/book_tile.dart';
 import '../widgets/collections_sheet.dart';
+import '../widgets/removal_confirmations.dart';
 import '../widgets/series_cover.dart';
+import '../widgets/shelf_selection_sheet.dart';
 import 'book_detail_page.dart';
 import 'series_page.dart';
 
@@ -78,28 +81,47 @@ String _shelfKey(ShelfRef ref) => switch (ref) {
   CustomShelfRef(:final shelfId) => 'custom-$shelfId',
 };
 
-/// The reader's shelf: the four built-in sections — reading, to read,
-/// finished, did not finish — then one per shelf the reader made, each a
-/// cover grid, always all of them, whether or not a section has anything in
-/// it yet. An empty section is its heading over a quiet empty area, not copy
-/// telling the reader it's empty.
+/// Opens one shelf as its own page — what tapping a shelf folder on the
+/// library does. The one way it should be pushed, so the route always
+/// carries its analytics name.
+Future<void> openShelf(BuildContext context, ShelfRef shelf) {
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'shelf'),
+      builder: (_) => LibraryPage(shelf: shelf),
+    ),
+  );
+}
+
+/// The reader's library, Goodreads-style: shelves are **folders**. The
+/// library tab ([LibraryPage.shelf] null) lists every shelf — reading, to
+/// read, the reader's own, finished, did not finish — as a row with a small
+/// stack of its covers and its book count, with the series row under "to
+/// read". Tapping a folder opens that shelf as its own page ([openShelf]):
+/// a cover grid of just its books. An empty shelf page is a quiet outlined
+/// area, not copy telling the reader it's empty.
+///
+/// While searching, the library tab instead shows every matching book
+/// grouped under its shelf's heading, and nothing can be dragged.
 ///
 /// Purely a view — it reads [LibraryController] out of [LibraryScope]
 /// and rebuilds when it notifies, so a progress update from the log page
 /// shows up here with no refresh of any kind.
 ///
-/// ## Moving books
+/// ## Moving books (on a shelf page)
 ///
 /// Tapping a book (or Enter/Space on a focused one) opens its
-/// [BookDetailPage]. Pressing and holding picks it up. Where it can land is
-/// shown only through hover/active states — no "drop here" prompts:
+/// [BookDetailPage]. Pressing and holding picks it up, and — like holding
+/// an app on a Pixel home screen — two targets slide down over the top of
+/// the page, covering the header rather than pushing anything down:
 ///
-/// * another tile — an accent insertion bar on the side it will land
-///   (left half = before, right half = after);
-/// * a section's heading — the heading takes the accent, and the book lands
-///   first in that section, so a long section doesn't need scrolling to
-///   its end;
-/// * an empty section's area — outlined and tinted while hovered.
+/// * **move to…** — opens [showShelfSelectionSheet] and moves the book to
+///   the shelf picked, first on it;
+/// * **remove** — the bin: asks with [confirmRemoveBook], exactly like
+///   `delete <book>` and the book page's button, then removes it.
+///
+/// Dropping on another tile reorders: an accent insertion bar shows the
+/// side it will land (left half = before, right half = after).
 ///
 /// The drop is [LibraryController.moveBook], which applies the same
 /// shelf-change side effects as a typed `move` command and rolls the
@@ -129,7 +151,11 @@ String _shelfKey(ShelfRef ref) => switch (ref) {
 /// — the one piece of copy on this page, since an empty screen would read as
 /// a broken library.
 class LibraryPage extends StatefulWidget {
-  const LibraryPage({super.key});
+  const LibraryPage({super.key, this.shelf});
+
+  /// The shelf this page shows on its own, or null for the library tab's
+  /// folder list.
+  final ShelfRef? shelf;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -138,7 +164,10 @@ class LibraryPage extends StatefulWidget {
 class _LibraryPageState extends State<LibraryPage> {
   /// The floating bottom bar's footprint, so the last row of covers
   /// isn't hidden behind it.
-  static const _barFootprint = BottomSwitcher.pageFootprint;
+  /// A shelf page is pushed over the tabs, so there's no floating bar to
+  /// clear there.
+  double get _barFootprint =>
+      widget.shelf == null ? BottomSwitcher.pageFootprint : AppSpacing.lg;
 
   static const _messageLifetime = Duration(seconds: 3);
 
@@ -181,19 +210,89 @@ class _LibraryPageState extends State<LibraryPage> {
   /// but isn't one, so it has no [ShelfRef].
   static const _seriesRow = 'series';
 
-  /// What's showing more than its heading right now: [ShelfRef]s and the
-  /// [_seriesRow]. In-memory only, so every visit starts from the same
-  /// default — **only reading open**. Every other section, the reader's own
-  /// shelves and the series row included, starts closed: a reader opens the
-  /// library to see what they're reading now. Ignored while searching, so a
-  /// match inside a closed section still shows.
-  final _openSections = <Object>{const StatusShelfRef(ReadingStatus.reading)};
+  /// Whether the series row under the "to read" folder is open. In-memory
+  /// only, so every visit starts with it closed. Ignored while searching.
+  final _openSections = <Object>{};
 
   void _toggleOpen(Object section) {
     AppHaptics.selection();
     setState(() {
       if (!_openSections.add(section)) _openSections.remove(section);
     });
+  }
+
+  Future<void> _openFolder(ShelfRef shelf) async {
+    AppHaptics.selection();
+    try {
+      await openShelf(context, shelf);
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'LibraryPage',
+        'Opening a shelf failed.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        _showMessage(
+          "We couldn't open that shelf. Try again.",
+          ConfirmationTone.failure,
+        );
+      }
+    }
+  }
+
+  /// The "move to…" drop target: the shelf picker, then the same move a
+  /// drag onto a shelf always was.
+  Future<void> _moveToPicked(String id) async {
+    _onDragEnded();
+    final library = LibraryScope.read(context);
+    final entry = library.findById(id);
+    if (entry == null) return;
+    final picked = await showShelfSelectionSheet(
+      context,
+      current: library.placementOf(entry),
+    );
+    if (picked == null || !mounted) return;
+    await _move(id, picked, 0);
+  }
+
+  /// The bin: confirmed exactly like `delete <book>`.
+  Future<void> _removeDropped(String id) async {
+    _onDragEnded();
+    if (_moving) return;
+    final library = LibraryScope.read(context);
+    final entry = library.findById(id);
+    if (entry == null) return;
+    final confirmed = await confirmRemoveBook(context, entry);
+    if (!confirmed || !mounted) return;
+    setState(() => _moving = true);
+    LibraryActionResult result;
+    try {
+      result = await library.deleteBookById(id);
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'LibraryPage',
+        'Removing a book failed unexpectedly.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      result = const LibraryActionResult.failure(
+        "We couldn't remove that book. Try again.",
+      );
+    }
+    if (!mounted) return;
+    setState(() => _moving = false);
+    if (result.success) {
+      AppHaptics.accepted();
+    } else {
+      AppHaptics.rejected();
+    }
+    if (result.message case final message?) {
+      _showMessage(
+        message,
+        result.success ? ConfirmationTone.success : ConfirmationTone.failure,
+      );
+    }
   }
 
   Future<void> _openCollections() async {
@@ -454,24 +553,62 @@ class _LibraryPageState extends State<LibraryPage> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
                   SliverToBoxAdapter(
-                    child: _Header(
-                      searching: _searching,
-                      onToggleSearch: _toggleSearch,
-                      onOpenCollections: _openCollections,
-                      searchField: _SearchField(
-                        controller: _searchText,
-                        focusNode: _searchFocus,
-                        onChanged: (_) => setState(() {}),
+                    child: switch (widget.shelf) {
+                      null => _Header(
+                        searching: _searching,
+                        onToggleSearch: _toggleSearch,
+                        onOpenCollections: _openCollections,
+                        searchField: _SearchField(
+                          controller: _searchText,
+                          focusNode: _searchFocus,
+                          onChanged: (_) => setState(() {}),
+                        ),
                       ),
-                    ),
+                      final shelf => Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.xl,
+                          AppSpacing.md,
+                          AppSpacing.xl,
+                          AppSpacing.md,
+                        ),
+                        child: SettingsHeader(
+                          title: controller.shelfName(shelf),
+                        ),
+                      ),
+                    },
                   ),
                   ..._body(controller),
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: SizedBox(height: _barFootprint + AppSpacing.md),
                   ),
                 ],
               ),
             ),
+            // Slides down over the header while a book is held — never
+            // pushing the grid down, so nothing under the finger moves.
+            if (widget.shelf != null)
+              Positioned(
+                left: AppSpacing.xl,
+                right: AppSpacing.xl,
+                top: AppSpacing.sm,
+                child: IgnorePointer(
+                  ignoring: _draggingId == null,
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 180),
+                    offset: _draggingId == null
+                        ? const Offset(0, -1.5)
+                        : Offset.zero,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 180),
+                      opacity: _draggingId == null ? 0 : 1,
+                      child: _DragActions(
+                        onMoveTo: _moveToPicked,
+                        onRemove: _removeDropped,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (_message case final message?)
               Positioned(
                 left: AppSpacing.xl,
@@ -516,7 +653,8 @@ class _LibraryPageState extends State<LibraryPage> {
     }
 
     final dragging = _draggingId != null;
-    final filtering = _searching && _query.isNotEmpty;
+    final only = widget.shelf;
+    final filtering = only == null && _searching && _query.isNotEmpty;
     final allGroups = controller.seriesGroups;
     final groups = [
       for (final group in allGroups)
@@ -528,6 +666,19 @@ class _LibraryPageState extends State<LibraryPage> {
           group,
     ];
     final shelves = _shelvesOf(controller);
+    final shown = only == null
+        ? shelves
+        : [
+            for (final shelf in shelves)
+              if (shelf.ref == only) shelf,
+          ];
+    if (only != null && shown.isEmpty) {
+      return const [
+        SliverToBoxAdapter(
+          child: _Message(text: "this shelf isn't in your library any more."),
+        ),
+      ];
+    }
     final sections = {
       for (final shelf in shelves)
         shelf.ref: [
@@ -562,6 +713,36 @@ class _LibraryPageState extends State<LibraryPage> {
       }
     }
 
+    bool closed(Object section) =>
+        !filtering && !_openSections.contains(section);
+
+    // The library tab, not searching: one folder per shelf.
+    if (only == null && !filtering) {
+      return [
+        for (final shelf in shelves) ...[
+          SliverToBoxAdapter(
+            child: _ShelfFolder(
+              key: ValueKey('shelf-folder-${_shelfKey(shelf.ref)}'),
+              shelf: shelf,
+              entries: sections[shelf.ref]!,
+              onTap: () => _openFolder(shelf.ref),
+            ),
+          ),
+          if (shelf.ref == const StatusShelfRef(ReadingStatus.toBeRead) &&
+              groups.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: _SeriesHeading(
+                collapsed: closed(_seriesRow),
+                onToggleCollapse: () => _toggleOpen(_seriesRow),
+              ),
+            ),
+            if (!closed(_seriesRow))
+              SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
+          ],
+        ],
+      ];
+    }
+
     if (filtering &&
         groups.isEmpty &&
         sections.values.every((entries) => entries.isEmpty)) {
@@ -570,28 +751,23 @@ class _LibraryPageState extends State<LibraryPage> {
       ];
     }
 
-    bool closed(Object section) =>
-        !filtering && !_openSections.contains(section);
     final seriesClosed = closed(_seriesRow);
 
     return [
-      for (final shelf in shelves) ...[
+      for (final shelf in shown) ...[
         if (!filtering || sections[shelf.ref]!.isNotEmpty) ...[
-          SliverToBoxAdapter(
-            child: _SectionHeading(
-              key: ValueKey('shelf-heading-${_shelfKey(shelf.ref)}'),
-              shelf: shelf,
-              count: sections[shelf.ref]!.length,
-              dragging: dragging,
-              collapsed: closed(shelf.ref),
-              onToggleCollapse: () => _toggleOpen(shelf.ref),
-              // Dropping on a heading puts the book first in that section.
-              onAccept: (id) => _move(id, shelf.ref, 0),
+          if (only == null)
+            SliverToBoxAdapter(
+              child: _SectionHeading(
+                key: ValueKey('shelf-heading-${_shelfKey(shelf.ref)}'),
+                shelf: shelf,
+                count: sections[shelf.ref]!.length,
+                dragging: dragging,
+                // Dropping on a heading puts the book first in that section.
+                onAccept: (id) => _move(id, shelf.ref, 0),
+              ),
             ),
-          ),
-          if (closed(shelf.ref))
-            const SliverToBoxAdapter(child: SizedBox.shrink())
-          else if (sections[shelf.ref]! case final entries when entries.isEmpty)
+          if (sections[shelf.ref]! case final entries when entries.isEmpty)
             SliverToBoxAdapter(
               child: _EmptyShelf(
                 key: ValueKey('empty-shelf-${_shelfKey(shelf.ref)}'),
@@ -615,7 +791,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   shelf.ref == const StatusShelfRef(ReadingStatus.finished) ||
                   shelf.ref == const StatusShelfRef(ReadingStatus.dnf),
               draggingId: _draggingId,
-              canDrag: !_moving && !_searching,
+              canDrag: only != null && !_moving,
               onDragStarted: _onDragStarted,
               onDragUpdate: _onDragUpdate,
               onDragEnded: _onDragEnded,
@@ -624,7 +800,8 @@ class _LibraryPageState extends State<LibraryPage> {
             ),
         ],
         // The series row sits directly under "to read".
-        if (shelf.ref == const StatusShelfRef(ReadingStatus.toBeRead) &&
+        if (only == null &&
+            shelf.ref == const StatusShelfRef(ReadingStatus.toBeRead) &&
             groups.isNotEmpty) ...[
           SliverToBoxAdapter(
             child: _SeriesHeading(
@@ -1218,28 +1395,220 @@ class _DraggableBookTileState extends State<_DraggableBookTile> {
   }
 }
 
-/// A section's heading. Also a drop target: releasing a held book on it
-/// puts the book first in that section. While a book is held, hovering
-/// the heading turns it and a short underline accent — the only signal,
-/// no instructional text.
+/// One shelf on the library tab, as a folder: a small fanned stack of its
+/// first covers (an outlined blank one when it's empty), the shelf's name,
+/// its book count and a chevron. One semantics node — "Reading, 3 books" —
+/// that opens the shelf.
+class _ShelfFolder extends StatelessWidget {
+  const _ShelfFolder({
+    super.key,
+    required this.shelf,
+    required this.entries,
+    required this.onTap,
+  });
+
+  final _Shelf shelf;
+  final List<LibraryBook> entries;
+  final VoidCallback onTap;
+
+  static const _coverWidth = 40.0;
+  static const _coverOffset = 16.0;
+  static const _maxCovers = 3;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final count = entries.length;
+    final covers = entries.take(_maxCovers).toList();
+    final coverHeight = _coverWidth / BookCover.aspectRatio;
+    final stackWidth = _coverWidth + _coverOffset * (_maxCovers - 1);
+
+    return Semantics(
+      button: true,
+      label: '${shelf.spoken}, $count ${count == 1 ? 'book' : 'books'}',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.xl,
+            vertical: AppSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: stackWidth,
+                height: coverHeight,
+                child: covers.isEmpty
+                    ? Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          width: _coverWidth,
+                          height: coverHeight,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            border: Border.all(color: colors.divider),
+                          ),
+                        ),
+                      )
+                    : Stack(
+                        children: [
+                          // Last first, so the first book sits on top.
+                          for (var i = covers.length - 1; i >= 0; i--)
+                            Positioned(
+                              left: _coverOffset * i,
+                              width: _coverWidth,
+                              height: coverHeight,
+                              child: BookCover(
+                                title: covers[i].book.title,
+                                author: covers[i].book.author,
+                                coverUrl: covers[i].displayBook.coverUrl,
+                                isbn:
+                                    covers[i].displayBook.isbn13 ??
+                                    covers[i].displayBook.isbn10,
+                              ),
+                            ),
+                        ],
+                      ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      shelf.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.fonts.interface(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: colors.primaryText,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$count ${count == 1 ? 'book' : 'books'}',
+                      style: context.fonts.body(
+                        fontSize: 13,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: colors.secondaryText),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The two drop targets a held book can go to besides another tile —
+/// "move to…" and the bin. Each takes the accent (the bin, ink) while a
+/// book hovers over it.
+class _DragActions extends StatelessWidget {
+  const _DragActions({required this.onMoveTo, required this.onRemove});
+
+  final ValueChanged<String> onMoveTo;
+  final ValueChanged<String> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _DropAction(
+            key: const ValueKey('drag-move-to'),
+            icon: Icons.drive_file_move_outline,
+            label: 'move to…',
+            onAccept: onMoveTo,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: _DropAction(
+            key: const ValueKey('drag-remove'),
+            icon: Icons.delete_outline,
+            label: 'remove',
+            destructive: true,
+            onAccept: onRemove,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DropAction extends StatelessWidget {
+  const _DropAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onAccept,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final ValueChanged<String> onAccept;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return DragTarget<String>(
+      onAcceptWithDetails: (details) => onAccept(details.data),
+      builder: (context, candidates, _) {
+        final hovered = candidates.isNotEmpty;
+        final strong = destructive ? colors.primaryText : colors.accent;
+        final foreground = hovered ? colors.background : strong;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          height: 52,
+          decoration: BoxDecoration(
+            color: hovered ? strong : colors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(color: strong, width: hovered ? 2 : 1),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 20, color: foreground),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                label,
+                style: context.fonts.interface(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: foreground,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A shelf's heading over its matches while the library is being searched.
+/// Still a drop target (a book released on it lands first in that shelf),
+/// though nothing can be picked up while searching.
 class _SectionHeading extends StatelessWidget {
   const _SectionHeading({
     super.key,
     required this.shelf,
     required this.count,
     required this.dragging,
-    required this.collapsed,
-    required this.onToggleCollapse,
     required this.onAccept,
   });
 
   final _Shelf shelf;
   final int count;
   final bool dragging;
-
-  /// Whether this shelf is showing just its heading right now.
-  final bool collapsed;
-  final VoidCallback onToggleCollapse;
   final ValueChanged<String> onAccept;
 
   @override
@@ -1295,15 +1664,6 @@ class _SectionHeading extends StatelessWidget {
                     ],
                   ),
                 ),
-              ),
-              // Collapses the shelf to just this heading — the covers below
-              // are what take up room on a long shelf, not the heading, so
-              // this is what a reader taps to get a whole shelf out of the
-              // way without leaving the page.
-              _CollapseToggle(
-                collapsed: collapsed,
-                spoken: '${shelf.spoken.toLowerCase()} books',
-                onTap: onToggleCollapse,
               ),
             ],
           ),
