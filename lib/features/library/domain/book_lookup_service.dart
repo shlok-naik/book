@@ -114,6 +114,37 @@ class BookLookupService {
     return cache.cache(volume);
   }
 
+  /// Every Google Books volume matching [rawQuery], in Google's order —
+  /// the search tab's results and the book picker's catalogue tab. Nothing
+  /// is cached until the reader picks one ([resolveVolume]).
+  ///
+  /// Same validation and errors as [findOrFetch], except no results is an
+  /// empty list rather than a [BookNotFoundException].
+  Future<List<GoogleBook>> searchCatalogue(
+    String rawQuery, {
+    int maxResults = 20,
+  }) async {
+    final query = rawQuery.trim();
+    if (query.isEmpty) {
+      throw const InvalidInputException('Enter a book title first.');
+    }
+    if (query.length > maxQueryLength) {
+      throw const InvalidInputException(
+        'That search is too long — try just the book name.',
+      );
+    }
+    return googleBooks.search(query, maxResults: maxResults);
+  }
+
+  /// The cached [Book] for a volume the reader picked from [searchCatalogue]
+  /// — the existing row when this volume was cached before, otherwise
+  /// written now. Same de-duplicate and write-back as [findOrFetch].
+  Future<Book> resolveVolume(GoogleBook volume) async {
+    final cached = await _findCachedById(volume.id);
+    if (cached != null) return cached;
+    return cache.cache(volume);
+  }
+
   /// Cache read that degrades to a miss. A cache that is down must slow
   /// the flow, not break it — see the asymmetry note on [findOrFetch].
   Future<Book?> _findCached(String query, {String? author}) async {

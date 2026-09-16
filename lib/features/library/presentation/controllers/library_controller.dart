@@ -9,6 +9,7 @@ import '../../data/book_details_repository.dart';
 import '../../data/book_notes_repository.dart';
 import '../../data/book_series_repository.dart';
 import '../../data/collections_repository.dart';
+import '../../data/google_book.dart';
 import '../../data/reading_event_repository.dart';
 import '../../data/user_book_repository.dart';
 import '../../domain/book.dart';
@@ -758,38 +759,68 @@ class LibraryController extends ChangeNotifier {
       // "move Dune tbr" must add Dune, not move a "Dune Messiah" that
       // happens to be on the shelf already.
       final book = await lookup.findOrFetch(title);
-      final existing = _findByBookId(book.id);
-      if (existing != null) return _changeShelf(existing, target);
-
-      final status = switch (target) {
-        StatusShelfRef(:final status) => status,
-        CustomShelfRef() => ReadingStatus.toBeRead,
-      };
-      final page = status == ReadingStatus.finished ? book.pageCount ?? 0 : 0;
-      final added = await userBooks.addWithStatus(
-        book.id,
-        status,
-        currentPage: page,
-        shelfId: switch (target) {
-          CustomShelfRef(:final shelfId) => shelfId,
-          StatusShelfRef() => null,
-        },
-      );
-      final entry = LibraryBook(book: book, progress: added.progress);
-      _upsertLocal(entry);
-      notifyListeners();
-      _warmEditions(book);
-      if (added.alreadyExists) {
-        // Rare race: the row appeared between the local lookup above and
-        // this write landing, and came back at whatever shelf it was
-        // already on. Finish the move the same way as a local hit.
-        return _changeShelf(entry, target);
-      }
-      _logEvent(_eventForShelf(status), book.title);
-      return LibraryActionResult.success(_addedMessage(book.title, target));
+      return await _placeBook(book, target);
     } on LibraryException catch (error) {
       return LibraryActionResult.failure(error.message);
     }
+  }
+
+  /// A book picked from Google Books — the search tab's add buttons and
+  /// the book picker — put on [target] through the same path `move` adds a
+  /// book by: moved there if it's already on the shelf, else added at the
+  /// status [target] implies.
+  Future<LibraryActionResult> addVolume(
+    GoogleBook volume,
+    ShelfRef target,
+  ) async {
+    try {
+      final book = await lookup.resolveVolume(volume);
+      return await _placeBook(book, target);
+    } on LibraryException catch (error) {
+      return LibraryActionResult.failure(error.message);
+    }
+  }
+
+  /// The shelf row for a Google Books volume, when the reader has it.
+  LibraryBook? findByGoogleBooksId(String googleBooksId) {
+    for (final entry in _books) {
+      if (entry.book.googleBooksId == googleBooksId) return entry;
+    }
+    return null;
+  }
+
+  /// [moveToShelf]'s write once the book is resolved: a move for a book on
+  /// the shelf, an add at [target] otherwise.
+  Future<LibraryActionResult> _placeBook(Book book, ShelfRef target) async {
+    final existing = _findByBookId(book.id);
+    if (existing != null) return _changeShelf(existing, target);
+
+    final status = switch (target) {
+      StatusShelfRef(:final status) => status,
+      CustomShelfRef() => ReadingStatus.toBeRead,
+    };
+    final page = status == ReadingStatus.finished ? book.pageCount ?? 0 : 0;
+    final added = await userBooks.addWithStatus(
+      book.id,
+      status,
+      currentPage: page,
+      shelfId: switch (target) {
+        CustomShelfRef(:final shelfId) => shelfId,
+        StatusShelfRef() => null,
+      },
+    );
+    final entry = LibraryBook(book: book, progress: added.progress);
+    _upsertLocal(entry);
+    notifyListeners();
+    _warmEditions(book);
+    if (added.alreadyExists) {
+      // Rare race: the row appeared between the local lookup above and
+      // this write landing, and came back at whatever shelf it was
+      // already on. Finish the move the same way as a local hit.
+      return _changeShelf(entry, target);
+    }
+    _logEvent(_eventForShelf(status), book.title);
+    return LibraryActionResult.success(_addedMessage(book.title, target));
   }
 
   /// `move <book> <shelf>` typed without quotes around the shelf — "move

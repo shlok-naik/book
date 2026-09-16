@@ -11,6 +11,7 @@ import 'package:book/core/theme/theme_controller.dart';
 import 'package:book/features/goals/presentation/controllers/goal_controller.dart';
 import 'package:book/features/goals/presentation/goal_scope.dart';
 import 'package:book/features/logging/domain/command_catalog.dart';
+import 'package:book/features/logging/presentation/parser_mode_controller.dart';
 import 'package:book/features/paywall/presentation/pages/paywall_page.dart';
 import 'package:book/features/settings/data/profile_repository.dart';
 import 'package:book/features/settings/presentation/pages/commands_page.dart';
@@ -516,7 +517,12 @@ void main() {
   });
 
   group('debug', () {
-    testWidgets('the plan override is present under kDebugMode', (
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(ParserModeController.reset);
+    });
+
+    testWidgets('picks the parser instead of pretending a plan', (
       tester,
     ) async {
       await pumpSettings(
@@ -526,11 +532,18 @@ void main() {
       );
 
       // `flutter test` runs in debug, so this section is compiled in
-      // here by definition — the assertion that matters is the reverse
-      // one the analyzer enforces for us: it sits behind `kDebugMode`,
-      // so a release build tree-shakes it away entirely.
-      await tester.scrollUntilVisible(find.text('pretend plan'), 200);
-      expect(find.text('pretend plan'), findsOneWidget);
+      // here by definition; a release build tree-shakes it away.
+      final beta = find.byKey(const ValueKey('parser-mode-beta'));
+      await tester.scrollUntilVisible(beta, 200);
+      expect(find.text('pretend plan'), findsNothing);
+      expect(find.text('classic'), findsOneWidget);
+      expect(find.text('pro ai'), findsOneWidget);
+
+      await tester.tap(beta);
+      await tester.pumpAndSettle();
+
+      expect(ParserModeController.chosen.value, ParserMode.beta);
+      expect(ParserModeController.effective(offline: false), ParserMode.beta);
     });
   });
 
