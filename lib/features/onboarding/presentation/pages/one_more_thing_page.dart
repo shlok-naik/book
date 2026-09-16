@@ -5,6 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/tour_illustrations.dart';
 import 'founders_note_page.dart';
 
 /// A teaser beat between the reading-goal question and the founder's
@@ -19,7 +20,7 @@ class OneMoreThingPage extends StatelessWidget {
     return HalfSheetScaffold(
       showBackButton: true,
       progressStep: 4,
-      topContent: const Text('➡️', style: TextStyle(fontSize: 96)),
+      topContent: const TourIcon(Icons.arrow_forward),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

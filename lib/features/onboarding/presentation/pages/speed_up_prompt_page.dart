@@ -5,6 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/tour_illustrations.dart';
 import 'goodreads_prompt_page.dart';
 import 'speak_freely_page.dart';
 
@@ -20,7 +21,7 @@ class SpeedUpPromptPage extends StatelessWidget {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      topContent: const Text('⚡', style: TextStyle(fontSize: 96)),
+      topContent: const TourIcon(Icons.bolt_outlined),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

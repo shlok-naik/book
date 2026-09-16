@@ -8,6 +8,7 @@ import '../../../search/domain/reading_taste.dart';
 import '../../../search/presentation/reading_tastes_controller.dart';
 import '../../../search/presentation/widgets/reading_tastes_picker.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/tour_illustrations.dart';
 import 'one_more_thing_page.dart';
 
 /// Asked right after the reading goal: what kinds of books the reader
@@ -45,7 +46,7 @@ class _ReadingTastesPageState extends State<ReadingTastesPage> {
     return HalfSheetScaffold(
       showBackButton: true,
       progressStep: 3,
-      topContent: const Text('📚', style: TextStyle(fontSize: 96)),
+      topContent: const TourIcon(Icons.auto_stories_outlined),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

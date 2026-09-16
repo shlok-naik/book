@@ -6,6 +6,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../library_transfer/presentation/pages/import_page.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/tour_illustrations.dart';
 import 'theme_preference_page.dart';
 
 /// Sits right after the tutorial pages, before "pick a look" — a reader
@@ -37,7 +38,7 @@ class GoodreadsPromptPage extends StatelessWidget {
 
     return HalfSheetScaffold(
       showBackButton: true,
-      topContent: const Text('📚', style: TextStyle(fontSize: 96)),
+      topContent: const TourIcon(Icons.local_library_outlined),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

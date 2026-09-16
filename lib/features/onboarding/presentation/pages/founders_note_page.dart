@@ -9,6 +9,7 @@ import '../../../paywall/domain/paywall_pricing.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/tour_illustrations.dart';
 import 'finish_page.dart';
 
 /// Third finish-category screen — a short personal note, signed by
@@ -69,15 +70,7 @@ class FoundersNotePage extends StatelessWidget {
     return HalfSheetScaffold(
       showBackButton: true,
       progressStep: 4,
-      // Inter itself resolves a monochrome glyph for the bare U+2764
-      // codepoint, so `fontFamilyFallback` never even gets consulted —
-      // this has to name the color emoji font directly as the primary
-      // family to force it, unlike the other topContent emoji here,
-      // none of which collide with a text-style glyph inside Inter.
-      topContent: const Text(
-        '❤️',
-        style: TextStyle(fontSize: 96, fontFamily: 'Noto Color Emoji'),
-      ),
+      topContent: const TourIcon(Icons.favorite_border),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

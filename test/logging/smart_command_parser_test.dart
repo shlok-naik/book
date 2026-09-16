@@ -158,6 +158,77 @@ void main() {
     });
   });
 
+  group('organising in words', () {
+    List<String> organise(String message) => [
+      for (final line in SmartCommandParser.parse(
+        message,
+        library: const [_dune, _messiah, _pride],
+        today: _today,
+        shelves: const ['summer reads'],
+      ))
+        switch (line) {
+          ResolvedLine(:final command) => command,
+          NeedsBookLine(:final query) => 'ASK($query)',
+          UnrecognizedLine(:final text) => 'UNKNOWN($text)',
+        },
+    ];
+
+    test('makes shelves, tags and series', () {
+      expect(organise('make a shelf called summer reads'), [
+        'make shelf summer reads',
+      ]);
+      expect(organise('create a new tag cosy'), ['make tag cosy']);
+      expect(organise('new series The Expanse'), ['make series The Expanse']);
+    });
+
+    test('tags a book', () {
+      expect(organise('tag dune as sci-fi'), ['add tag "sci-fi" Dune']);
+      expect(organise('add cosy to pride and prejudice'), [
+        'add tag "cosy" Pride and Prejudice',
+      ]);
+    });
+
+    test('files a book in a series, with its number', () {
+      expect(organise('put dune messiah in the dune series as #2'), [
+        'add series "dune" #2 Dune Messiah',
+      ]);
+      expect(organise('add dune to the dune series'), [
+        'add series "dune" Dune',
+      ]);
+    });
+
+    test('comments on a book', () {
+      expect(organise('note on dune: the ending got me'), [
+        'add comment "the ending got me" Dune',
+      ]);
+      expect(organise('comment on dune messiah that it dragged'), [
+        'add comment "it dragged" Dune Messiah',
+      ]);
+    });
+
+    test('moves a book onto a shelf that exists', () {
+      expect(organise('move dune to summer reads'), [
+        'move Dune "summer reads"',
+      ]);
+      expect(organise('put dune messiah on my to read'), [
+        'move Dune Messiah "to read"',
+      ]);
+    });
+
+    test('adds a book to the to-read shelf', () {
+      expect(organise('add doctor sleep to my to read'), [
+        'move doctor sleep "tbr"',
+      ]);
+    });
+
+    test('does several at once, with it meaning the book just named', () {
+      expect(organise('make a tag cosy and tag dune as cosy'), [
+        'make tag cosy',
+        'add tag "cosy" Dune',
+      ]);
+    });
+  });
+
   test('gibberish is left for the parser to refuse', () {
     expect(_commands('the weather is nice'), ['UNKNOWN(the weather is nice)']);
   });

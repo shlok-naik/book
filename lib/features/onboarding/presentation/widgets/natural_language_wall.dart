@@ -10,9 +10,19 @@ import '../../../../core/widgets/tilted_marquee_wall.dart';
 /// reader might actually type on the add tab — in italic Inter so it reads
 /// as conversation rather than command syntax.
 class NaturalLanguageWall extends StatelessWidget {
-  const NaturalLanguageWall({super.key});
+  const NaturalLanguageWall({super.key, this.rows = logging});
 
-  static const _rows = [
+  final List<List<String>> rows;
+
+  /// Organising the library in words — the anything-is-possible page.
+  static const organise = [
+    ['make a shelf called summer reads', 'tag dune as sci-fi'],
+    ['new tag cosy', 'put circe on summer reads', 'note on dune: wow'],
+    ['make a series the expanse', 'add leviathan wakes to the expanse series'],
+  ];
+
+  /// Logging reading in words.
+  static const logging = [
     [
       'started the shining yesterday',
       'i read up to pg 28',
@@ -26,8 +36,7 @@ class NaturalLanguageWall extends StatelessWidget {
   Widget build(BuildContext context) {
     return TiltedMarqueeWall(
       rows: [
-        for (final row in _rows)
-          [for (final phrase in row) _PhraseChip(phrase)],
+        for (final row in rows) [for (final phrase in row) _PhraseChip(phrase)],
       ],
     );
   }

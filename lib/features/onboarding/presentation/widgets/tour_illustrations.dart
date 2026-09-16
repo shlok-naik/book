@@ -12,6 +12,18 @@ import '../../../../core/theme/app_spacing.dart';
 /// rather than screenshots that go stale. Purely decorative, so each is
 /// hidden from screen readers; the card underneath says the same thing.
 
+/// A large accent icon — the top of a question page.
+class TourIcon extends StatelessWidget {
+  const TourIcon(this.icon, {super.key});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: Icon(icon, size: 96, color: context.colors.accent),
+  );
+}
+
 /// A pill button as the app draws it.
 class TourPill extends StatelessWidget {
   const TourPill(this.label, {super.key, this.filled = false, this.icon});

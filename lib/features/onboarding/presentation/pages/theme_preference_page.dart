@@ -7,6 +7,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/tour_illustrations.dart';
 import 'reading_goal_page.dart';
 
 /// The first of two questions onboarding asks, right after the tutorial's
@@ -24,9 +25,9 @@ class ThemePreferencePage extends StatelessWidget {
   const ThemePreferencePage({super.key});
 
   static const _labels = {
-    ThemeMode.light: '☀️  light',
-    ThemeMode.dark: '🌙  dark',
-    ThemeMode.system: '⚙️  system',
+    ThemeMode.light: 'light',
+    ThemeMode.dark: 'dark',
+    ThemeMode.system: 'system',
   };
 
   @override
@@ -40,7 +41,7 @@ class ThemePreferencePage extends StatelessWidget {
         return HalfSheetScaffold(
           showBackButton: true,
           progressStep: 2,
-          topContent: const Text('🌗', style: TextStyle(fontSize: 96)),
+          topContent: const TourIcon(Icons.contrast),
           cardChild: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

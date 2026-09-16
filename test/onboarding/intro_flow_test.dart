@@ -17,6 +17,7 @@ import 'package:book/features/memory/domain/memory.dart';
 import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
 import 'package:book/features/memory/presentation/memory_scope.dart';
 import 'package:book/features/onboarding/data/onboarding_store.dart';
+import 'package:book/features/onboarding/presentation/pages/anything_possible_page.dart';
 import 'package:book/features/onboarding/presentation/pages/buttons_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/customisation_tour_page.dart';
 import 'package:book/features/onboarding/presentation/pages/express_yourself_page.dart';
@@ -170,6 +171,22 @@ Future<void> start(WidgetTester tester) async {
 
 Future<void> tapContinue(WidgetTester tester) => tapPill(tester, 'continue');
 
+/// Emoji ranges — the onboarding carries none, in copy or pictures.
+final _emoji = RegExp(
+  r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]',
+  unicode: true,
+);
+
+void expectNoEmoji(WidgetTester tester) {
+  final texts = [
+    for (final widget in tester.widgetList<Text>(find.byType(Text)))
+      widget.data ?? widget.textSpan?.toPlainText() ?? '',
+    for (final widget in tester.widgetList<RichText>(find.byType(RichText)))
+      widget.text.toPlainText(),
+  ];
+  expect(texts.where(_emoji.hasMatch), isEmpty);
+}
+
 /// The four tour pages, from the first through "track your reading".
 Future<void> walkTour(WidgetTester tester) async {
   for (var i = 0; i < 4; i++) {
@@ -209,6 +226,9 @@ void main() {
 
     expect(find.byType(TrackReadingPage), findsOneWidget);
     expect(find.text('track your reading'), findsOneWidget);
+    // Stats are pro too.
+    expect(find.text('cactus pro'), findsOneWidget);
+    expectNoEmoji(tester);
     await tapContinue(tester);
 
     expect(find.byType(SpeedUpPromptPage), findsOneWidget);
@@ -218,6 +238,16 @@ void main() {
     expect(find.byType(SpeakFreelyPage), findsOneWidget);
     expect(find.text('speak how you want'), findsOneWidget);
     expect(find.textContaining('<book>'), findsNothing);
+    expectNoEmoji(tester);
+    await tapContinue(tester);
+
+    // Everything tappable can be said: shelves, tags, series, comments.
+    expect(find.byType(AnythingPossiblePage), findsOneWidget);
+    expect(find.text('anything is possible'), findsOneWidget);
+    for (final word in ['shelves', 'tags', 'series', 'comments']) {
+      expect(find.textContaining(word, findRichText: true), findsWidgets);
+    }
+    expectNoEmoji(tester);
     await tapContinue(tester);
 
     // A reader coming from Goodreads is asked here, before "pick a
@@ -229,9 +259,11 @@ void main() {
     await tapPill(tester, 'not now');
 
     expect(find.byType(ThemePreferencePage), findsOneWidget);
+    expectNoEmoji(tester);
     await tapContinue(tester);
 
     expect(find.byType(ReadingGoalPage), findsOneWidget);
+    expectNoEmoji(tester);
     await tapContinue(tester);
 
     expect(find.byType(ReadingTastesPage), findsOneWidget);
@@ -265,7 +297,7 @@ void main() {
 
     await tester.tap(find.byType(DropdownButtonFormField<ThemeMode>));
     await settle(tester);
-    await tester.tap(find.text('🌙  dark').last);
+    await tester.tap(find.text('dark').last);
     await settle(tester);
 
     // The same notifier the appearance rows in settings write to, so the
@@ -313,6 +345,7 @@ void main() {
     await start(tester);
     await walkTour(tester);
     await tapPill(tester, 'yes, show me');
+    await tapContinue(tester);
     await tapContinue(tester);
     await tapPill(tester, 'not now');
     await tapContinue(tester);

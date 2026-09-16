@@ -207,6 +207,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
       ],
       today: DateTime.now(),
+      shelves: [for (final shelf in library.shelves) shelf.name],
     );
     if (lines.isEmpty) return _runManual(command);
 

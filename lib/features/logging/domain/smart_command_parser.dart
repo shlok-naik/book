@@ -89,22 +89,47 @@ final class UnrecognizedLine extends SmartLine {
 ///    it); several close matches ask ([NeedsBookLine]) — unless one of
 ///    them is the book being read, which wins.
 ///
+/// 5. **Organise** the library in plain words too: make shelves, tags and
+///    series, tag a book, file it in a series with its number, comment on
+///    it, or move it onto a shelf that exists ([shelves]).
+///
 /// A line that's already a command ("finish Dune") runs exactly as typed.
 abstract final class SmartCommandParser {
   static List<SmartLine> parse(
     String message, {
     required List<SmartBook> library,
     required DateTime today,
+    List<String> shelves = const [],
   }) {
     final text = message.trim();
     if (text.isEmpty) return const [];
-    if (LogCommandParser.parse(text).recognized) {
+    // "move dune to summer reads" is also a valid classic line — with the
+    // title "dune to" — so plain-words organising is tried first.
+    if (LogCommandParser.parse(text).recognized &&
+        _parseOrganise(
+              text,
+              library: library,
+              shelves: shelves,
+              lastTitle: null,
+            ) ==
+            null) {
       return [_polishCommand(text, library)];
     }
 
     final lines = <SmartLine>[];
     String? lastTitle;
     for (final clause in _clauses(_joinHalves(text))) {
+      final organised = _parseOrganise(
+        clause,
+        library: library,
+        shelves: shelves,
+        lastTitle: lastTitle,
+      );
+      if (organised != null) {
+        lines.add(organised.$1);
+        lastTitle = organised.$2 ?? lastTitle;
+        continue;
+      }
       if (LogCommandParser.parse(clause).recognized) {
         lines.add(_polishCommand(clause, library));
         continue;
@@ -186,7 +211,9 @@ abstract final class SmartCommandParser {
       var current = pieces.first;
       for (var i = 1; i < pieces.length; i++) {
         final piece = pieces[i];
-        if (_intentOf(piece) != null || _startsWithCommand(piece)) {
+        if (_intentOf(piece) != null ||
+            _startsWithCommand(piece) ||
+            _organiseStart.hasMatch(piece)) {
           clauses.add(current.trim());
           current = piece;
         } else {
@@ -207,6 +234,130 @@ abstract final class SmartCommandParser {
     r'^\s*(start|update|finish|restart|rate|delete|move|make|add|remove)\s',
     caseSensitive: false,
   ).hasMatch(piece);
+
+  // ---------------------------------------------------------- organising
+
+  /// A piece that starts organising the library — worth splitting on.
+  static final _organiseStart = RegExp(
+    r'^\s*(?:please\s+)?(?:make|create|new|tag|note|comment|put|file|move)\b',
+    caseSensitive: false,
+  );
+
+  static final _makePattern = RegExp(
+    r'^(?:please\s+)?(?:(?:make|create|start)\s+(?:me\s+)?(?:a\s+|an\s+)?'
+    r'(?:new\s+)?|new\s+)(shelf|tag|series)\s+(?:called\s+|named\s+)?'
+    r'["“]?(.+?)["”]?$',
+    caseSensitive: false,
+  );
+  static final _tagAsPattern = RegExp(
+    r'^tag\s+(.+?)\s+(?:as|with)\s+(?:a\s+)?["“]?(.+?)["”]?$',
+    caseSensitive: false,
+  );
+  static final _addTagPattern = RegExp(
+    r'^add\s+(?:the\s+|a\s+)?(?:tag\s+)?["“]?(.+?)["”]?(?:\s+tag)?\s+(?:to|on)\s+(.+)$',
+    caseSensitive: false,
+  );
+  static final _seriesPattern = RegExp(
+    r'^(?:add|put|file)\s+(.+?)\s+(?:in|into|to|under)\s+(?:the\s+|my\s+)?'
+    r'["“]?(.+?)["”]?\s+series(?:\s+(?:as\s+)?(?:#|number\s+|book\s+|no\.?\s*)'
+    r'(\d+))?$',
+    caseSensitive: false,
+  );
+  static final _commentPattern = RegExp(
+    r'^(?:add\s+(?:a\s+)?)?(?:comment|note)\s+(?:on|to|for)\s+(.+?)'
+    r'(?:\s*:\s*|\s+that\s+|\s+saying\s+)(.+)$',
+    caseSensitive: false,
+  );
+  static final _movePattern = RegExp(
+    r'^(?:move|put)\s+(.+?)\s+(?:on|onto|to|in|into)\s+(?:the\s+|my\s+)?'
+    r'["“]?(.+?)["”]?(?:\s+shelf)?$',
+    caseSensitive: false,
+  );
+
+  static const _builtInShelves = {
+    'reading',
+    'to read',
+    'tbr',
+    'finished',
+    'dnf',
+    'did not finish',
+  };
+
+  /// Making shelves, tags and series, and filing books into them, in plain
+  /// words: "make a shelf called summer reads", "tag dune as sci-fi", "add
+  /// cosy to circe", "put dune messiah in the dune series as #2", "note on
+  /// dune: the ending got me", "move dune to summer reads". Null when the
+  /// clause isn't one of these.
+  static (SmartLine, String?)? _parseOrganise(
+    String clause, {
+    required List<SmartBook> library,
+    required List<String> shelves,
+    required String? lastTitle,
+  }) {
+    final text = clause.trim().replaceAll(RegExp(r'[.!]+$'), '');
+    String clean(String name) =>
+        name.trim().replaceAll('"', '').replaceAll('“', '').replaceAll('”', '');
+    (SmartLine, String?) withBook(
+      String phrase,
+      String Function(String title) build,
+    ) {
+      final words = phrase.trim().toLowerCase().replaceAll(
+        RegExp(r'^(?:the book\s+|my\s+)'),
+        '',
+      );
+      return switch (_resolveTitle(words, library, lastTitle)) {
+        _Title(:final title) => (ResolvedLine(build(title)), title),
+        _Ask(:final query) => (NeedsBookLine(build, query: query), null),
+      };
+    }
+
+    if (_makePattern.firstMatch(text) case final m?) {
+      final name = clean(m.group(2)!);
+      if (name.isEmpty) return null;
+      return (ResolvedLine('make ${m.group(1)!.toLowerCase()} $name'), null);
+    }
+    if (_seriesPattern.firstMatch(text) case final m?) {
+      final name = clean(m.group(2)!);
+      final number = m.group(3);
+      return withBook(
+        m.group(1)!,
+        (title) =>
+            'add series "$name"${number == null ? '' : ' #$number'} '
+            '$title',
+      );
+    }
+    if (_commentPattern.firstMatch(text) case final m?) {
+      final comment = clean(m.group(2)!);
+      if (comment.isEmpty) return null;
+      return withBook(m.group(1)!, (title) => 'add comment "$comment" $title');
+    }
+    if (_tagAsPattern.firstMatch(text) case final m?) {
+      final tag = clean(m.group(2)!);
+      return withBook(m.group(1)!, (title) => 'add tag "$tag" $title');
+    }
+    if (_movePattern.firstMatch(text) case final m?) {
+      final shelf = clean(m.group(2)!);
+      final key = shelf.toLowerCase();
+      final known =
+          _builtInShelves.contains(key) ||
+          shelves.any((s) => s.toLowerCase() == key);
+      // "put dune on my to read" is a shelf; "put the kettle on" is not.
+      if (known) {
+        return withBook(m.group(1)!, (title) => 'move $title "$shelf"');
+      }
+    }
+    if (_addTagPattern.firstMatch(text) case final m?) {
+      final tag = clean(m.group(1)!);
+      final key = tag.toLowerCase();
+      // "add dune to my to read" is a shelf move, not a tag called dune.
+      if (!key.contains(' ') &&
+          !_builtInShelves.contains(clean(m.group(2)!).toLowerCase()) &&
+          !RegExp(r'\b(?:list|shelf|library|tbr)\b').hasMatch(m.group(2)!)) {
+        return withBook(m.group(2)!, (title) => 'add tag "$tag" $title');
+      }
+    }
+    return null;
+  }
 
   // ---------------------------------------------------------------- intents
 
@@ -232,7 +383,7 @@ abstract final class SmartCommandParser {
     (
       _Intent.toRead,
       RegExp(
-        r'\b(want to read|wanna read|to read list|reading list|tbr|to-read|queue(?:d)?|add(?:ed)? .*\bto (?:my )?(?:list|shelf|library))\b',
+        r'\b(want to read|wanna read|to read list|reading list|tbr|to-read|queue(?:d)?|add(?:ed)? .*\bto (?:my |the )?(?:list|shelf|library|to read))\b',
       ),
     ),
     (

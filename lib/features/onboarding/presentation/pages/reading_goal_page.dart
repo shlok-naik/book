@@ -8,6 +8,7 @@ import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_picker.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
 import '../widgets/half_sheet_scaffold.dart';
+import '../widgets/tour_illustrations.dart';
 import 'reading_tastes_page.dart';
 
 /// Onboarding's second question: how many books this year. Picked with
@@ -60,7 +61,7 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
     return HalfSheetScaffold(
       showBackButton: true,
       progressStep: 3,
-      topContent: const Text('🎯', style: TextStyle(fontSize: 96)),
+      topContent: const TourIcon(Icons.flag_outlined),
       cardChild: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
