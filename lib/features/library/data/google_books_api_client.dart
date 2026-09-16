@@ -34,10 +34,11 @@ class GoogleBooksApiClient {
        _retryDelays = retryDelays ?? defaultRetryDelays;
 
   /// How long to wait before each retry of a request Google answered with a
-  /// 5xx. One short retry only: a 429 (and most 503s, which is how the edge
-  /// function sees a spent keyless quota) won't clear in seconds, and
-  /// `BookLookupService` falls back to Open Library rather than waiting.
-  static const defaultRetryDelays = [Duration(milliseconds: 400)];
+  /// 5xx. None by default: the `google-books` edge function already retries
+  /// Google's flaky 503s three times with exponential backoff and jitter, so
+  /// a 5xx reaching the app has had its chances — `BookLookupService` goes
+  /// straight to Open Library instead of stacking more waits on top.
+  static const defaultRetryDelays = <Duration>[];
 
   final List<Duration> _retryDelays;
 

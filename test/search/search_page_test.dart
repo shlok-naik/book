@@ -368,6 +368,29 @@ void main() {
       expect(find.text('open book'), findsOneWidget);
     });
 
+    testWidgets('back clears the search, and leaving the tab does too', (
+      tester,
+    ) async {
+      final signal = ValueNotifier(0);
+      addTearDown(signal.dispose);
+      await pumpSearch(
+        tester,
+        home: SearchPage(popularBooks: _Readers(const []), resetSignal: signal),
+      );
+
+      await type(tester, 'zzzz');
+      expect(find.text('no books match "zzzz".'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('search-back')));
+      await tester.pumpAndSettle();
+      expect(find.text('no books match "zzzz".'), findsNothing);
+      expect(find.byKey(const ValueKey('search-back')), findsNothing);
+
+      await type(tester, 'zzzz');
+      signal.value++;
+      await tester.pumpAndSettle();
+      expect(find.text('no books match "zzzz".'), findsNothing);
+    });
+
     testWidgets('says so when nothing matches anywhere', (tester) async {
       await pumpSearch(tester);
 

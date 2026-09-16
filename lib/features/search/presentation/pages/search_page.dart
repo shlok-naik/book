@@ -39,7 +39,11 @@ import '../widgets/book_rows.dart';
 /// [showBookPreviewSheet] — the "want to read" button and the other
 /// shelves — on a tap. Offline, only the shelf half answers.
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key, this.popularBooks});
+  const SearchPage({super.key, this.popularBooks, this.resetSignal});
+
+  /// Fires when the reader leaves the tab — the search clears so coming
+  /// back starts fresh.
+  final Listenable? resetSignal;
 
   /// Injection point for tests; the app uses the real repository.
   final PopularBooksRepository? popularBooks;
@@ -95,12 +99,29 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   void dispose() {
+    widget.resetSignal?.removeListener(_reset);
     ReadingTastesController.tastes.removeListener(_refreshRows);
     _timer?.cancel();
     _messageTimer?.cancel();
     _search?.dispose();
     _text.dispose();
     super.dispose();
+  }
+
+  /// Back to the empty search bar and its recommendations.
+  void _reset() {
+    _timer?.cancel();
+    if (_text.text.isEmpty) return;
+    _text.clear();
+    FocusManager.instance.primaryFocus?.unfocus();
+    unawaited(_search?.search(''));
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.resetSignal?.addListener(_reset);
   }
 
   void _onChanged(String value) {
@@ -203,7 +224,33 @@ class _SearchPageState extends State<SearchPage> {
                 children: [
                   const TopBar(title: 'search'),
                   const SizedBox(height: AppSpacing.lg),
-                  _SearchField(controller: _text, onChanged: _onChanged),
+                  Row(
+                    children: [
+                      if (query.isNotEmpty)
+                        Semantics(
+                          button: true,
+                          label: 'Back',
+                          excludeSemantics: true,
+                          child: IconButton(
+                            key: const ValueKey('search-back'),
+                            onPressed: () {
+                              AppHaptics.selection();
+                              _reset();
+                            },
+                            icon: Icon(
+                              Icons.chevron_left,
+                              color: context.colors.secondaryText,
+                            ),
+                          ),
+                        ),
+                      Expanded(
+                        child: _SearchField(
+                          controller: _text,
+                          onChanged: _onChanged,
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: AppSpacing.sm),
                   Expanded(
                     child: ValueListenableBuilder<bool>(

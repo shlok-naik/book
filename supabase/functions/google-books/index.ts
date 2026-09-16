@@ -34,7 +34,25 @@ const MAX_QUERY_LENGTH = 500;
 const VOLUME_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
 /** Give up before the client's own 12s timeout does. */
-const UPSTREAM_TIMEOUT_MS = 10_000;
+const DEADLINE_MS = 9_000;
+
+/** One attempt's own ceiling, so a hung attempt still leaves room to retry. */
+const ATTEMPT_TIMEOUT_MS = 3_500;
+
+/**
+ * Google Books' volumes endpoint answers 503 "backendFailed" at random —
+ * measured 2026-09-16, the same request from this function failed about 60%
+ * of the time, independently of the query, the key or quota. Each attempt
+ * fails independently, so a few retries with exponential backoff and jitter
+ * clear most of it.
+ */
+const MAX_ATTEMPTS = 3;
+const BACKOFF_BASE_MS = 200;
+
+/** Full jitter: a random wait up to base × 2^retry. */
+function backoff(retry: number): number {
+  return Math.random() * BACKOFF_BASE_MS * 2 ** (retry + 1);
+}
 
 function respond(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -74,18 +92,42 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   const key = Deno.env.get("GOOGLE_BOOKS_API_KEY");
   if (key) upstream.searchParams.set("key", key);
+  // Google Books localises availability by the caller's IP, and a data
+  // centre's IP often has no country it recognises — which shows up as
+  // intermittent 503 "backendFailed". Naming one, as Google's docs ask
+  // server-side callers to, keeps it from guessing.
+  upstream.searchParams.set("country", Deno.env.get("GOOGLE_BOOKS_COUNTRY") ?? "US");
 
-  try {
-    const response = await fetch(upstream, {
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    });
-    return new Response(await response.text(), {
-      status: response.status,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    // Never echo the upstream URL: it carries the key.
-    console.error("google-books: upstream request failed", error instanceof Error ? error.name : "unknown");
+  const started = Date.now();
+  let last: { status: number; body: string } | null = null;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const left = DEADLINE_MS - (Date.now() - started);
+    if (left <= 0) break;
+    try {
+      const response = await fetch(upstream, {
+        signal: AbortSignal.timeout(Math.min(ATTEMPT_TIMEOUT_MS, left)),
+      });
+      // Read every body, failed ones included, so no connection is left open.
+      last = { status: response.status, body: await response.text() };
+      if (last.status < 500) break;
+    } catch (error) {
+      // Never echo the upstream URL: it carries the key.
+      console.error("google-books: attempt failed", error instanceof Error ? error.name : "unknown");
+    }
+    if (attempt === MAX_ATTEMPTS - 1) break;
+    const pause = backoff(attempt);
+    if (Date.now() - started + pause >= DEADLINE_MS) break;
+    await new Promise((resolve) => setTimeout(resolve, pause));
+  }
+
+  if (last === null) {
     return respond(504, { error: "Google Books didn't answer in time." });
   }
+  if (last.status >= 500) {
+    console.error("google-books: upstream still failing after retries", last.status);
+  }
+  return new Response(last.body, {
+    status: last.status,
+    headers: { "Content-Type": "application/json" },
+  });
 });

@@ -66,7 +66,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
       widget.purchases ?? const PurchasesService();
 
   late final _pages = [
-    const SearchPage(),
+    SearchPage(resetSignal: _leftSearch),
     StatsPage(purchases: widget.purchases),
     const LibraryPage(),
     HomePage(
@@ -120,13 +120,18 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _leftSearch.dispose();
     super.dispose();
   }
 
   /// Switches tabs. Every tab opens for every reader — the pro-only ones
   /// gate their own contents (see the class doc).
+  /// Tells the search tab the reader left it, so it clears.
+  final _leftSearch = ValueNotifier(0);
+
   void _selectTab(int next) {
     if (!mounted || next == _index) return;
+    if (_index == 0) _leftSearch.value++;
     setState(() {
       _index = next;
       _visited.add(next);
