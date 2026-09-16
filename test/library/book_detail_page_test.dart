@@ -101,6 +101,28 @@ class _Shelf extends UserBookRepository {
     rating: rating,
   );
 
+  final restarted = <int>[];
+
+  @override
+  Future<UserBook> restart({
+    required String userBookId,
+    required int rereadCount,
+  }) async {
+    restarted.add(rereadCount);
+    return UserBook(
+      id: userBookId,
+      bookId: _dune.id,
+      currentPage: 0,
+      status: ReadingStatus.reading,
+      rereadCount: rereadCount,
+    );
+  }
+
+  final deleted = <String>[];
+
+  @override
+  Future<void> delete(String userBookId) async => deleted.add(userBookId);
+
   LibraryException? ownedFailure;
 
   @override
@@ -538,7 +560,8 @@ void main() {
         tester,
         entry: _entry(page: 400, status: ReadingStatus.finished),
       );
-      expect(find.text('finished'), findsOneWidget);
+      // The status line, and the shelf row's value.
+      expect(find.text('finished'), findsNWidgets(2));
       await scrollTo(tester, find.bySemanticsLabel('Your rating'));
       expect(find.text('finish this book to rate it.'), findsNothing);
 
@@ -856,6 +879,96 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Penguin'), findsOneWidget);
     });
+  });
+
+  group('book actions', () {
+    testWidgets('the shelf row moves the book to the shelf picked', (
+      tester,
+    ) async {
+      await pumpDetail(tester);
+
+      await tester.tap(find.byKey(const ValueKey('book-shelf-row')));
+      await tester.pumpAndSettle();
+      expect(find.text('move to shelf'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('shelf-option-did not finish')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(library.findById('progress-1')!.status, ReadingStatus.dnf);
+    });
+
+    testWidgets('read again only shows for a finished book, and restarts it', (
+      tester,
+    ) async {
+      await pumpDetail(tester);
+      expect(find.byKey(const ValueKey('book-read-again-row')), findsNothing);
+
+      await pumpDetail(
+        tester,
+        entry: _entry(page: 400, status: ReadingStatus.finished),
+      );
+      await tester.tap(find.byKey(const ValueKey('book-read-again-row')));
+      await tester.pumpAndSettle();
+
+      final entry = library.findById('progress-1')!;
+      expect(entry.status, ReadingStatus.reading);
+      expect(entry.rereadCount, 1);
+      expect(shelf.restarted, [1]);
+    });
+
+    testWidgets('remove from library asks first, then deletes', (tester) async {
+      await pumpDetail(tester);
+
+      await scrollTo(tester, find.byKey(const ValueKey('book-remove')));
+      await tester.tap(find.byKey(const ValueKey('book-remove')));
+      await tester.pumpAndSettle();
+      expect(find.text('delete Dune?'), findsOneWidget);
+
+      await tester.tap(find.text('cancel'));
+      await tester.pumpAndSettle();
+      expect(shelf.deleted, isEmpty);
+      expect(library.findById('progress-1'), isNotNull);
+
+      await tester.tap(find.byKey(const ValueKey('book-remove')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('delete'));
+      await tester.pumpAndSettle();
+
+      expect(shelf.deleted, ['progress-1']);
+      expect(library.findById('progress-1'), isNull);
+    });
+  });
+
+  group('re-read stickers', () {
+    Future<void> pumpStickers(
+      WidgetTester tester, {
+      required int rereadCount,
+      required bool finished,
+    }) => tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: RereadStickers(rereadCount: rereadCount, finished: finished),
+      ),
+    );
+
+    for (final (count, finished, key) in [
+      (1, false, 'bronze-1'),
+      (1, true, 'bronze-2'),
+      (2, false, 'silver-1'),
+      (2, true, 'silver-2'),
+      (3, false, 'gold-1'),
+      (3, true, 'gold-2'),
+      (7, true, 'gold-2'),
+    ]) {
+      testWidgets('restarted $count times, finished: $finished → $key', (
+        tester,
+      ) async {
+        await pumpStickers(tester, rereadCount: count, finished: finished);
+        expect(find.byKey(ValueKey('reread-stickers-$key')), findsOneWidget);
+      });
+    }
   });
 
   test('formatPublishedDate reads the way a person writes a date', () {

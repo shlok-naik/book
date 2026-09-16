@@ -219,9 +219,13 @@ void main() {
 
       await goToTab(tester, Icons.menu_book_outlined);
 
-      expect(find.text('reading'), findsOneWidget);
-      expect(find.text('Dune'), findsOneWidget);
-      expect(find.text('finished'), findsNothing);
+      // Shelves are folders: reading holds one book, finished none.
+      expect(find.bySemanticsLabel('Reading, 1 book'), findsOneWidget);
+      expect(find.bySemanticsLabel('Finished, 0 books'), findsOneWidget);
+
+      await tester.tap(find.bySemanticsLabel('Reading, 1 book'));
+      await tester.pumpAndSettle();
+      expect(find.text('Dune'), findsWidgets);
     });
 
     testWidgets(
@@ -242,9 +246,10 @@ void main() {
 
         await goToTab(tester, Icons.menu_book_outlined);
 
-        expect(find.text('reading'), findsNothing);
-        expect(find.text('finished'), findsOneWidget);
-        expect(find.text('Dune'), findsOneWidget);
+        expect(find.bySemanticsLabel('Reading, 0 books'), findsOneWidget);
+        await tester.tap(find.bySemanticsLabel('Finished, 1 book'));
+        await tester.pumpAndSettle();
+        expect(find.text('Dune'), findsWidgets);
       },
     );
 
@@ -269,10 +274,10 @@ void main() {
       expect(find.text('search'), findsOneWidget);
 
       await goToTab(tester, Icons.local_fire_department_outlined);
-      expect(find.text('streak'), findsOneWidget);
+      expect(find.text('stats'), findsOneWidget);
 
       await goToTab(tester, Icons.menu_book_outlined);
-      expect(find.text('Dune'), findsOneWidget);
+      expect(find.bySemanticsLabel('Reading, 1 book'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await tester.pumpAndSettle();

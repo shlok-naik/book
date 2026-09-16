@@ -23,7 +23,9 @@ import '../library_scope.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/detail_text_field.dart';
 import '../widgets/info_section.dart';
+import '../widgets/removal_confirmations.dart';
 import '../widgets/series_selection_sheet.dart';
+import '../widgets/shelf_selection_sheet.dart';
 import '../widgets/star_rating_input.dart';
 import '../widgets/tag_selection_sheet.dart';
 import 'editions_page.dart';
@@ -52,9 +54,11 @@ Future<void> openBookDetail(BuildContext context, LibraryBook entry) {
 /// 5. **Tags** and **comments**;
 /// 6. **About** — the blurb, genre, ISBN and the Google Books rating.
 ///
-/// Which shelf a book is on is shown here but not changed here — moving
-/// between shelves belongs to the library page (drag, keyboard or
-/// screen-reader actions) and the `move` command.
+/// Every action has a button here, so a reader never needs a command:
+/// **shelf** opens [showShelfSelectionSheet] (the same move a drag or
+/// `move <book> <shelf>` makes), **read again** restarts a finished book,
+/// and **remove from library** at the bottom deletes it after the same
+/// confirmation `delete <book>` asks.
 ///
 /// ## Where the state lives
 ///
@@ -189,6 +193,81 @@ class _BookDetailPageState extends State<BookDetailPage> {
         stackTrace: stackTrace,
       );
       _report(LibraryActionResult.failure("We couldn't $what. Try again."));
+    }
+  }
+
+  // ----------------------------------------------------------------- actions
+
+  bool _actionBusy = false;
+
+  Future<void> _changeShelf(LibraryBook entry) async {
+    if (_actionBusy) return;
+    AppHaptics.selection();
+    final library = LibraryScope.read(context);
+    final picked = await showShelfSelectionSheet(
+      context,
+      current: library.placementOf(entry),
+    );
+    if (picked == null || !mounted) return;
+    _actionBusy = true;
+    try {
+      await _run('move this book', () async {
+        final result = await library.moveBook(entry.id, picked, 0);
+        return result.success && result.message == null
+            ? LibraryActionResult.success(
+                'Moved to ${library.shelfName(picked)}',
+              )
+            : result;
+      });
+    } finally {
+      _actionBusy = false;
+    }
+  }
+
+  Future<void> _readAgain(LibraryBook entry) async {
+    if (_actionBusy) return;
+    _actionBusy = true;
+    try {
+      await _run(
+        'restart this book',
+        () => LibraryScope.read(context).restartBookById(entry.id),
+      );
+    } finally {
+      _actionBusy = false;
+    }
+  }
+
+  Future<void> _remove(LibraryBook entry) async {
+    if (_actionBusy) return;
+    AppHaptics.selection();
+    final confirmed = await confirmRemoveBook(context, entry);
+    if (!confirmed || !mounted) return;
+    _actionBusy = true;
+    final library = LibraryScope.read(context);
+    final navigator = Navigator.of(context);
+    try {
+      final result = await library.deleteBookById(entry.id);
+      if (!mounted) return;
+      if (result.success) {
+        AppHaptics.accepted();
+        unawaited(navigator.maybePop());
+      } else {
+        _report(result);
+      }
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'BookDetailPage',
+        'Removing the book failed unexpectedly.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _report(
+        const LibraryActionResult.failure(
+          "We couldn't remove this book. Try again.",
+        ),
+      );
+    } finally {
+      _actionBusy = false;
     }
   }
 
@@ -408,6 +487,21 @@ class _BookDetailPageState extends State<BookDetailPage> {
         InfoSection(
           title: 'your reading',
           rows: [
+            _ValueRow(
+              key: const ValueKey('book-shelf-row'),
+              label: 'shelf',
+              value: library.shelfName(library.placementOf(entry)),
+              onTap: () => _changeShelf(entry),
+            ),
+            if (entry.isFinished)
+              _ValueRow(
+                key: const ValueKey('book-read-again-row'),
+                label: 'read again',
+                value: entry.rereadCount == 0
+                    ? null
+                    : 'read ${entry.rereadCount + 1} times',
+                onTap: () => _readAgain(entry),
+              ),
             _progressRow(entry),
             // A queued book hasn't been started — there's no date to show.
             if (entry.status != ReadingStatus.toBeRead) _datesRow(entry),
@@ -422,6 +516,25 @@ class _BookDetailPageState extends State<BookDetailPage> {
         _commentsSection(entry, detail),
         const SizedBox(height: AppSpacing.lg),
         _aboutSection(book, detail, seriesLabel: library.seriesLabelFor(entry)),
+        const SizedBox(height: AppSpacing.xl),
+        Center(
+          child: TextButton.icon(
+            key: const ValueKey('book-remove'),
+            onPressed: () => _remove(entry),
+            icon: Icon(
+              Icons.delete_outline,
+              size: 18,
+              color: context.colors.primaryText,
+            ),
+            label: Text(
+              'remove from library',
+              style: context.fonts.interface(
+                fontSize: 14,
+                color: context.colors.primaryText,
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -1159,6 +1272,7 @@ class _Heading extends StatelessWidget {
                 coverUrl: book.coverUrl,
                 isbn: book.isbn13 ?? book.isbn10,
                 rereadCount: entry.rereadCount,
+                finished: entry.isFinished,
               ),
             ),
           ),
@@ -1788,6 +1902,73 @@ class _ActionRow extends StatelessWidget {
               ),
               Icon(Icons.chevron_right, size: 20, color: colors.secondaryText),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A labelled row with an optional value on the right and a chevron — the
+/// shelf row and "read again".
+class _ValueRow extends StatelessWidget {
+  const _ValueRow({
+    super.key,
+    required this.label,
+    this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final String? value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final value = this.value;
+    return Semantics(
+      button: true,
+      label: value == null ? label : '$label, $value',
+      excludeSemantics: true,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: context.fonts.body(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: colors.primaryText,
+                    ),
+                  ),
+                ),
+                if (value != null)
+                  Flexible(
+                    child: Text(
+                      value,
+                      textAlign: TextAlign.end,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.fonts.body(
+                        fontSize: 14,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: AppSpacing.xs),
+                Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: colors.secondaryText,
+                ),
+              ],
+            ),
           ),
         ),
       ),

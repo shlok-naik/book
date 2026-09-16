@@ -1214,6 +1214,21 @@ class LibraryController extends ChangeNotifier {
   }) async {
     final entry = _findByTitle(title);
     if (entry == null) return _notStarted(title);
+    return _restartEntry(entry, loggedAt: loggedAt);
+  }
+
+  /// The book page's "read again" button — [restartBook] by row id, so two
+  /// books sharing a title can't be confused.
+  Future<LibraryActionResult> restartBookById(String userBookId) async {
+    final entry = findById(userBookId);
+    if (entry == null) return _missingById;
+    return _restartEntry(entry);
+  }
+
+  Future<LibraryActionResult> _restartEntry(
+    LibraryBook entry, {
+    DateTime? loggedAt,
+  }) async {
     if (!entry.isFinished) {
       return LibraryActionResult.failure(
         '"${entry.book.title}" hasn\'t been finished yet.',

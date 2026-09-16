@@ -182,13 +182,12 @@ void main() {
     );
   }
 
-  /// Pumps the page. The to-read shelf starts closed (see the test
-  /// "to read starts closed"); [openToRead] opens it first, since most tests
-  /// here are about what happens on or between open shelves.
+  /// Pumps the library tab — the folder list — or, with [shelf], that one
+  /// shelf's own page.
   Future<void> pumpPage(
     WidgetTester tester,
     LibraryController controller, {
-    bool openToRead = true,
+    ShelfRef? shelf,
   }) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 2.625;
@@ -198,38 +197,31 @@ void main() {
     await tester.pumpWidget(
       LibraryScope(
         controller: controller,
-        child: MaterialApp(theme: AppTheme.light, home: const LibraryPage()),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: LibraryPage(shelf: shelf),
+        ),
       ),
     );
     // One extra pump for the post-frame load(), one for its result.
     await tester.pump();
     await tester.pump();
-    if (openToRead) {
-      // Everything but reading starts closed; most tests are about what's
-      // inside "to read" and the series row, so open both when present.
-      for (final label in ['Show to read books', 'Show series']) {
-        final toggle = find.bySemanticsLabel(label);
-        if (toggle.evaluate().isNotEmpty) {
-          await tester.tap(toggle);
-          await tester.pump();
-          await tester.pump(const Duration(milliseconds: 200));
-        }
-      }
-    }
+  }
+
+  /// One built-in shelf's own page.
+  Future<void> pumpShelf(
+    WidgetTester tester,
+    LibraryController controller,
+    ReadingStatus status,
+  ) async {
+    await controller.load();
+    await pumpPage(tester, controller, shelf: StatusShelfRef(status));
   }
 
   Finder emptyShelf(ReadingStatus status) =>
       find.byKey(ValueKey('empty-shelf-${status.name}'));
 
-  /// Finished and did not finish start collapsed to just their heading —
-  /// expands one so a test can see what's under it.
-  Future<void> expandShelf(WidgetTester tester, String spoken) async {
-    await tester.tap(
-      find.bySemanticsLabel('Show ${spoken.toLowerCase()} books'),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-  }
+  Finder folder(String key) => find.byKey(ValueKey('shelf-folder-$key'));
 
   /// No instructional copy anywhere on the shelf — drop targets and empty
   /// shelves are signalled by outline and highlight alone.
@@ -239,44 +231,58 @@ void main() {
     expect(find.textContaining('put it last'), findsNothing);
   }
 
-  testWidgets('shows in-progress books with their progress readout', (
-    tester,
-  ) async {
-    await pumpPage(tester, controllerFor([_entry(_dune, page: 120)]));
+  group('folders', () {
+    testWidgets('the library lists every shelf as a folder with its count', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await pumpPage(
+        tester,
+        controllerFor([_entry(_dune, page: 120), _entry(_noCover, page: 3)]),
+      );
 
-    expect(find.text('reading'), findsOneWidget);
-    // Twice: the tile caption, and the cover placeholder standing in
-    // for the image (network images always fail under flutter_test).
-    expect(find.text('Dune'), findsNWidgets(2));
-    expect(find.text('120/400 · 30%'), findsOneWidget);
-  });
+      for (final status in ReadingStatus.values) {
+        expect(folder(status.name), findsOneWidget, reason: status.name);
+      }
+      expect(find.text('2 books'), findsOneWidget);
+      expect(find.text('0 books'), findsNWidgets(3));
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Reading, 2 books')),
+        isSemantics(label: 'Reading, 2 books', isButton: true),
+      );
+      expect(find.bySemanticsLabel('To read, 0 books'), findsOneWidget);
+      // Folders, not grids: no book's own progress line is on this page.
+      expect(find.text('120/400 · 30%'), findsNothing);
+      expectNoPromptCopy();
+      semantics.dispose();
+    });
 
-  testWidgets('always shows every shelf, empty ones as a bare heading and '
-      'an empty area', (tester) async {
-    await pumpPage(tester, controllerFor([_entry(_dune, page: 120)]));
+    testWidgets('folders run reading, to read, custom shelves, finished, '
+        'did not finish', (tester) async {
+      await pumpPage(
+        tester,
+        controllerFor(
+          [_entry(_noCover, toBeRead: true, shelfId: 'shelf-summer')],
+          collections: FakeCollectionsRepository(
+            shelves: const [Shelf(id: 'shelf-summer', name: 'summer reads')],
+          ),
+        ),
+      );
 
-    for (final heading in [
-      'reading',
-      'to read',
-      'finished',
-      'did not finish',
-    ]) {
-      expect(find.text(heading), findsOneWidget, reason: heading);
-    }
-    expect(emptyShelf(ReadingStatus.reading), findsNothing);
-    expect(emptyShelf(ReadingStatus.toBeRead), findsOneWidget);
-    // Finished and did not finish start collapsed; expand them to see
-    // their own empty area underneath.
-    await expandShelf(tester, 'finished');
-    await expandShelf(tester, 'did not finish');
-    expect(emptyShelf(ReadingStatus.finished), findsOneWidget);
-    expect(emptyShelf(ReadingStatus.dnf), findsOneWidget);
-    expectNoPromptCopy();
-  });
+      final order = [
+        'reading',
+        'toBeRead',
+        'custom-shelf-summer',
+        'finished',
+        'dnf',
+      ].map((key) => tester.getTopLeft(folder(key)).dy).toList();
+      expect(order, [...order]..sort());
+      expect(find.bySemanticsLabel('summer reads, 1 book'), findsOneWidget);
+    });
 
-  testWidgets(
-    'the collapse button hides a shelf\'s books without hiding its heading',
-    (tester) async {
+    testWidgets('tapping a folder opens that shelf on its own page', (
+      tester,
+    ) async {
       await pumpPage(
         tester,
         controllerFor([
@@ -285,249 +291,157 @@ void main() {
         ]),
       );
 
-      expect(find.text('Dune'), findsWidgets);
-      expect(find.bySemanticsLabel('Hide reading books'), findsOneWidget);
+      await tester.tap(folder('toBeRead'));
+      await tester.pumpAndSettle();
 
-      await tester.tap(find.bySemanticsLabel('Hide reading books'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
+      final page = tester.widget<LibraryPage>(find.byType(LibraryPage).last);
+      expect(page.shelf, const StatusShelfRef(ReadingStatus.toBeRead));
+      expect(find.text('0/300 · 0%'), findsOneWidget);
+      expect(find.text('120/400 · 30%'), findsNothing);
+    });
 
-      // The heading (and its count) stays; the cover and its own text go.
+    testWidgets('shows a friendly message and a retry when the load fails', (
+      tester,
+    ) async {
+      await pumpPage(
+        tester,
+        controllerFor([], failure: const NetworkException("You're offline")),
+      );
+
+      expect(find.text("You're offline"), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
+      // An error replaces the folders rather than showing four empty ones
+      // that would read as "you have no books".
+      expect(folder('reading'), findsNothing);
+    });
+  });
+
+  group('a shelf page', () {
+    testWidgets('shows its books with their progress readout', (tester) async {
+      await pumpShelf(
+        tester,
+        controllerFor([_entry(_dune, page: 120)]),
+        ReadingStatus.reading,
+      );
+
       expect(find.text('reading'), findsOneWidget);
-      expect(find.text('Dune'), findsNothing);
-      expect(find.bySemanticsLabel('Show reading books'), findsOneWidget);
-      // A shelf never collapsed is untouched.
-      expect(find.text('Pale Fire'), findsWidgets);
+      // Twice: the tile caption, and the cover placeholder standing in
+      // for the image (network images always fail under flutter_test).
+      expect(find.text('Dune'), findsNWidgets(2));
+      expect(find.text('120/400 · 30%'), findsOneWidget);
+    });
 
-      // Tapping again brings it back.
-      await tester.tap(find.bySemanticsLabel('Show reading books'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(find.text('Dune'), findsWidgets);
-    },
-  );
-
-  testWidgets('only reading starts open — custom shelves and the series row '
-      'start closed too', (tester) async {
-    await pumpPage(
-      tester,
-      controllerFor(
-        [
-          _entry(_dune, page: 120),
-          _entry(_noCover, toBeRead: true, shelfId: 'shelf-summer'),
-        ],
-        collections: FakeCollectionsRepository(
-          shelves: const [Shelf(id: 'shelf-summer', name: 'summer reads')],
-        ),
-      ),
-      openToRead: false,
-    );
-
-    expect(find.bySemanticsLabel('Hide reading books'), findsOneWidget);
-    for (final closed in [
-      'Show to read books',
-      'Show summer reads books',
-      'Show finished books',
-      'Show did not finish books',
-    ]) {
-      expect(find.bySemanticsLabel(closed), findsOneWidget, reason: closed);
-    }
-    // The book on the custom shelf is hidden until that shelf is opened.
-    expect(find.text('Pale Fire'), findsNothing);
-    await expandShelf(tester, 'summer reads');
-    expect(find.text('Pale Fire'), findsWidgets);
-  });
-
-  testWidgets('to read starts closed, like finished and did not finish', (
-    tester,
-  ) async {
-    await pumpPage(
-      tester,
-      controllerFor([_entry(_noCover, toBeRead: true)]),
-      openToRead: false,
-    );
-
-    expect(find.text('to read'), findsOneWidget);
-    expect(find.bySemanticsLabel('Show to read books'), findsOneWidget);
-    expect(find.text('Pale Fire'), findsNothing);
-
-    await expandShelf(tester, 'to read');
-    expect(find.text('Pale Fire'), findsWidgets);
-  });
-
-  testWidgets('an entirely empty library still shows all four shelves', (
-    tester,
-  ) async {
-    await pumpPage(tester, controllerFor([]));
-
-    await expandShelf(tester, 'finished');
-    await expandShelf(tester, 'did not finish');
-    for (final status in ReadingStatus.values) {
-      expect(emptyShelf(status), findsOneWidget, reason: status.name);
-    }
-    expect(find.text('reading'), findsOneWidget);
-    expect(find.text('did not finish'), findsOneWidget);
-    expectNoPromptCopy();
-  });
-
-  testWidgets('headings are announced as headings, with a book count', (
-    tester,
-  ) async {
-    final semantics = tester.ensureSemantics();
-    await pumpPage(
-      tester,
-      controllerFor([_entry(_dune, page: 120), _entry(_noCover, page: 3)]),
-    );
-
-    final reading = tester.getSemantics(
-      find.bySemanticsLabel('Reading, 2 books'),
-    );
-    expect(reading.getSemanticsData().flagsCollection.isHeader, isTrue);
-    expect(find.bySemanticsLabel('To read, 0 books'), findsOneWidget);
-    expect(find.bySemanticsLabel('To read shelf is empty'), findsOneWidget);
-    semantics.dispose();
-  });
-
-  testWidgets('separates finished books into their own section', (
-    tester,
-  ) async {
-    await pumpPage(
-      tester,
-      controllerFor([
+    testWidgets('holds only its own books', (tester) async {
+      final controller = controllerFor([
         _entry(_dune, page: 120),
         _entry(_noCover, page: 300, finished: true),
-      ]),
-    );
-    await expandShelf(tester, 'finished');
+      ]);
+      await pumpShelf(tester, controller, ReadingStatus.finished);
 
-    // The section heading and the finished book's own progress label.
-    expect(find.text('finished'), findsNWidgets(2));
-    expect(emptyShelf(ReadingStatus.finished), findsNothing);
-    expect(find.text('Pale Fire'), findsWidgets);
-  });
+      expect(find.text('Pale Fire'), findsWidgets);
+      expect(find.text('Dune'), findsNothing);
+      expect(emptyShelf(ReadingStatus.finished), findsNothing);
+    });
 
-  testWidgets('separates to-be-read books into their own section', (
-    tester,
-  ) async {
-    await pumpPage(
+    testWidgets('an empty shelf is a wordless outlined area', (tester) async {
+      await pumpShelf(tester, controllerFor([]), ReadingStatus.dnf);
+
+      expect(emptyShelf(ReadingStatus.dnf), findsOneWidget);
+      expectNoPromptCopy();
+    });
+
+    testWidgets('a book that reaches its last page leaves the page live', (
       tester,
-      controllerFor([
-        _entry(_dune, page: 120),
-        _entry(_noCover, toBeRead: true),
-      ]),
-    );
+    ) async {
+      final controller = controllerFor([_entry(_dune, page: 120)]);
+      await pumpShelf(tester, controller, ReadingStatus.reading);
 
-    expect(emptyShelf(ReadingStatus.toBeRead), findsNothing);
-    // Not started, and not lumped into the "reading" section above.
-    expect(find.text('0/300 · 0%'), findsOneWidget);
-  });
+      await controller.updateProgress('Dune', 400);
+      await tester.pump();
 
-  testWidgets('separates did-not-finish books into their own section', (
-    tester,
-  ) async {
-    await pumpPage(
+      expect(emptyShelf(ReadingStatus.reading), findsOneWidget);
+      expect(controller.finished.single.book.title, 'Dune');
+    });
+
+    testWidgets('shows a star rating on a rated finished book', (tester) async {
+      await pumpShelf(
+        tester,
+        controllerFor([_entry(_dune, page: 400, finished: true, rating: 3.5)]),
+        ReadingStatus.finished,
+      );
+
+      // 3 full stars, 1 half, 1 outline for a 3.5 rating.
+      expect(find.byIcon(Icons.star), findsNWidgets(3));
+      expect(find.byIcon(Icons.star_half), findsOneWidget);
+      expect(find.byIcon(Icons.star_border), findsOneWidget);
+      expect(find.text('3.5'), findsOneWidget);
+    });
+
+    testWidgets('shows no stars on a finished book that was never rated', (
       tester,
-      controllerFor([_entry(_dune, page: 120), _entry(_noCover, dnf: true)]),
-    );
-    await expandShelf(tester, 'did not finish');
+    ) async {
+      await pumpShelf(
+        tester,
+        controllerFor([_entry(_dune, page: 400, finished: true)]),
+        ReadingStatus.finished,
+      );
 
-    expect(emptyShelf(ReadingStatus.dnf), findsNothing);
-    expect(emptyShelf(ReadingStatus.toBeRead), findsOneWidget);
-    expect(find.text('Pale Fire'), findsWidgets);
-  });
+      expect(find.byIcon(Icons.star), findsNothing);
+      expect(find.byIcon(Icons.star_half), findsNothing);
+      expect(find.byIcon(Icons.star_border), findsNothing);
+    });
 
-  testWidgets('a book that reaches its last page moves sections live', (
-    tester,
-  ) async {
-    final controller = controllerFor([_entry(_dune, page: 120)]);
-    await pumpPage(tester, controller);
-    await expandShelf(tester, 'finished');
-    expect(emptyShelf(ReadingStatus.finished), findsOneWidget);
-
-    // No re-navigation, no manual refresh — just the same command the
-    // log page dispatches.
-    await controller.updateProgress('Dune', 400);
-    await tester.pump();
-
-    // "reading" is now an empty shelf, still on screen.
-    expect(find.text('reading'), findsOneWidget);
-    expect(emptyShelf(ReadingStatus.reading), findsOneWidget);
-    expect(emptyShelf(ReadingStatus.finished), findsNothing);
-    expect(find.text('finished'), findsNWidgets(2));
-  });
-
-  testWidgets('shows a star rating on a rated finished book', (tester) async {
-    await pumpPage(
+    testWidgets('a rating kept from a finished book is hidden once it moves', (
       tester,
-      controllerFor([_entry(_dune, page: 400, finished: true, rating: 3.5)]),
-    );
-    await expandShelf(tester, 'finished');
+    ) async {
+      await pumpShelf(
+        tester,
+        controllerFor([_entry(_dune, page: 0, toBeRead: true, rating: 4)]),
+        ReadingStatus.toBeRead,
+      );
+      expect(find.byIcon(Icons.star), findsNothing);
+    });
 
-    // 3 full stars, 1 half, 1 outline for a 3.5 rating.
-    expect(find.byIcon(Icons.star), findsNWidgets(3));
-    expect(find.byIcon(Icons.star_half), findsOneWidget);
-    expect(find.byIcon(Icons.star_border), findsOneWidget);
-    // The number itself, alongside the icons — a half star reads
-    // ambiguously at 12px on its own.
-    expect(find.text('3.5'), findsOneWidget);
-  });
-
-  testWidgets('shows no stars on a finished book that was never rated', (
-    tester,
-  ) async {
-    await pumpPage(
+    testWidgets('falls back to a placeholder when a book has no cover', (
       tester,
-      controllerFor([_entry(_dune, page: 400, finished: true)]),
-    );
+    ) async {
+      await pumpShelf(
+        tester,
+        controllerFor([_entry(_noCover, page: 10)]),
+        ReadingStatus.reading,
+      );
 
-    expect(find.byIcon(Icons.star), findsNothing);
-    expect(find.byIcon(Icons.star_half), findsNothing);
-    expect(find.byIcon(Icons.star_border), findsNothing);
-  });
+      expect(find.byType(Image), findsNothing);
+      expect(find.text('Pale Fire'), findsNWidgets(2));
+    });
 
-  testWidgets('a rating kept from a finished book is hidden once it moves', (
-    tester,
-  ) async {
-    await pumpPage(
-      tester,
-      controllerFor([_entry(_dune, page: 0, toBeRead: true, rating: 4)]),
-    );
-    expect(find.byIcon(Icons.star), findsNothing);
-  });
+    testWidgets('tapping a book opens its detail page', (tester) async {
+      await pumpShelf(
+        tester,
+        controllerFor([_entry(_dune, page: 120)]),
+        ReadingStatus.reading,
+      );
 
-  testWidgets('falls back to a placeholder when a book has no cover', (
-    tester,
-  ) async {
-    await pumpPage(tester, controllerFor([_entry(_noCover, page: 10)]));
+      await tester.tap(find.text('120/400 · 30%'));
+      await tester.pumpAndSettle();
 
-    // The placeholder renders the title/author itself, so the tile keeps
-    // its shape instead of collapsing.
-    expect(find.byType(Image), findsNothing);
-    expect(find.text('Pale Fire'), findsNWidgets(2));
-  });
+      expect(find.byType(BookDetailPage), findsOneWidget);
+    });
 
-  testWidgets('shows a friendly message and a retry when the load fails', (
-    tester,
-  ) async {
-    await pumpPage(
-      tester,
-      controllerFor([], failure: const NetworkException("You're offline")),
-    );
+    testWidgets('a shelf that was removed says so', (tester) async {
+      final controller = controllerFor([]);
+      await controller.load();
+      await pumpPage(
+        tester,
+        controller,
+        shelf: const CustomShelfRef('shelf-gone'),
+      );
 
-    expect(find.text("You're offline"), findsOneWidget);
-    expect(find.text('Try again'), findsOneWidget);
-    // An error replaces the shelves rather than showing four empty ones
-    // that would read as "you have no books".
-    expect(emptyShelf(ReadingStatus.reading), findsNothing);
-  });
-
-  testWidgets('tapping a book opens its detail page', (tester) async {
-    await pumpPage(tester, controllerFor([_entry(_dune, page: 120)]));
-
-    await tester.tap(find.text('120/400 · 30%'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(BookDetailPage), findsOneWidget);
+      expect(
+        find.text("this shelf isn't in your library any more."),
+        findsOneWidget,
+      );
+    });
   });
 
   group('drag and drop', () {
@@ -545,7 +459,7 @@ void main() {
       final gesture = await tester.startGesture(start);
       await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
       await gesture.moveBy(const Offset(0, 5));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
       final target = tester.getCenter(to().first) + nudge;
       for (var i = 1; i <= 10; i++) {
         await gesture.moveTo(Offset.lerp(start, target, i / 10)!);
@@ -555,66 +469,92 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('picking up a book adds no prompts and moves nothing around', (
-      tester,
-    ) async {
-      await pumpPage(tester, controllerFor([_entry(_dune, page: 120)]));
-      final zoneBefore = tester.getRect(emptyShelf(ReadingStatus.toBeRead));
+    double actionsOpacity(WidgetTester tester) => tester
+        .widget<AnimatedOpacity>(
+          find.ancestor(
+            of: find.byKey(const ValueKey('drag-remove')),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        )
+        .opacity;
+
+    testWidgets('picking up a book shows move to and remove over the header, '
+        'and moves nothing else', (tester) async {
+      await pumpShelf(
+        tester,
+        controllerFor([_entry(_dune, page: 120), _entry(_noCover, page: 10)]),
+        ReadingStatus.reading,
+      );
+      expect(actionsOpacity(tester), 0);
+      final otherBefore = tester.getRect(find.text('10/300 · 3%'));
 
       final gesture = await tester.startGesture(
         tester.getCenter(find.text('120/400 · 30%')),
       );
       await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
       await gesture.moveBy(const Offset(0, 20));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
 
+      expect(actionsOpacity(tester), 1);
+      expect(find.text('move to…'), findsOneWidget);
+      expect(find.text('remove'), findsOneWidget);
+      expect(tester.getRect(find.text('10/300 · 3%').first), otherBefore);
       expectNoPromptCopy();
-      // Every empty shelf was already on screen, so holding a book doesn't
-      // reflow the page under the reader's finger.
-      expect(tester.getRect(emptyShelf(ReadingStatus.toBeRead)), zoneBefore);
 
       await gesture.up();
       await tester.pumpAndSettle();
+      expect(actionsOpacity(tester), 0);
     });
 
-    testWidgets('dropping on an empty shelf moves the book there and applies '
-        'its side effects', (tester) async {
-      final controller = controllerFor([_entry(_dune, page: 120)]);
-      await pumpPage(tester, controller);
-
-      await dragBook(
-        tester,
-        find.text('120/400 · 30%'),
-        () => emptyShelf(ReadingStatus.toBeRead),
-      );
-
-      expect(controller.toBeRead.single.book.title, 'Dune');
-      expect(controller.toBeRead.single.currentPage, 0);
-      expect(find.text('Moved "Dune" to read'), findsOneWidget);
-      expect(find.text('0/400 · 0%'), findsOneWidget);
-      expect(emptyShelf(ReadingStatus.reading), findsOneWidget);
-    });
-
-    testWidgets('dropping on a heading puts the book first on that shelf', (
+    testWidgets('dropping on remove asks first, like delete, then removes', (
       tester,
     ) async {
       final controller = controllerFor([
         _entry(_dune, page: 120),
-        _entry(_noCover, page: 300, finished: true),
+        _entry(_noCover, page: 10),
       ]);
-      await pumpPage(tester, controller);
+      await pumpShelf(tester, controller, ReadingStatus.reading);
 
       await dragBook(
         tester,
         find.text('120/400 · 30%'),
-        () => find.text('finished').first,
+        () => find.byKey(const ValueKey('drag-remove')),
       );
+      expect(find.text('delete Dune?'), findsOneWidget);
+      await tester.tap(find.text('cancel'));
+      await tester.pumpAndSettle();
+      expect(controller.books, hasLength(2));
 
-      expect(controller.finished.map((e) => e.book.title), [
-        'Dune',
-        'Pale Fire',
-      ]);
-      expect(controller.finished.first.currentPage, 400);
+      await dragBook(
+        tester,
+        find.text('120/400 · 30%'),
+        () => find.byKey(const ValueKey('drag-remove')),
+      );
+      await tester.tap(find.text('delete'));
+      await tester.pumpAndSettle();
+
+      expect(controller.books.single.book.title, 'Pale Fire');
+      expect(find.text('Removed "Dune"'), findsOneWidget);
+    });
+
+    testWidgets('dropping on move to picks a shelf and applies its side '
+        'effects', (tester) async {
+      final controller = controllerFor([_entry(_dune, page: 120)]);
+      await pumpShelf(tester, controller, ReadingStatus.reading);
+
+      await dragBook(
+        tester,
+        find.text('120/400 · 30%'),
+        () => find.byKey(const ValueKey('drag-move-to')),
+      );
+      expect(find.text('move to shelf'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('shelf-option-to read')));
+      await tester.pumpAndSettle();
+
+      expect(controller.toBeRead.single.book.title, 'Dune');
+      expect(controller.toBeRead.single.currentPage, 0);
+      expect(find.text('Moved "Dune" to read'), findsOneWidget);
+      expect(emptyShelf(ReadingStatus.reading), findsOneWidget);
     });
 
     testWidgets('dropping onto the right half of a tile lands after it', (
@@ -624,7 +564,7 @@ void main() {
         _entry(_dune, page: 120),
         _entry(_noCover, page: 10),
       ]);
-      await pumpPage(tester, controller);
+      await pumpShelf(tester, controller, ReadingStatus.reading);
 
       final paleFire = find.text('10/300 · 3%');
       await dragBook(
@@ -651,15 +591,16 @@ void main() {
         ),
         userBooks: repo,
       );
-      await pumpPage(tester, controller);
-      await expandShelf(tester, 'finished');
+      await pumpShelf(tester, controller, ReadingStatus.reading);
       repo.failure = const NetworkException("You're offline");
 
       await dragBook(
         tester,
         find.text('120/400 · 30%'),
-        () => emptyShelf(ReadingStatus.finished),
+        () => find.byKey(const ValueKey('drag-move-to')),
       );
+      await tester.tap(find.byKey(const ValueKey('shelf-option-finished')));
+      await tester.pumpAndSettle();
 
       expect(controller.inProgress.single.currentPage, 120);
       expect(find.text("You're offline"), findsOneWidget);
@@ -668,7 +609,7 @@ void main() {
     testWidgets('screen readers get the same moves as actions', (tester) async {
       final semantics = tester.ensureSemantics();
       final controller = controllerFor([_entry(_dune, page: 120)]);
-      await pumpPage(tester, controller);
+      await pumpShelf(tester, controller, ReadingStatus.reading);
 
       final node = tester.getSemantics(
         find.bySemanticsLabel(RegExp('^Dune by Frank Herbert')),
@@ -704,7 +645,11 @@ void main() {
     }
 
     testWidgets('Enter opens the focused book', (tester) async {
-      await pumpPage(tester, controllerFor([_entry(_dune, page: 120)]));
+      await pumpShelf(
+        tester,
+        controllerFor([_entry(_dune, page: 120)]),
+        ReadingStatus.reading,
+      );
       await focusTile(tester, '120/400 · 30%');
 
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -717,7 +662,7 @@ void main() {
       tester,
     ) async {
       final controller = controllerFor([_entry(_dune, page: 120)]);
-      await pumpPage(tester, controller);
+      await pumpShelf(tester, controller, ReadingStatus.reading);
       await focusTile(tester, '120/400 · 30%');
 
       await altPress(tester, LogicalKeyboardKey.arrowDown);
@@ -733,7 +678,7 @@ void main() {
         _entry(_dune, page: 120),
         _entry(_noCover, page: 10),
       ]);
-      await pumpPage(tester, controller);
+      await pumpShelf(tester, controller, ReadingStatus.reading);
       await focusTile(tester, '120/400 · 30%');
 
       await altPress(tester, LogicalKeyboardKey.arrowRight);
@@ -746,7 +691,7 @@ void main() {
 
     testWidgets('Alt+Up on the first shelf does nothing', (tester) async {
       final controller = controllerFor([_entry(_dune, page: 120)]);
-      await pumpPage(tester, controller);
+      await pumpShelf(tester, controller, ReadingStatus.reading);
       await focusTile(tester, '120/400 · 30%');
 
       await altPress(tester, LogicalKeyboardKey.arrowUp);
@@ -758,8 +703,10 @@ void main() {
     testWidgets('a second move is ignored while the first is still saving', (
       tester,
     ) async {
-      final repo = StubUserBookRepository([_entry(_dune, page: 120)])
-        ..gate = Completer<void>();
+      final repo = StubUserBookRepository([
+        _entry(_dune, page: 120),
+        _entry(_noCover, page: 10),
+      ])..gate = Completer<void>();
       final controller = LibraryController(
         lookup: BookLookupService(
           cache: UnusedCache(),
@@ -769,13 +716,13 @@ void main() {
         ),
         userBooks: repo,
       );
-      await pumpPage(tester, controller);
+      await pumpShelf(tester, controller, ReadingStatus.reading);
       await focusTile(tester, '120/400 · 30%');
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pump();
-      await focusTile(tester, '0/400 · 0%');
+      await focusTile(tester, '10/300 · 3%');
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
       await tester.pump();
@@ -784,6 +731,7 @@ void main() {
       repo.gate!.complete();
       await tester.pumpAndSettle();
       expect(controller.toBeRead.single.book.title, 'Dune');
+      expect(controller.inProgress.single.book.title, 'Pale Fire');
     });
   });
 
@@ -793,8 +741,9 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('filters every shelf to matching books and hides empty '
-        'shelves', (tester) async {
+    testWidgets('shows matching books under their shelf, hiding the rest', (
+      tester,
+    ) async {
       await pumpPage(
         tester,
         controllerFor([
@@ -814,11 +763,12 @@ void main() {
       expect(find.text('Dune'), findsNothing);
       expect(find.text('reading'), findsNothing);
       expect(find.text('did not finish'), findsNothing);
+      expect(folder('reading'), findsNothing);
       expect(emptyShelf(ReadingStatus.toBeRead), findsNothing);
     });
 
-    testWidgets('says so when nothing matches, and closing restores the '
-        'shelf', (tester) async {
+    testWidgets('says so when nothing matches, and closing brings the '
+        'folders back', (tester) async {
       await pumpPage(tester, controllerFor([_entry(_dune, page: 120)]));
       await openSearch(tester);
 
@@ -831,8 +781,7 @@ void main() {
 
       await tester.tap(find.bySemanticsLabel('Close search'));
       await tester.pump();
-      expect(find.text('Dune'), findsWidgets);
-      expect(find.text('did not finish'), findsOneWidget);
+      expect(folder('reading'), findsOneWidget);
       expect(find.byKey(const ValueKey('library-search')), findsNothing);
     });
   });
@@ -855,8 +804,13 @@ void main() {
     final duneSeries = _StubSeries()
       ..mine.add(const BookSeries(id: 'series-dune', name: 'Dune'));
 
-    testWidgets('books in a series show as one group, in a row under to read '
-        'that starts closed', (tester) async {
+    Future<void> openSeriesRow(WidgetTester tester) async {
+      await tester.tap(find.bySemanticsLabel('Show series'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('books in a series show as one group, in a row under the to '
+        'read folder that starts closed', (tester) async {
       await pumpPage(
         tester,
         controllerFor([
@@ -874,22 +828,16 @@ void main() {
           ),
           _entry(_noCover),
         ], series: duneSeries),
-        openToRead: false,
       );
 
       expect(find.text('series'), findsOneWidget);
-      // Closed until opened.
       expect(find.text('2 books · 1 finished'), findsNothing);
-      await tester.tap(find.bySemanticsLabel('Show series'));
-      await tester.pumpAndSettle();
+      await openSeriesRow(tester);
       expect(find.text('2 books · 1 finished'), findsOneWidget);
 
-      // Under "to read", above "finished".
       final seriesY = tester.getTopLeft(find.text('series')).dy;
-      final toReadY = tester.getTopLeft(find.text('to read')).dy;
-      final finishedY = tester.getTopLeft(find.text('finished').first).dy;
-      expect(seriesY, greaterThan(toReadY));
-      expect(seriesY, lessThan(finishedY));
+      expect(seriesY, greaterThan(tester.getTopLeft(folder('toBeRead')).dy));
+      expect(seriesY, lessThan(tester.getTopLeft(folder('finished')).dy));
     });
 
     testWidgets('no series row when nothing is in a series', (tester) async {
@@ -900,7 +848,7 @@ void main() {
     testWidgets(
       'a series entirely on one shelf collapses to one grouped tile there',
       (tester) async {
-        await pumpPage(
+        await pumpShelf(
           tester,
           controllerFor([
             _entry(
@@ -916,14 +864,9 @@ void main() {
               seriesPosition: 1,
             ),
           ], series: duneSeries),
+          ReadingStatus.toBeRead,
         );
 
-        // Once for the horizontal row above the shelves, once for the
-        // grouped tile inside "to read" — never a separate tile per book.
-        expect(
-          find.byKey(const ValueKey('series-series-dune')),
-          findsOneWidget,
-        );
         expect(
           find.byKey(const ValueKey('shelf-series-series-dune')),
           findsOneWidget,
@@ -937,7 +880,7 @@ void main() {
       'double-tapping a grouped series spreads it into its books, and '
       'double-tapping one of those folds it back',
       (tester) async {
-        await pumpPage(
+        await pumpShelf(
           tester,
           controllerFor([
             _entry(
@@ -953,6 +896,7 @@ void main() {
               seriesPosition: 1,
             ),
           ], series: duneSeries),
+          ReadingStatus.toBeRead,
         );
         final grouped = find.byKey(const ValueKey('shelf-series-series-dune'));
         expect(grouped, findsOneWidget);
@@ -976,48 +920,55 @@ void main() {
       },
     );
 
-    testWidgets(
-      'the series tiles setting swaps only the row between fan and patchwork',
-      (tester) async {
-        addTearDown(() => SeriesTileStyleController.patchwork.value = false);
-        await pumpPage(
-          tester,
-          controllerFor([
-            _entry(dune, toBeRead: true, seriesId: 'series-dune'),
-            _entry(messiah, toBeRead: true, seriesId: 'series-dune'),
-          ], series: duneSeries),
-        );
-        final row = find.byKey(const ValueKey('series-series-dune'));
-        final grouped = find.byKey(const ValueKey('shelf-series-series-dune'));
-        Finder patchworkIn(Finder f) =>
-            find.descendant(of: f, matching: find.byType(SeriesPatchworkCover));
+    testWidgets('the series tiles setting swaps the row between fan and '
+        'patchwork', (tester) async {
+      addTearDown(() => SeriesTileStyleController.patchwork.value = false);
+      await pumpPage(
+        tester,
+        controllerFor([
+          _entry(dune, toBeRead: true, seriesId: 'series-dune'),
+          _entry(messiah, toBeRead: true, seriesId: 'series-dune'),
+        ], series: duneSeries),
+      );
+      await openSeriesRow(tester);
+      final row = find.byKey(const ValueKey('series-series-dune'));
+      Finder patchworkIn(Finder f) =>
+          find.descendant(of: f, matching: find.byType(SeriesPatchworkCover));
 
-        // The grouped tile on the shelf is always a patchwork; the row starts
-        // on the original fan.
-        expect(patchworkIn(grouped), findsOneWidget);
-        expect(patchworkIn(row), findsNothing);
-        expect(
-          find.descendant(of: row, matching: find.byType(SeriesFanCover)),
-          findsOneWidget,
-        );
+      expect(patchworkIn(row), findsNothing);
+      expect(
+        find.descendant(of: row, matching: find.byType(SeriesFanCover)),
+        findsOneWidget,
+      );
 
-        SeriesTileStyleController.patchwork.value = true;
-        await tester.pump();
+      SeriesTileStyleController.patchwork.value = true;
+      await tester.pump();
 
-        // The switch changes only the row.
-        expect(patchworkIn(row), findsOneWidget);
-        expect(patchworkIn(grouped), findsOneWidget);
+      expect(patchworkIn(row), findsOneWidget);
+    });
 
-        // A grouped tile's patchwork is one cover's size: the tile's full
-        // width at the 2:3 book ratio, exactly like a book's own cover.
-        final patch = tester.getSize(patchworkIn(grouped));
-        expect(patch.width, closeTo(tester.getSize(grouped).width, 0.5));
-        expect(
-          patch.width / patch.height,
-          closeTo(BookCover.aspectRatio, 0.01),
-        );
-      },
-    );
+    testWidgets('a grouped tile is always a patchwork one cover in size', (
+      tester,
+    ) async {
+      await pumpShelf(
+        tester,
+        controllerFor([
+          _entry(dune, toBeRead: true, seriesId: 'series-dune'),
+          _entry(messiah, toBeRead: true, seriesId: 'series-dune'),
+        ], series: duneSeries),
+        ReadingStatus.toBeRead,
+      );
+      final grouped = find.byKey(const ValueKey('shelf-series-series-dune'));
+      final patchwork = find.descendant(
+        of: grouped,
+        matching: find.byType(SeriesPatchworkCover),
+      );
+
+      expect(patchwork, findsOneWidget);
+      final patch = tester.getSize(patchwork);
+      expect(patch.width, closeTo(tester.getSize(grouped).width, 0.5));
+      expect(patch.width / patch.height, closeTo(BookCover.aspectRatio, 0.01));
+    });
 
     testWidgets('tapping a group opens the series page in series order', (
       tester,
@@ -1039,6 +990,7 @@ void main() {
           ),
         ], series: duneSeries),
       );
+      await openSeriesRow(tester);
 
       await tester.tap(find.byKey(const ValueKey('series-series-dune')));
       await tester.pump();
@@ -1092,8 +1044,9 @@ void main() {
       expect(find.text('books'), findsOneWidget);
     });
 
-    testWidgets('making a shelf adds it to the panel and as a new empty '
-        'section on the page', (tester) async {
+    testWidgets('making a shelf adds it to the panel and as a new folder', (
+      tester,
+    ) async {
       PlanController.isPro.value = true;
       addTearDown(() => PlanController.isPro.value = false);
       final collections = FakeCollectionsRepository();
@@ -1129,19 +1082,8 @@ void main() {
       Navigator.of(tester.element(find.text('make & remove'))).pop();
       await tester.pumpAndSettle();
 
-      // A new shelf starts closed, like every shelf but reading.
-      await tester.scrollUntilVisible(
-        find.bySemanticsLabel('Show summer reads books'),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await expandShelf(tester, 'summer reads');
-      await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('empty-shelf-custom-shelf-1')),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      expect(find.text('summer reads'), findsOneWidget);
+      expect(folder('custom-shelf-1'), findsOneWidget);
+      expect(find.bySemanticsLabel('summer reads, 0 books'), findsOneWidget);
     });
 
     testWidgets('a built-in shelf name is refused in the panel', (
@@ -1299,25 +1241,19 @@ void main() {
       expect(fade('tag'), 0.4);
     });
 
-    testWidgets('a book on a custom shelf shows under that shelf, and screen '
-        'readers can move books onto it', (tester) async {
+    testWidgets('a book on a custom shelf is counted in that folder, and '
+        'screen readers can move books onto it', (tester) async {
       const summer = Shelf(id: 'shelf-summer', name: 'summer reads');
-      await pumpPage(
-        tester,
-        controllerFor([
-          _entry(_dune, page: 120, shelfId: summer.id),
-          _entry(_noCover, page: 30),
-        ], collections: FakeCollectionsRepository(shelves: [summer])),
-      );
+      final controller = controllerFor([
+        _entry(_dune, page: 120, shelfId: summer.id),
+        _entry(_noCover, page: 30),
+      ], collections: FakeCollectionsRepository(shelves: [summer]));
+      await pumpPage(tester, controller);
 
-      expect(emptyShelf(ReadingStatus.reading), findsNothing);
-      await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('shelf-heading-custom-shelf-summer')),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      expect(find.text('summer reads'), findsOneWidget);
+      expect(find.bySemanticsLabel('summer reads, 1 book'), findsOneWidget);
+      expect(find.bySemanticsLabel('Reading, 1 book'), findsOneWidget);
 
+      await pumpShelf(tester, controller, ReadingStatus.reading);
       final semantics = tester.ensureSemantics();
       final node = tester.getSemantics(
         find.bySemanticsLabel(RegExp('^Pale Fire')),
@@ -1355,15 +1291,15 @@ void main() {
     };
     addTearDown(() => FlutterError.onError = previous);
 
-    await pumpPage(
+    await pumpShelf(
       tester,
       controllerFor([
         _entry(_dune, page: 120),
         _entry(long, finished: true, rating: 4.5),
         _entry(_noCover, finished: true, rating: 3),
       ]),
+      ReadingStatus.finished,
     );
-    await expandShelf(tester, 'finished');
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.textContaining('Atomic Habits'), findsWidgets);

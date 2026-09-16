@@ -179,6 +179,7 @@ class _ResultRow extends StatelessWidget {
                 coverUrl: book.coverUrl,
                 isbn: book.isbn13 ?? book.isbn10,
                 rereadCount: entry.rereadCount,
+                finished: entry.isFinished,
               ),
             ),
             const SizedBox(width: AppSpacing.md),
