@@ -300,6 +300,9 @@ class _SheetField extends StatelessWidget {
       autocorrect: false,
       textInputAction: TextInputAction.done,
       onSubmitted: onSubmitted,
+      // Enter submits without closing the keyboard (a TextField's default
+      // is to unfocus on the action button).
+      onEditingComplete: () {},
       style: style,
       cursorColor: colors.accent,
       decoration: InputDecoration(

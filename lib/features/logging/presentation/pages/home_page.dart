@@ -259,7 +259,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// title, or a Google Books volume cached first so the command that runs
   /// next finds exactly that book. Null when the reader backs out.
   Future<String?> _askForBook(NeedsBookLine line) async {
-    _focusNode.unfocus();
     final query = line.query;
     final pick = await showBookPicker(
       context,
@@ -267,6 +266,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       prompt: query.isEmpty ? 'which book?' : 'which "$query"?',
     );
     if (!mounted) return null;
+    _focusNode.requestFocus();
     switch (pick) {
       case null:
         return null;
@@ -940,9 +940,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 const TopBar(title: 'add'),
                 const SizedBox(height: AppSpacing.lg),
                 Expanded(
-                  child: instructions == null
-                      ? commandInput
-                      : FadeTransition(
+                  // The field stays mounted (and focused) under the
+                  // instruction list, so running a sentence's commands
+                  // never drops the keyboard.
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Visibility(
+                        visible: instructions == null,
+                        maintainState: true,
+                        maintainAnimation: true,
+                        child: commandInput,
+                      ),
+                      if (instructions != null)
+                        FadeTransition(
                           opacity: _instructionsOpacity,
                           child: Align(
                             alignment: Alignment.topLeft,
@@ -960,6 +971,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             ),
                           ),
                         ),
+                    ],
+                  ),
                 ),
                 FadeTransition(
                   opacity: _messageOpacity,

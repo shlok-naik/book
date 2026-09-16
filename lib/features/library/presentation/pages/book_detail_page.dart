@@ -374,7 +374,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
       AppHaptics.rejected();
       return;
     }
-    FocusScope.of(context).unfocus();
     if (page == entry.currentPage && entry.isReading) return;
 
     setState(() => _savingProgress = true);
@@ -877,7 +876,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
       final text = _comment.text;
       if (text.trim().isEmpty) return;
       _comment.clear();
-      FocusScope.of(context).unfocus();
       await _run('save that comment', () async {
         final result = await detail.addComment(text);
         if (!result.success && _comment.text.isEmpty) _comment.text = text;

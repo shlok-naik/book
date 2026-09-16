@@ -69,6 +69,9 @@ class DetailTextField extends StatelessWidget {
             textInputAction ??
             (maxLines == 1 ? TextInputAction.done : TextInputAction.newline),
         onSubmitted: onSubmitted,
+        // Enter submits without closing the keyboard (a TextField's default
+        // is to unfocus on the action button).
+        onEditingComplete: () {},
         onChanged: onChanged,
         style: style,
         cursorColor: colors.accent,

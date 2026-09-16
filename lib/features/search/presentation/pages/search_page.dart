@@ -474,6 +474,9 @@ class _SearchField extends StatelessWidget {
     );
     return TextField(
       key: const ValueKey('search-field'),
+      // Enter submits without closing the keyboard (a TextField's default
+      // is to unfocus on the action button).
+      onEditingComplete: () {},
       controller: controller,
       onChanged: onChanged,
       autocorrect: false,

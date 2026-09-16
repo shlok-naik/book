@@ -159,6 +159,9 @@ class _BookPickerSheetState extends State<BookPickerSheet>
               const SizedBox(height: AppSpacing.md),
               TextField(
                 key: const ValueKey('book-picker-field'),
+                // Enter submits without closing the keyboard (a TextField's default
+                // is to unfocus on the action button).
+                onEditingComplete: () {},
                 controller: _text,
                 onChanged: _onChanged,
                 autocorrect: false,
