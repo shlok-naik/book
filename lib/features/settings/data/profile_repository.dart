@@ -32,7 +32,7 @@ class ProfileRepository {
           .maybeSingle();
       final createdAt = row?['created_at'];
       return createdAt is String ? DateTime.tryParse(createdAt) : null;
-    }, friendlyMessage: "We couldn't load your profile.");
+    }, friendlyMessage: "Couldn't load your profile.");
   }
 
   /// Stamps which device last opened this account and when — what the
@@ -46,7 +46,7 @@ class ProfileRepository {
             'last_seen_at': DateTime.now().toUtc().toIso8601String(),
           })
           .eq('id', userId);
-    }, friendlyMessage: "We couldn't update your profile.");
+    }, friendlyMessage: "Couldn't update your profile.");
   }
 
   Future<T> _run<T>(
@@ -56,20 +56,11 @@ class ProfileRepository {
     try {
       return await action().timeout(_timeout);
     } on TimeoutException catch (error) {
-      throw ProfileException(
-        'That took too long. Check your connection and try again.',
-        cause: error,
-      );
+      throw ProfileException('Timed out. Try again.', cause: error);
     } on SocketException catch (error) {
-      throw ProfileException(
-        "You're offline — connect to the internet and try again.",
-        cause: error,
-      );
+      throw ProfileException("You're offline.", cause: error);
     } on http.ClientException catch (error) {
-      throw ProfileException(
-        "We couldn't reach the server. Try again in a moment.",
-        cause: error,
-      );
+      throw ProfileException("Can't reach the server.", cause: error);
     } on Object catch (error) {
       // Covers PostgrestException and an uninitialized
       // `Supabase.instance` (an AssertionError, not an Exception) alike

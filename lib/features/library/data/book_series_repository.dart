@@ -37,16 +37,16 @@ class BookSeriesRepository {
         final series = BookSeries.fromRow(row);
         if (series == null) {
           throw RemoteDataException(
-            "We couldn't make that series.",
+            "Couldn't make series.",
             cause: 'unparseable series row: $row',
           );
         }
         return series;
-      }, friendlyMessage: "We couldn't make that series.");
+      }, friendlyMessage: "Couldn't make that series.");
     } on RemoteDataException catch (error) {
       final cause = error.cause;
       if (cause is PostgrestException && cause.code == _uniqueViolation) {
-        throw InvalidInputException('You already have a series "$clean".');
+        throw InvalidInputException('Series "$clean" exists.');
       }
       rethrow;
     }
@@ -58,7 +58,7 @@ class BookSeriesRepository {
     return runSupabase(() async {
       final rows = await _client.from('series').select().order('name');
       return [for (final row in rows) ?BookSeries.fromRow(row)];
-    }, friendlyMessage: "We couldn't load your series.");
+    }, friendlyMessage: "Couldn't load your series.");
   }
 
   /// Files [userBookId] under [seriesId] at [position] — the shelf row's
@@ -71,16 +71,14 @@ class BookSeriesRepository {
     double? position,
   }) {
     if (position != null && (position <= 0 || position >= 10000)) {
-      throw const InvalidInputException(
-        'A series number has to be above zero.',
-      );
+      throw const InvalidInputException('Number must be above 0.');
     }
     return runSupabase<void>(() async {
       await _client
           .from('user_books')
           .update({'series_id': seriesId, 'series_position': position})
           .eq('id', userBookId);
-    }, friendlyMessage: "We couldn't save that series.");
+    }, friendlyMessage: "Couldn't save that series.");
   }
 
   /// Takes [userBookId] out of whatever series it's filed under — its
@@ -91,7 +89,7 @@ class BookSeriesRepository {
           .from('user_books')
           .update({'series_id': null, 'series_position': null})
           .eq('id', userBookId);
-    }, friendlyMessage: "We couldn't remove that book from its series.");
+    }, friendlyMessage: "Couldn't remove that book from its series.");
   }
 
   /// Unmakes a series the reader made — `remove series <series>` and the
@@ -101,6 +99,6 @@ class BookSeriesRepository {
   Future<void> deleteSeries(String id) {
     return runSupabase<void>(() async {
       await _client.from('series').delete().eq('id', id);
-    }, friendlyMessage: "We couldn't remove that series.");
+    }, friendlyMessage: "Couldn't remove that series.");
   }
 }

@@ -31,7 +31,7 @@ class BookNotesRepository {
     return runSupabase(() async {
       final rows = await _client.from('book_tags').select().order('created_at');
       return [for (final row in rows) ?BookTag.fromRow(row)];
-    }, friendlyMessage: "We couldn't load your tags.");
+    }, friendlyMessage: "Couldn't load your tags.");
   }
 
   /// Every comment on every book on the reader's shelf — for the CSV
@@ -43,7 +43,7 @@ class BookNotesRepository {
           .select()
           .order('created_at');
       return [for (final row in rows) ?BookComment.fromRow(row)];
-    }, friendlyMessage: "We couldn't load your comments.");
+    }, friendlyMessage: "Couldn't load your comments.");
   }
 
   Future<List<BookTag>> fetchTags(String userBookId) {
@@ -54,7 +54,7 @@ class BookNotesRepository {
           .eq('user_book_id', userBookId)
           .order('created_at');
       return [for (final row in rows) ?BookTag.fromRow(row)];
-    }, friendlyMessage: "We couldn't load this book's tags.");
+    }, friendlyMessage: "Couldn't load this book's tags.");
   }
 
   /// Applies the reader's existing [tag] to [userBookId] and returns the
@@ -79,24 +79,21 @@ class BookNotesRepository {
         final parsed = BookTag.fromRow(row);
         if (parsed == null) {
           throw RemoteDataException(
-            "We couldn't save that tag.",
+            "Couldn't save tag.",
             cause: 'unparseable book_tags row: $row',
           );
         }
         return parsed;
-      }, friendlyMessage: "We couldn't save that tag.");
+      }, friendlyMessage: "Couldn't save that tag.");
     } on RemoteDataException catch (error) {
       final cause = error.cause;
       if (cause is PostgrestException) {
         if (cause.code == _uniqueViolation) {
-          throw InvalidInputException(
-            'This book is already tagged "${tag.name}".',
-          );
+          throw InvalidInputException('Already tagged "${tag.name}".');
         }
         if (cause.hint == 'tag_missing') {
           throw InvalidInputException(
-            'No tag called "${tag.name}" yet — make it first with '
-            'make tag ${tag.name}.',
+            'No tag "${tag.name}". Try: make tag ${tag.name}',
           );
         }
       }
@@ -107,7 +104,7 @@ class BookNotesRepository {
   Future<void> removeTag(String tagId) {
     return runSupabase<void>(() async {
       await _client.from('book_tags').delete().eq('id', tagId);
-    }, friendlyMessage: "We couldn't remove that tag.");
+    }, friendlyMessage: "Couldn't remove that tag.");
   }
 
   Future<List<BookComment>> fetchComments(String userBookId) {
@@ -118,7 +115,7 @@ class BookNotesRepository {
           .eq('user_book_id', userBookId)
           .order('created_at');
       return [for (final row in rows) ?BookComment.fromRow(row)];
-    }, friendlyMessage: "We couldn't load this book's comments.");
+    }, friendlyMessage: "Couldn't load this book's comments.");
   }
 
   Future<BookComment> addComment(String userBookId, String body) async {
@@ -129,8 +126,8 @@ class BookNotesRepository {
           .insert({'user_book_id': userBookId, 'body': clean})
           .select()
           .single();
-      return _parseComment(row, "We couldn't save that comment.");
-    }, friendlyMessage: "We couldn't save that comment.");
+      return _parseComment(row, "Couldn't save that comment.");
+    }, friendlyMessage: "Couldn't save that comment.");
   }
 
   Future<BookComment> updateComment(String commentId, String body) async {
@@ -143,14 +140,14 @@ class BookNotesRepository {
           .eq('id', commentId)
           .select()
           .single();
-      return _parseComment(row, "We couldn't update that comment.");
-    }, friendlyMessage: "We couldn't update that comment.");
+      return _parseComment(row, "Couldn't update that comment.");
+    }, friendlyMessage: "Couldn't update that comment.");
   }
 
   Future<void> deleteComment(String commentId) {
     return runSupabase<void>(() async {
       await _client.from('book_comments').delete().eq('id', commentId);
-    }, friendlyMessage: "We couldn't delete that comment.");
+    }, friendlyMessage: "Couldn't delete that comment.");
   }
 
   BookComment _parseComment(Map<String, dynamic> row, String message) {
@@ -174,7 +171,7 @@ class BookNotesRepository {
     }
     if (clean.length > BookComment.maxLength) {
       throw const InvalidInputException(
-        'Comments can be at most ${BookComment.maxLength} characters.',
+        'Max ${BookComment.maxLength} characters.',
       );
     }
     return clean;

@@ -70,7 +70,7 @@ class ReadingEventRepository {
     try {
       await runSupabase<void>(() async {
         await _client.from(_table).insert(values);
-      }, friendlyMessage: "We couldn't record that.");
+      }, friendlyMessage: "Couldn't record that.");
       // Kept in the cached year too, so the journal still has it if the
       // connection drops before the next full fetch.
       await offline?.appendEvent(_localRow(values));
@@ -136,7 +136,7 @@ class ReadingEventRepository {
             .gte('occurred_at', start)
             .lt('occurred_at', end)
             .order('occurred_at');
-      }, friendlyMessage: "We couldn't load your streak history.");
+      }, friendlyMessage: "Couldn't load your streak history.");
       await offline?.writeEvents(year, rows);
       return _parseEvents(rows);
     } on NetworkException {
@@ -170,7 +170,7 @@ class ReadingEventRepository {
     try {
       await runSupabase<void>(() async {
         await _client.from(_table).delete().eq('title', title);
-      }, friendlyMessage: "We couldn't clear that book's history.");
+      }, friendlyMessage: "Couldn't clear that book's history.");
       await offline?.removeEventsForTitle(title);
     } on NetworkException {
       if (offline == null || !offline.isActive) rethrow;

@@ -434,12 +434,7 @@ void main() {
     await submit(tester, 'start Dune');
     await send(tester, 'add tag sci-fi Dune');
     await tester.pump(const Duration(milliseconds: 100));
-    expect(
-      find.text(
-        'No tag called "sci-fi" yet — make it first with make tag sci-fi.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('No tag "sci-fi". Try: make tag sci-fi'), findsOneWidget);
     await tester.pump(const Duration(seconds: 5));
   });
 
@@ -457,10 +452,7 @@ void main() {
       );
 
       await submit(tester, 'make shelf summer reads');
-      expect(
-        find.text('Upgrade to cactus pro to make custom shelves.'),
-        findsOneWidget,
-      );
+      expect(find.text('Custom shelves need cactus pro.'), findsOneWidget);
     },
   );
 
@@ -624,7 +616,7 @@ void main() {
       // Same book again — the second start is a no-op, not a success.
       await send(tester, 'start Dune');
 
-      expect(find.text('"Dune" is already on your shelf.'), findsOneWidget);
+      expect(find.text('"Dune" is already shelved.'), findsOneWidget);
       // The text stays put for correcting, and no strike runs over it.
       expect(find.text('start Dune'), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 800));
@@ -652,7 +644,7 @@ void main() {
     await submit(tester, 'start Dune');
     await send(tester, 'rate Dune 5');
 
-    expect(find.text('Finish "Dune" before rating it.'), findsOneWidget);
+    expect(find.text('Finish "Dune" to rate it.'), findsOneWidget);
     // Rejected like any other failed command: text stays, no strike.
     expect(find.text('rate Dune 5'), findsOneWidget);
   });
@@ -937,10 +929,7 @@ void main() {
     await send(tester, 'delete Dune');
     await tester.pump();
     expect(find.text('delete Dune?'), findsNothing);
-    expect(
-      find.text("You haven't started \"Dune\" yet — try \"start Dune\" first."),
-      findsOneWidget,
-    );
+    expect(find.text('"Dune" not started. Try: start Dune'), findsOneWidget);
     await tester.pump(const Duration(seconds: 4));
   });
 

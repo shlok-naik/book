@@ -63,7 +63,7 @@ class LibraryTransferRepository {
         );
         return count;
       },
-      friendlyMessage: "We couldn't replace your library — try again.",
+      friendlyMessage: "Couldn't replace your library.",
       // A few thousand rows in one transaction can take a while.
       timeout: const Duration(seconds: 60),
     );

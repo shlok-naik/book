@@ -92,7 +92,7 @@ class UserBookRepository {
             .from(_table)
             .select(_withBook)
             .order('updated_at', ascending: false),
-        friendlyMessage: "We couldn't load your library.",
+        friendlyMessage: "Couldn't load your library.",
       );
       await offline?.writeShelf(rows);
       return _parseShelf(rows);
@@ -166,9 +166,7 @@ class UserBookRepository {
       if (offline.shouldQueue) {
         // Known offline and nothing cached to patch: a request can only
         // time out, so say what's wrong now instead of in ten seconds.
-        throw const NetworkException(
-          "You're offline — connect to the internet and try again.",
-        );
+        throw const NetworkException("You're offline.");
       }
       // Online with older writes still waiting, but this row isn't cached:
       // no queued update can name it either, so a direct write can't be
@@ -251,7 +249,7 @@ class UserBookRepository {
           .single();
       await offline?.upsertShelfRow(row);
       return StartOutcome(UserBook.fromRow(row), alreadyExists: false);
-    }, friendlyMessage: "We couldn't add that book to your library.");
+    }, friendlyMessage: "Couldn't add that book to your library.");
   }
 
   /// Puts a book straight onto the shelf at [status] —
@@ -298,7 +296,7 @@ class UserBookRepository {
           .single();
       await offline?.upsertShelfRow(row);
       return StartOutcome(UserBook.fromRow(row), alreadyExists: false);
-    }, friendlyMessage: "We couldn't add that book to your library.");
+    }, friendlyMessage: "Couldn't add that book to your library.");
   }
 
   /// Persists a new page count, and the finished flag it may imply.
@@ -318,7 +316,7 @@ class UserBookRepository {
     DateTime? finishedAt,
   }) {
     if (currentPage < 0) {
-      throw const InvalidInputException("A page number can't be negative.");
+      throw const InvalidInputException("Page can't be negative.");
     }
 
     final at = (finishedAt ?? DateTime.now()).toUtc().toIso8601String();
@@ -335,7 +333,7 @@ class UserBookRepository {
       // The shelf is ordered by that column, so letting the client
       // supply it let a device with a skewed clock pin its own rows to
       // the top or bottom of the ordering.
-    }, friendlyMessage: "We couldn't save your progress.");
+    }, friendlyMessage: "Couldn't save your progress.");
   }
 
   /// Moves an existing shelf row to [updated]'s shelf — its status and its
@@ -361,7 +359,7 @@ class UserBookRepository {
       // never cleared — [ShelfRules.enter] stamps it on a move into reading.
       if (updated.startedAt case final started?)
         'started_at': started.toUtc().toIso8601String(),
-    }, friendlyMessage: "We couldn't move that book.");
+    }, friendlyMessage: "Couldn't move that book.");
   }
 
   /// Persists one shelf section's manual order: [orderedIds] become
@@ -383,7 +381,7 @@ class UserBookRepository {
           'set_shelf_order',
           params: {'p_ordered_ids': orderedIds},
         );
-      }, friendlyMessage: "We couldn't save your shelf order.");
+      }, friendlyMessage: "Couldn't save your shelf order.");
       await offline?.applyShelfOrder(orderedIds);
     } on NetworkException {
       if (offline == null || !offline.isActive) rethrow;
@@ -417,12 +415,12 @@ class UserBookRepository {
     required int currentPage,
   }) {
     if (currentPage < 0) {
-      throw const InvalidInputException("A page number can't be negative.");
+      throw const InvalidInputException("Page can't be negative.");
     }
     return _updateRow(
       userBookId,
       {'owned_edition_id': editionId, 'current_page': currentPage},
-      friendlyMessage: "We couldn't save which edition you own.",
+      friendlyMessage: "Couldn't save which edition you own.",
       // The embedded edition changes with the id, so the cached row takes
       // the server's fresh embed rather than keeping a stale one.
       select: _withBook,
@@ -440,14 +438,12 @@ class UserBookRepository {
     DateTime? finishedAt,
   }) {
     if (finishedAt != null && finishedAt.isBefore(startedAt)) {
-      throw const InvalidInputException(
-        "A book can't be finished before it was started.",
-      );
+      throw const InvalidInputException('Finish is before start.');
     }
     return _updateRow(userBookId, {
       'started_at': startedAt.toUtc().toIso8601String(),
       'finished_at': ?finishedAt?.toUtc().toIso8601String(),
-    }, friendlyMessage: "We couldn't save those dates.");
+    }, friendlyMessage: "Couldn't save those dates.");
   }
 
   /// When the reader last imported a library — `profiles.library_imported_at`
@@ -465,7 +461,7 @@ class UserBookRepository {
           .maybeSingle();
       final value = row?['library_imported_at'];
       return value is String ? DateTime.tryParse(value) : null;
-    }, friendlyMessage: "We couldn't load your import date.");
+    }, friendlyMessage: "Couldn't load your import date.");
   }
 
   /// Persists a rating — `rate <book> <stars>`.
@@ -477,14 +473,14 @@ class UserBookRepository {
   /// fast instead of round-tripping to Supabase first.
   Future<UserBook> rate({required String userBookId, required double rating}) {
     if (rating <= 0 || rating > 5) {
-      throw const InvalidInputException('Ratings are between 0.5 and 5 stars.');
+      throw const InvalidInputException('Rate 0.5–5 stars.');
     }
 
     // As in `saveProgress`, `updated_at` is left to the database trigger
     // rather than sent from here.
     return _updateRow(userBookId, {
       'rating': rating,
-    }, friendlyMessage: "We couldn't save that rating.");
+    }, friendlyMessage: "Couldn't save that rating.");
   }
 
   /// Puts a finished book back on the reading shelf for another pass —
@@ -500,7 +496,7 @@ class UserBookRepository {
       'status': ReadingStatus.reading.wireValue,
       'finished_at': null,
       'reread_count': rereadCount,
-    }, friendlyMessage: "We couldn't restart that book.");
+    }, friendlyMessage: "Couldn't restart that book.");
   }
 
   /// Removes a book from the shelf — `delete <book>`.
@@ -519,7 +515,7 @@ class UserBookRepository {
     try {
       await runSupabase<void>(() async {
         await _client.from(_table).delete().eq('id', userBookId);
-      }, friendlyMessage: "We couldn't remove that book.");
+      }, friendlyMessage: "Couldn't remove that book.");
       await offline?.removeShelfRow(userBookId);
     } on NetworkException {
       if (offline == null || !offline.isActive) rethrow;

@@ -88,7 +88,7 @@ class _ImportPageState extends State<ImportPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      if (mounted) _showSnack("We couldn't open that file.");
+      if (mounted) _showSnack("Couldn't open that file.");
       return;
     }
     if (csv == null || !mounted) return;

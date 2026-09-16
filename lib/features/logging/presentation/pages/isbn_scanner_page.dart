@@ -196,7 +196,7 @@ class _CameraError extends StatelessWidget {
       MobileScannerErrorCode.permissionDenied =>
         'cactus needs camera access to scan a barcode. enable it for '
             'cactus in your device settings, then come back here.',
-      _ => "your camera isn't available right now.",
+      _ => "your camera isn't available.",
     };
 
     return ColoredBox(

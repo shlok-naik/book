@@ -243,7 +243,7 @@ void main() {
     final controller = build();
     await controller.start('nonsense,columns\n1,2\n');
     expect(controller.stage, ImportStage.failed);
-    expect(controller.errorMessage, contains('Title column'));
+    expect(controller.errorMessage, contains('Goodreads export'));
   });
 
   test('toImported clamps progress to the book and drops a date on an '

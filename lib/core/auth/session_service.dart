@@ -176,7 +176,7 @@ class SessionService {
     );
     final session = response.session;
     if (session == null) {
-      throw const SessionException("That code didn't sign you in. Try again.");
+      throw const SessionException('Wrong code.');
     }
     _signInClient = null;
     return PendingAccount(
@@ -194,7 +194,7 @@ class SessionService {
   Future<LibrarySummary> accountSummary(PendingAccount account) {
     final client = account.client;
     if (client == null) {
-      throw const SessionException('Sign in to your email again.');
+      throw const SessionException('Sign in again.');
     }
     return _summary(client);
   }
@@ -231,7 +231,7 @@ class SessionService {
     if (deviceToken == null) {
       final current = _client.auth.currentSession;
       if (current == null) {
-        throw const SessionException("This device isn't signed in.");
+        throw const SessionException('Not signed in.');
       }
       if (current.user.id != account.userId) {
         final refreshed = await _run(() => _client.auth.refreshSession());
@@ -243,7 +243,7 @@ class SessionService {
     final refreshToken = account.refreshToken;
     if (_client.auth.currentUser?.id != account.userId) {
       if (refreshToken == null) {
-        throw const SessionException('Sign in to your email again.');
+        throw const SessionException('Sign in again.');
       }
       await _run(() => _client.auth.setSession(refreshToken));
     }
@@ -261,7 +261,7 @@ class SessionService {
         final details = error.details;
         final message = details is Map && details['error'] is String
             ? details['error'] as String
-            : "We couldn't finish linking your email. Try again.";
+            : "Couldn't finish linking your email.";
         throw SessionException(message, cause: error);
       } on Object catch (error) {
         await _run<void>(() => Future.error(error));
@@ -295,20 +295,11 @@ class SessionService {
       // translate it further.
       throw SessionException(error.message, cause: error);
     } on TimeoutException catch (error) {
-      throw SessionException(
-        'That took too long. Check your connection and try again.',
-        cause: error,
-      );
+      throw SessionException('Timed out. Try again.', cause: error);
     } on SocketException catch (error) {
-      throw SessionException(
-        "You're offline — connect to the internet and try again.",
-        cause: error,
-      );
+      throw SessionException("You're offline.", cause: error);
     } on http.ClientException catch (error) {
-      throw SessionException(
-        "We couldn't reach the server. Try again in a moment.",
-        cause: error,
-      );
+      throw SessionException("Can't reach the server.", cause: error);
     }
   }
 }

@@ -134,7 +134,7 @@ class _EmailSheetState extends State<_EmailSheet> {
         if (!mounted) return;
         setState(() {
           _busy = false;
-          _error = 'That email already belongs to another cactus account.';
+          _error = 'Email already in use.';
         });
         return;
       }

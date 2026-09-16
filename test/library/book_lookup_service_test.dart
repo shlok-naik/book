@@ -257,7 +257,7 @@ void main() {
           isA<BookNotFoundException>().having(
             (e) => e.message,
             'message',
-            contains('No books found'),
+            contains('Nothing found'),
           ),
         ),
       );

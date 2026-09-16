@@ -242,7 +242,7 @@ void main() {
       final result = await controller.addTag('sci-fi');
 
       expect(result.success, isFalse);
-      expect(result.message, 'This book is already tagged "sci-fi".');
+      expect(result.message, 'Already tagged "sci-fi".');
       expect(notes.tags, hasLength(1));
     });
 
@@ -273,8 +273,7 @@ void main() {
         expect(result.success, isFalse);
         expect(
           result.message,
-          'No tag called "space opera" yet — make it first with make tag '
-          'space opera.',
+          'No tag "space opera". Try: make tag space opera',
         );
         expect(controller.tags.data, isEmpty);
         expect(notes.tags, isEmpty);
@@ -357,7 +356,7 @@ void main() {
     test('rejects an overlong comment without writing', () async {
       final result = await controller.addComment('x' * 1001);
       expect(result.success, isFalse);
-      expect(result.message, 'Comments can be at most 1000 characters.');
+      expect(result.message, 'Max 1000 characters.');
       expect(controller.comments.data, isNull);
     });
   });

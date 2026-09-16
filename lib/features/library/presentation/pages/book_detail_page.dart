@@ -192,7 +192,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      _report(LibraryActionResult.failure("We couldn't $what. Try again."));
+      _report(LibraryActionResult.failure("Couldn't $what."));
     }
   }
 
@@ -261,11 +261,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      _report(
-        const LibraryActionResult.failure(
-          "We couldn't remove this book. Try again.",
-        ),
-      );
+      _report(const LibraryActionResult.failure("Couldn't remove book."));
     } finally {
       _actionBusy = false;
     }
@@ -288,10 +284,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        _showMessage(
-          "We couldn't open the editions. Try again.",
-          ConfirmationTone.failure,
-        );
+        _showMessage("Couldn't open editions.", ConfirmationTone.failure);
       }
     } finally {
       _openingEditions = false;
@@ -328,7 +321,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         return;
       }
       if (page == null || page < 0) {
-        _progressError = 'Enter a whole page number.';
+        _progressError = 'Enter a page number.';
       } else if (total != null && page > total) {
         _progressError = '"${entry.book.title}" only has $total pages.';
       } else {
@@ -348,7 +341,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         return;
       }
       if (percent == null) {
-        _progressError = 'Enter a percentage from 0 to 100.';
+        _progressError = 'Enter 0–100%.';
         return;
       }
       final resolved = LibraryController.pageForPercent(entry, percent);
@@ -366,7 +359,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     if (_savingProgress) return;
     final page = int.tryParse(_page.text.trim());
     if (page == null) {
-      setState(() => _progressError = 'Enter a whole page number.');
+      setState(() => _progressError = 'Enter a page number.');
       AppHaptics.rejected();
       return;
     }
@@ -388,9 +381,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      result = const LibraryActionResult.failure(
-        "We couldn't save your progress. Try again.",
-      );
+      result = const LibraryActionResult.failure("Couldn't save progress.");
     }
     if (!mounted) return;
     setState(() {
@@ -2037,7 +2028,7 @@ class _Gone extends StatelessWidget {
     child: Semantics(
       liveRegion: true,
       child: Text(
-        "this book isn't on your shelf any more.",
+        'no longer on your shelf.',
         textAlign: TextAlign.center,
         style: context.fonts.interface(
           fontSize: 13,

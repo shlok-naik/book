@@ -146,7 +146,7 @@ class _SeriesSelectionSheetState extends State<SeriesSelectionSheet> {
                     )
                   else if (entry == null)
                     Text(
-                      "This book isn't on your shelf anymore.",
+                      'No longer on your shelf.',
                       style: context.fonts.body(
                         fontSize: 13,
                         height: 1.5,

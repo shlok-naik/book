@@ -139,7 +139,7 @@ class _StatsPageState extends State<StatsPage> with ProGateState<StatsPage> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      setState(() => _tagsError = "We couldn't load your tags.");
+      setState(() => _tagsError = "Couldn't load your tags.");
     } finally {
       _tagsLoading = false;
     }

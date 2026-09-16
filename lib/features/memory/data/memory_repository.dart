@@ -30,7 +30,7 @@ class MemoryRepository {
           .select()
           .order('created_at', ascending: false);
       return [for (final row in rows) ?Memory.fromRow(row)];
-    }, friendlyMessage: "We couldn't load your memories.");
+    }, friendlyMessage: "Couldn't load your memories.");
   }
 
   /// Saves a new memory and returns the row Supabase actually wrote —
@@ -46,7 +46,7 @@ class MemoryRepository {
           .single();
       final memory = Memory.fromRow(row);
       if (memory == null) {
-        throw const MemoryException("That memory couldn't be saved.");
+        throw const MemoryException("Couldn't save memory.");
       }
       return memory;
     }, friendlyMessage: "That memory couldn't be saved.");
@@ -73,15 +73,9 @@ class MemoryRepository {
     } on MemoryException {
       rethrow;
     } on TimeoutException catch (error) {
-      throw MemoryException(
-        'That took too long — try again in a moment.',
-        cause: error,
-      );
+      throw MemoryException('Timed out. Try again.', cause: error);
     } on SocketException catch (error) {
-      throw MemoryException(
-        "You're offline — connect to the internet and try again.",
-        cause: error,
-      );
+      throw MemoryException("You're offline.", cause: error);
     } on http.ClientException catch (error) {
       throw MemoryException(friendlyMessage, cause: error);
     } on PostgrestException catch (error) {

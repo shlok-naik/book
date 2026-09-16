@@ -137,9 +137,7 @@ class _EditionsPageState extends State<EditionsPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      result = const LibraryActionResult.failure(
-        "We couldn't save which edition you own.",
-      );
+      result = const LibraryActionResult.failure("Couldn't save edition.");
     }
     if (!mounted) return;
     setState(() => _saving = null);
@@ -156,7 +154,7 @@ class _EditionsPageState extends State<EditionsPage> {
     } else {
       AppHaptics.rejected();
       _showMessage(
-        result.message ?? "We couldn't save which edition you own.",
+        result.message ?? "Couldn't save which edition you own.",
         ConfirmationTone.failure,
       );
     }
@@ -183,9 +181,7 @@ class _EditionsPageState extends State<EditionsPage> {
               const SettingsHeader(title: 'editions'),
               Expanded(
                 child: entry == null
-                    ? const _CenteredNote(
-                        "this book isn't on your shelf any more.",
-                      )
+                    ? const _CenteredNote('no longer on your shelf.')
                     : ListenableBuilder(
                         listenable: widget.detail,
                         builder: (context, _) => _body(entry),

@@ -1073,10 +1073,7 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('make-shelf-button')));
       await tester.pumpAndSettle();
-      expect(
-        find.text('You already have a shelf "Summer Reads".'),
-        findsOneWidget,
-      );
+      expect(find.text('Shelf "Summer Reads" exists.'), findsOneWidget);
       expect(collections.creates, 1);
 
       Navigator.of(tester.element(find.text('make & remove'))).pop();
@@ -1101,10 +1098,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('make-shelf-button')));
       await tester.pumpAndSettle();
 
-      expect(
-        find.text('"finished" is already one of your built-in shelves.'),
-        findsOneWidget,
-      );
+      expect(find.text('"finished" is a built-in shelf.'), findsOneWidget);
     });
 
     testWidgets('the tags and series tabs make their own kind', (tester) async {

@@ -106,7 +106,7 @@ class Book {
     final title = row['title'];
     if (id is! String || id.isEmpty || title is! String || title.isEmpty) {
       throw RemoteDataException(
-        "We couldn't read that book from the library.",
+        "Couldn't read book.",
         cause: 'books row missing id/title: $row',
       );
     }

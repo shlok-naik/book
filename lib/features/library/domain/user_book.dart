@@ -164,7 +164,7 @@ class UserBook {
     final bookId = row['book_id'];
     if (id is! String || id.isEmpty || bookId is! String || bookId.isEmpty) {
       throw RemoteDataException(
-        "We couldn't read your reading progress.",
+        "Couldn't read progress.",
         cause: 'user_books row missing id/book_id: $row',
       );
     }

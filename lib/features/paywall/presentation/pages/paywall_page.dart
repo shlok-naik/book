@@ -403,9 +403,7 @@ class _PaywallPageState extends State<PaywallPage> {
       AppAnalytics.purchaseFailed('entitlement_inactive');
       setState(() {
         _busy = false;
-        _error =
-            "That went through, but PRO isn't active yet — try "
-            'restoring purchases.';
+        _error = "Paid, but PRO isn't active. Try restoring.";
       });
     } on PurchasesException catch (error) {
       if (!mounted) return;
@@ -447,7 +445,7 @@ class _PaywallPageState extends State<PaywallPage> {
         _publishEntitlement(info);
         _dismiss();
       } else {
-        setState(() => _error = 'No previous purchase found for this account.');
+        setState(() => _error = 'No purchase found.');
       }
     } on PurchasesException catch (error) {
       if (!mounted) return;
@@ -1463,7 +1461,7 @@ class _PricingUnavailable extends StatelessWidget {
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Text(
-                    "we couldn't load pricing right now. check your "
+                    "we couldn't load pricing. check your "
                     'connection and try again in a moment.',
                     style: GoogleFonts.inter(
                       fontSize: 13,

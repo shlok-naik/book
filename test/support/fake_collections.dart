@@ -40,7 +40,7 @@ class FakeCollectionsRepository extends CollectionsRepository {
     if (shelves.any(
       (s) => CollectionNames.key(s.name) == clean.toLowerCase(),
     )) {
-      throw InvalidInputException('You already have a shelf "$clean".');
+      throw InvalidInputException('Shelf "$clean" exists.');
     }
     creates++;
     final shelf = Shelf(id: 'shelf-${shelves.length + 1}', name: clean);
@@ -53,7 +53,7 @@ class FakeCollectionsRepository extends CollectionsRepository {
     final clean = CollectionNames.validateTag(name);
     if (failure != null) throw failure!;
     if (tags.any((t) => CollectionNames.key(t.name) == clean.toLowerCase())) {
-      throw InvalidInputException('You already have a tag "$clean".');
+      throw InvalidInputException('Tag "$clean" exists.');
     }
     creates++;
     final tag = ReaderTag(id: 'tag-${tags.length + 1}', name: clean);

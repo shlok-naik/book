@@ -97,7 +97,7 @@ class _VolumeDetailPageState extends State<VolumeDetailPage> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _loadError = "We couldn't load every detail right now.";
+        _loadError = "Couldn't load details.";
       });
     }
   }

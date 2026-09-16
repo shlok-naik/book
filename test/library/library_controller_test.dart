@@ -411,7 +411,7 @@ class FakeSeriesRepository extends BookSeriesRepository {
     final clean = CollectionNames.validateSeries(name);
     for (final series in mine) {
       if (series.matches(clean)) {
-        throw InvalidInputException('You already have a series "$clean".');
+        throw InvalidInputException('Series "$clean" exists.');
       }
     }
     final made = BookSeries(id: 'series-${mine.length + 1}', name: clean);
@@ -653,7 +653,7 @@ void main() {
 
       expect(first.success, isTrue);
       expect(second.success, isFalse);
-      expect(second.message, '"Dune" is already on your shelf.');
+      expect(second.message, '"Dune" is already shelved.');
       // Still exactly one shelf entry — the repeat didn't duplicate it,
       // and didn't reset progress either.
       expect(controller.inProgress, hasLength(1));
@@ -687,7 +687,7 @@ void main() {
         final result = await controller.startBook('Dune', loggedAt: tomorrow);
 
         expect(result.success, isFalse);
-        expect(result.message, "That date hasn't happened yet.");
+        expect(result.message, 'Date is in the future.');
         expect(controller.inProgress, isEmpty);
         expect(events.logged, isEmpty);
       },
@@ -714,7 +714,7 @@ void main() {
 
       expect(first.success, isTrue);
       expect(second.success, isFalse);
-      expect(second.message, '"Dune" is already on your shelf.');
+      expect(second.message, '"Dune" is already shelved.');
       expect(controller.inProgress, hasLength(1));
     });
 
@@ -1093,10 +1093,7 @@ void main() {
       );
 
       expect(result.success, isFalse);
-      expect(
-        result.message,
-        'Finished "Dune", but its spot on the shelf didn\'t save.',
-      );
+      expect(result.message, 'Finished "Dune", but its spot didn\'t save.');
       expect(controller.inProgress, isEmpty);
       final dune = controller.finished.firstWhere(
         (e) => e.book.title == 'Dune',
@@ -1170,7 +1167,7 @@ void main() {
         final again = await controller.makeShelf('summer READS', isPro: true);
 
         expect(again.success, isFalse);
-        expect(again.message, 'You already have a shelf "summer READS".');
+        expect(again.message, 'Shelf "summer READS" exists.');
         expect(collections.creates, 1);
       },
     );
@@ -1195,7 +1192,7 @@ void main() {
       );
       expect(
         (await controller.makeShelf('x' * 41, isPro: true)).message,
-        'Shelf names can be at most 40 characters.',
+        'Max 40 characters.',
       );
     });
 
@@ -1243,7 +1240,7 @@ void main() {
       expect(made.success, isTrue);
       expect(made.message, 'Made series "dune"');
       expect(again.success, isFalse);
-      expect(again.message, 'You already have a series "dune".');
+      expect(again.message, 'Series "dune" exists.');
       expect(controller.mySeries.map((s) => s.name), ['dune']);
     });
   });
@@ -1309,10 +1306,7 @@ void main() {
       final result = await controller.addTag('Dune', 'sci-fi');
 
       expect(result.success, isFalse);
-      expect(
-        result.message,
-        'No tag called "sci-fi" yet — make it first with make tag sci-fi.',
-      );
+      expect(result.message, 'No tag "sci-fi". Try: make tag sci-fi');
       expect(notes.tags, isEmpty);
       expect(controller.tags, isEmpty);
     });
@@ -1350,8 +1344,7 @@ void main() {
       expect(result.success, isFalse);
       expect(
         result.message,
-        'No shelf called "summer reads" — make it first with make shelf '
-        'summer reads.',
+        'No shelf "summer reads". Try: make shelf summer reads',
       );
       expect(collections.shelves, isEmpty);
       expect(userBooks.shelfChanges, isEmpty);
@@ -1595,7 +1588,7 @@ void main() {
       final result = await controller.addTag('Dune', 'x' * 41);
 
       expect(result.success, isFalse);
-      expect(result.message, 'Tag names can be at most 40 characters.');
+      expect(result.message, 'Max 40 characters.');
     });
 
     test('add tag surfaces a repository failure', () async {
@@ -1654,7 +1647,7 @@ void main() {
         final result = await controller.addComment('great read circe');
 
         expect(result.success, isFalse);
-        expect(result.message, contains('add comment "your comment" <book>'));
+        expect(result.message, contains('add comment "text" <book>'));
         expect(notes.comments, isEmpty);
       },
     );
@@ -1717,7 +1710,7 @@ void main() {
       final result = await controller.rateBookById('progress-book-1', 4);
 
       expect(result.success, isFalse);
-      expect(result.message, 'Finish "Dune" before rating it.');
+      expect(result.message, 'Finish "Dune" to rate it.');
     });
 
     group('setOwnedEdition', () {
@@ -1937,7 +1930,7 @@ void main() {
       );
 
       expect(result.success, isFalse);
-      expect(result.message, "That date hasn't happened yet.");
+      expect(result.message, 'Date is in the future.');
       expect(controller.inProgress.single.currentPage, 10);
       expect(events.logged, isEmpty);
     });
@@ -2175,7 +2168,7 @@ void main() {
       final result = await controller.finishBook('Dune', loggedAt: tomorrow);
 
       expect(result.success, isFalse);
-      expect(result.message, "That date hasn't happened yet.");
+      expect(result.message, 'Date is in the future.');
       expect(controller.finished, isEmpty);
       expect(events.logged, isEmpty);
     });
@@ -2246,7 +2239,7 @@ void main() {
       final result = await controller.restartBook('Dune');
 
       expect(result.success, isFalse);
-      expect(result.message, '"Dune" hasn\'t been finished yet.');
+      expect(result.message, '"Dune" isn\'t finished.');
       expect(userBooks.restarts, isEmpty);
     });
 
@@ -2348,7 +2341,7 @@ void main() {
       final result = await controller.rateBook('Dune', 5);
 
       expect(result.success, isFalse);
-      expect(result.message, 'Finish "Dune" before rating it.');
+      expect(result.message, 'Finish "Dune" to rate it.');
       expect(controller.inProgress.single.rating, isNull);
       expect(userBooks.rates, 0);
     });
@@ -2471,7 +2464,7 @@ void main() {
         'progress-book-1',
         startedAt: tomorrow,
       );
-      expect(future.message, "That date hasn't happened yet.");
+      expect(future.message, 'Date is in the future.');
 
       await controller.setDates(
         'progress-book-1',
@@ -2481,16 +2474,13 @@ void main() {
         'progress-book-1',
         finishedAt: DateTime(2026, 2, 1),
       );
-      expect(
-        backwards.message,
-        "A book can't be finished before it was started.",
-      );
+      expect(backwards.message, 'Finish is before start.');
 
       final notFinished = await controller.setDates(
         'progress-book-3',
         finishedAt: DateTime(2026, 2, 1),
       );
-      expect(notFinished.message, 'Only a finished book has a finish date.');
+      expect(notFinished.message, 'Not finished yet.');
 
       expect(userBooks.savedDates, hasLength(1));
     });
@@ -2892,7 +2882,7 @@ void main() {
       final byId = await controller.rateBookById('progress-book-1', double.nan);
 
       expect(byTitle.success, isFalse);
-      expect(byTitle.message, 'Ratings are between 0.5 and 5 stars.');
+      expect(byTitle.message, 'Rate 0.5–5 stars.');
       expect(byId.success, isFalse);
     });
 
@@ -2916,7 +2906,7 @@ void main() {
       final result = await controller.startBook('Dune');
 
       expect(result.success, isFalse);
-      expect(result.message, '"Dune" is already on your shelf.');
+      expect(result.message, '"Dune" is already shelved.');
       expect(userBooks.starts, 0);
       expect(controller.inProgress.single.currentPage, 40);
     });
@@ -2966,7 +2956,7 @@ void main() {
 
         await controller.load();
 
-        expect(controller.errorMessage, "We couldn't load your library.");
+        expect(controller.errorMessage, "Couldn't load library.");
         expect(controller.isLoading, isFalse);
       },
     );

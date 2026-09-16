@@ -277,13 +277,13 @@ void main() {
     test('exposes the failure message instead of an empty year', () async {
       final controller = StreaksController(
         events: FailingReadingEventRepository(
-          const NetworkException("We couldn't load your streak history."),
+          const NetworkException("Couldn't load your streak history."),
         ),
       );
 
       await controller.load(2026);
 
-      expect(controller.errorMessage, "We couldn't load your streak history.");
+      expect(controller.errorMessage, "Couldn't load your streak history.");
       expect(controller.isLoading, isFalse);
     });
 

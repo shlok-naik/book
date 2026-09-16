@@ -57,12 +57,10 @@ class BookLookupService {
     // ---- 1. Validate ------------------------------------------------
     final query = rawQuery.trim();
     if (query.isEmpty) {
-      throw const InvalidInputException('Enter a book title first.');
+      throw const InvalidInputException('Enter a title.');
     }
     if (query.length > maxQueryLength) {
-      throw const InvalidInputException(
-        'That title is too long — try just the book name.',
-      );
+      throw const InvalidInputException('Title too long.');
     }
 
     // ---- 2. Cache first ---------------------------------------------
@@ -74,7 +72,7 @@ class BookLookupService {
       author == null || author.isEmpty ? query : '$query $author',
     );
     if (results.isEmpty) {
-      throw BookNotFoundException('No books found for "$query".');
+      throw BookNotFoundException('Nothing found for "$query".');
     }
     final volume = _bestMatch(results, query);
 
@@ -106,7 +104,7 @@ class BookLookupService {
 
     final results = await googleBooks.search('isbn:$clean', maxResults: 5);
     if (results.isEmpty) {
-      throw BookNotFoundException('No book found for ISBN $clean.');
+      throw BookNotFoundException('No book for ISBN $clean.');
     }
     final volume = results.first;
     final alreadyCached = await _findCachedById(volume.id);
@@ -126,12 +124,10 @@ class BookLookupService {
   }) async {
     final query = rawQuery.trim();
     if (query.isEmpty) {
-      throw const InvalidInputException('Enter a book title first.');
+      throw const InvalidInputException('Enter a title.');
     }
     if (query.length > maxQueryLength) {
-      throw const InvalidInputException(
-        'That search is too long — try just the book name.',
-      );
+      throw const InvalidInputException('Search too long.');
     }
     return googleBooks.search(query, maxResults: maxResults);
   }

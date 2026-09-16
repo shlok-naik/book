@@ -655,10 +655,7 @@ void main() {
 
   testWidgets('a book no longer on the shelf says so', (tester) async {
     await pumpDetail(tester, userBookId: 'gone');
-    expect(
-      find.text("this book isn't on your shelf any more."),
-      findsOneWidget,
-    );
+    expect(find.text('no longer on your shelf.'), findsOneWidget);
   });
 
   testWidgets('picking an edition changes the book page to that copy', (
@@ -834,18 +831,13 @@ void main() {
       await pumpDetail(
         tester,
         editionsFailure: const NetworkException(
-          'Google Books is having trouble right now. Try again shortly.',
+          'Google Books is having trouble.',
         ),
       );
       expect(find.bySemanticsLabel('Editions, unavailable'), findsOneWidget);
       await openEditions(tester);
 
-      expect(
-        find.text(
-          'Google Books is having trouble right now. Try again shortly.',
-        ),
-        findsOneWidget,
-      );
+      expect(find.text('Google Books is having trouble.'), findsOneWidget);
       details.editionsFailure = null;
       await tester.tap(find.text('try again'));
       await tester.pumpAndSettle();

@@ -41,22 +41,13 @@ Future<T> runSupabase<T>(
     rethrow;
   } on TimeoutException catch (error) {
     ConnectivityController.reportUnreachable();
-    throw NetworkException(
-      'The library took too long to respond. Try again.',
-      cause: error,
-    );
+    throw NetworkException('Timed out. Try again.', cause: error);
   } on SocketException catch (error) {
     ConnectivityController.reportUnreachable();
-    throw NetworkException(
-      "You're offline — connect to the internet and try again.",
-      cause: error,
-    );
+    throw NetworkException("You're offline.", cause: error);
   } on http.ClientException catch (error) {
     ConnectivityController.reportUnreachable();
-    throw NetworkException(
-      "We couldn't reach your library. Try again in a moment.",
-      cause: error,
-    );
+    throw NetworkException("Can't reach your library.", cause: error);
   } on PostgrestException catch (error) {
     // Only a server that couldn't serve the request is worth retrying (and
     // queueing offline); a refusal — bad column, RLS denial, constraint

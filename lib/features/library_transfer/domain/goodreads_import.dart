@@ -112,9 +112,7 @@ abstract final class GoodreadsImport {
 
     final titleColumn = column('title');
     if (titleColumn == null) {
-      throw const ImportFormatException(
-        "That doesn't look like a Goodreads export — it has no Title column.",
-      );
+      throw const ImportFormatException('Not a Goodreads export.');
     }
     final authorColumn = column('author');
     final isbnColumn = column('isbn');

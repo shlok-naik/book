@@ -93,7 +93,7 @@ class BookSearchController extends ChangeNotifier {
       );
       if (generation != _generation) return;
       _results = const [];
-      _error = "We couldn't search right now. Try again.";
+      _error = 'Search failed. Try again.';
     }
     _searching = false;
     _notify();
@@ -147,10 +147,7 @@ class BookSearchController extends ChangeNotifier {
         error: error,
         stackTrace: stackTrace,
       );
-      row = RecommendationRow(
-        seed: seed,
-        error: "We couldn't load these right now.",
-      );
+      row = RecommendationRow(seed: seed, error: "Couldn't load these.");
     }
     // The seeds may have moved on while this row loaded.
     if (index >= _rows.length || _rows[index].seed != seed) return;

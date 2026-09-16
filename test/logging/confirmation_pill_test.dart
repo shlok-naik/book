@@ -45,7 +45,7 @@ void main() {
     await _pump(
       tester,
       const ConfirmationPill(
-        message: 'Ratings are between 0.5 and 5 stars.',
+        message: 'Rate 0.5–5 stars.',
         tone: ConfirmationTone.failure,
       ),
     );

@@ -233,9 +233,7 @@ class _MakeTabState extends State<_MakeTab> with AutomaticKeepAliveClientMixin {
         error: error,
         stackTrace: stackTrace,
       );
-      result = LibraryActionResult.failure(
-        "We couldn't make that ${_copy.singular}. Try again.",
-      );
+      result = LibraryActionResult.failure("Couldn't make ${_copy.singular}.");
     }
     if (!mounted) return;
 
@@ -285,7 +283,7 @@ class _MakeTabState extends State<_MakeTab> with AutomaticKeepAliveClientMixin {
         stackTrace: stackTrace,
       );
       result = LibraryActionResult.failure(
-        "We couldn't remove that ${_copy.singular}. Try again.",
+        "Couldn't remove ${_copy.singular}.",
       );
     }
     if (!mounted) return;
@@ -514,9 +512,7 @@ class _BooksTabState extends State<_BooksTab>
         error: error,
         stackTrace: stackTrace,
       );
-      result = const LibraryActionResult.failure(
-        "We couldn't remove that book. Try again.",
-      );
+      result = const LibraryActionResult.failure("Couldn't remove book.");
     }
     if (!mounted) return;
     if (result.success) {

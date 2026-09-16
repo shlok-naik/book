@@ -209,9 +209,7 @@ abstract final class CollectionNames {
   static String validateShelf(String name) {
     final clean = _validate(name, kind: 'shelf', maxLength: shelfMaxLength);
     if (builtInShelf(clean) != null) {
-      throw InvalidInputException(
-        '"$clean" is already one of your built-in shelves.',
-      );
+      throw InvalidInputException('"$clean" is a built-in shelf.');
     }
     return clean;
   }
@@ -232,10 +230,7 @@ abstract final class CollectionNames {
       throw InvalidInputException('Name the $kind first.');
     }
     if (cleaned.length > maxLength) {
-      throw InvalidInputException(
-        '${kind[0].toUpperCase()}${kind.substring(1)} names can be at most '
-        '$maxLength characters.',
-      );
+      throw InvalidInputException('Max $maxLength characters.');
     }
     return cleaned;
   }

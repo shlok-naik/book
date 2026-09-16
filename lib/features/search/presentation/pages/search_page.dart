@@ -154,9 +154,7 @@ class _SearchPageState extends State<SearchPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      result = const LibraryActionResult.failure(
-        "We couldn't add that book. Try again.",
-      );
+      result = const LibraryActionResult.failure("Couldn't add book.");
     }
     if (!mounted) return;
     setState(() => _adding.remove(volume.id));

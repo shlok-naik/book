@@ -173,7 +173,7 @@ class BookDetailController extends ChangeNotifier {
     if (existing.any(
       (t) => BookTag.normalize(t.tag) == BookTag.normalize(tag),
     )) {
-      return LibraryActionResult.failure('This book is already tagged "$tag".');
+      return LibraryActionResult.failure('Already tagged "$tag".');
     }
 
     final placeholder = BookTag(
@@ -212,7 +212,7 @@ class BookDetailController extends ChangeNotifier {
     final before = _tags.data ?? const <BookTag>[];
     if (_isPending(tagId)) {
       // Still being saved — there is no row to delete yet.
-      return const LibraryActionResult.failure('That tag is still saving.');
+      return const LibraryActionResult.failure('Still saving.');
     }
     final index = before.indexWhere((t) => t.id == tagId);
     if (index == -1) return const LibraryActionResult.success();
@@ -284,7 +284,7 @@ class BookDetailController extends ChangeNotifier {
       return LibraryActionResult.failure(error.message);
     }
     if (_isPending(commentId)) {
-      return const LibraryActionResult.failure('That comment is still saving.');
+      return const LibraryActionResult.failure('Still saving.');
     }
 
     final before = _comments.data ?? const <BookComment>[];
@@ -330,7 +330,7 @@ class BookDetailController extends ChangeNotifier {
 
   Future<LibraryActionResult> deleteComment(String commentId) async {
     if (_isPending(commentId)) {
-      return const LibraryActionResult.failure('That comment is still saving.');
+      return const LibraryActionResult.failure('Still saving.');
     }
     final before = _comments.data ?? const <BookComment>[];
     final index = before.indexWhere((c) => c.id == commentId);

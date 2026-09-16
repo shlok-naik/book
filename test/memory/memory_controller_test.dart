@@ -91,12 +91,12 @@ void main() {
 
     test('exposes a friendly message on failure', () async {
       final repository = _FakeMemoryRepository()
-        ..fetchFailure = const MemoryException("We couldn't load that.");
+        ..fetchFailure = const MemoryException("Couldn't load that.");
       final controller = MemoryController(repository: repository);
 
       await controller.load();
 
-      expect(controller.errorMessage, "We couldn't load that.");
+      expect(controller.errorMessage, "Couldn't load that.");
       expect(controller.memories, isEmpty);
     });
   });

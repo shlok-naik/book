@@ -131,7 +131,7 @@ class StreaksController extends ChangeNotifier {
       );
     } on Object catch (error, stackTrace) {
       if (generation != _generation) return;
-      _errorMessage = "We couldn't load your streak history.";
+      _errorMessage = "Couldn't load streak.";
       AppLogger.error(
         'StreaksController',
         'Loading streak history failed unexpectedly.',

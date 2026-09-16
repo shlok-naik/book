@@ -327,11 +327,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         error: error,
         stackTrace: stackTrace,
       );
-      return (
-        success: false,
-        cancelled: false,
-        message: "That didn't work — try again.",
-      );
+      return (success: false, cancelled: false, message: "That didn't work.");
     }
   }
 
@@ -463,9 +459,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       if (!mounted) return CommandOutcome.rejected;
       setState(() => _aiThinking = false);
       _showMessage(
-        error is AiCommandException
-            ? error.message
-            : "Couldn't reach the AI right now — try again in a moment.",
+        error is AiCommandException ? error.message : "Couldn't reach the AI.",
         ConfirmationTone.failure,
       );
       return CommandOutcome.rejected;
@@ -697,17 +691,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       case LogCommandType.remember:
         if (!PlanController.isPro.value) {
           return Future.value(
-            const LibraryActionResult.failure(
-              'Upgrade to cactus pro to save memories.',
-            ),
+            const LibraryActionResult.failure('Memories need cactus pro.'),
           );
         }
         final note = command.note;
         if (note == null || note.isEmpty) {
           return Future.value(
-            const LibraryActionResult.failure(
-              "That memory didn't have a note to save.",
-            ),
+            const LibraryActionResult.failure('Memory is empty.'),
           );
         }
         return MemoryScope.read(context)
@@ -722,7 +712,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           PlanController.isPro.value
               ? const LibraryActionResult.success()
               : const LibraryActionResult.failure(
-                  'Upgrade to cactus pro for recommendations.',
+                  'Recommendations need cactus pro.',
                 ),
         );
       case LogCommandType.start:
@@ -739,9 +729,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final page = command.page;
         if (page == null) {
           return Future.value(
-            const LibraryActionResult.failure(
-              "That page number isn't a number we can use.",
-            ),
+            const LibraryActionResult.failure('Invalid page number.'),
           );
         }
         return library.updateProgress(title, page, loggedAt: command.date);
@@ -757,7 +745,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final shelf = command.shelf;
         if (shelf == null || shelf.isEmpty) {
           return Future.value(
-            const LibraryActionResult.failure('Name the shelf to move it to.'),
+            const LibraryActionResult.failure('Name a shelf.'),
           );
         }
         return library.moveToShelf(title, shelf);
@@ -765,7 +753,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final tag = command.tag;
         if (tag == null || tag.isEmpty) {
           return Future.value(
-            const LibraryActionResult.failure("That tag didn't have a name."),
+            const LibraryActionResult.failure('Name the tag.'),
           );
         }
         return library.addTag(title, tag);
@@ -799,9 +787,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         final rating = command.rating;
         if (rating == null) {
           return Future.value(
-            const LibraryActionResult.failure(
-              "That rating isn't a number we can use.",
-            ),
+            const LibraryActionResult.failure('Invalid rating.'),
           );
         }
         return library.rateBook(title, rating);

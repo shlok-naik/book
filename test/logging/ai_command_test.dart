@@ -276,10 +276,7 @@ void main() {
       // the same pill the manual path would show for that exact
       // failure — same message, same widget.
       expect(
-        find.widgetWithText(
-          ConfirmationPill,
-          'Ratings are between 0.5 and 5 stars.',
-        ),
+        find.widgetWithText(ConfirmationPill, 'Rate 0.5–5 stars.'),
         findsOneWidget,
       );
 
@@ -518,10 +515,7 @@ void main() {
       await tester.pump();
 
       expect(
-        find.widgetWithText(
-          ConfirmationPill,
-          'Upgrade to cactus pro to save memories.',
-        ),
+        find.widgetWithText(ConfirmationPill, 'Memories need cactus pro.'),
         findsOneWidget,
       );
       expect(memory.memories, isEmpty);

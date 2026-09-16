@@ -37,7 +37,7 @@ class CollectionsRepository {
     return runSupabase(() async {
       final rows = await _client.from('shelves').select().order('created_at');
       return [for (final row in rows) ?Shelf.fromRow(row)];
-    }, friendlyMessage: "We couldn't load your shelves.");
+    }, friendlyMessage: "Couldn't load your shelves.");
   }
 
   /// Every tag the reader made, alphabetically.
@@ -45,7 +45,7 @@ class CollectionsRepository {
     return runSupabase(() async {
       final rows = await _client.from('tags').select().order('name');
       return [for (final row in rows) ?ReaderTag.fromRow(row)];
-    }, friendlyMessage: "We couldn't load your tags.");
+    }, friendlyMessage: "Couldn't load your tags.");
   }
 
   /// Makes a shelf called [name]. Throws [InvalidInputException] for an
@@ -59,18 +59,16 @@ class CollectionsRepository {
             .insert({'name': clean})
             .select()
             .single();
-        return _parsed(Shelf.fromRow(row), row, "We couldn't make that shelf.");
-      }, friendlyMessage: "We couldn't make that shelf.");
+        return _parsed(Shelf.fromRow(row), row, "Couldn't make that shelf.");
+      }, friendlyMessage: "Couldn't make that shelf.");
     } on RemoteDataException catch (error) {
       final cause = error.cause;
       if (cause is PostgrestException) {
         if (cause.code == _uniqueViolation) {
-          throw InvalidInputException('You already have a shelf "$clean".');
+          throw InvalidInputException('Shelf "$clean" exists.');
         }
         if (cause.code == _checkViolation) {
-          throw InvalidInputException(
-            '"$clean" is already one of your built-in shelves.',
-          );
+          throw InvalidInputException('"$clean" is a built-in shelf.');
         }
       }
       rethrow;
@@ -88,16 +86,12 @@ class CollectionsRepository {
             .insert({'name': clean})
             .select()
             .single();
-        return _parsed(
-          ReaderTag.fromRow(row),
-          row,
-          "We couldn't make that tag.",
-        );
-      }, friendlyMessage: "We couldn't make that tag.");
+        return _parsed(ReaderTag.fromRow(row), row, "Couldn't make that tag.");
+      }, friendlyMessage: "Couldn't make that tag.");
     } on RemoteDataException catch (error) {
       final cause = error.cause;
       if (cause is PostgrestException && cause.code == _uniqueViolation) {
-        throw InvalidInputException('You already have a tag "$clean".');
+        throw InvalidInputException('Tag "$clean" exists.');
       }
       rethrow;
     }
@@ -111,7 +105,7 @@ class CollectionsRepository {
   Future<void> deleteShelf(String id) {
     return runSupabase<void>(() async {
       await _client.from('shelves').delete().eq('id', id);
-    }, friendlyMessage: "We couldn't remove that shelf.");
+    }, friendlyMessage: "Couldn't remove that shelf.");
   }
 
   /// Unmakes a tag the reader made — `remove tag <tag>` and the "+" panel's
@@ -119,7 +113,7 @@ class CollectionsRepository {
   Future<void> deleteTag(String id) {
     return runSupabase<void>(() async {
       await _client.from('tags').delete().eq('id', id);
-    }, friendlyMessage: "We couldn't remove that tag.");
+    }, friendlyMessage: "Couldn't remove that tag.");
   }
 
   static T _parsed<T>(T? value, Map<String, dynamic> row, String message) {

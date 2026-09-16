@@ -628,7 +628,7 @@ void main() {
     final fetchesAfterLoad = notes.fetches;
 
     await tester.scrollUntilVisible(
-      find.text("We couldn't load your tags."),
+      find.text("Couldn't load your tags."),
       200,
       scrollable: find.byType(Scrollable).first,
     );

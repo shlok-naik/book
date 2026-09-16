@@ -126,25 +126,19 @@ class EdgeFunctionCommandParser implements AiCommandParser {
     } on FunctionException catch (error) {
       throw AiCommandException(_messageFor(error), cause: error);
     } on TimeoutException catch (error) {
-      throw AiCommandException(
-        'That took too long — try again in a moment.',
-        cause: error,
-      );
+      throw AiCommandException('Timed out. Try again.', cause: error);
     } on Object catch (error) {
       // Covers the offline case and, deliberately, the AssertionError
       // `Supabase.instance` throws when the client was never
       // initialised — that must degrade to a visible message, not a
       // crash (same reasoning as `runSupabase`'s broad fallback).
-      throw AiCommandException(
-        "You're offline — connect to the internet and try again.",
-        cause: error,
-      );
+      throw AiCommandException("You're offline.", cause: error);
     }
 
     final data = response.data;
     if (data is! Map || data['commands'] is! List) {
       throw AiCommandException(
-        "The AI's reply couldn't be read.",
+        'AI error. Try again.',
         cause: 'Unexpected payload: $data',
       );
     }
@@ -165,6 +159,6 @@ class EdgeFunctionCommandParser implements AiCommandParser {
     if (details is Map && details['error'] is String) {
       return details['error'] as String;
     }
-    return "Couldn't reach the AI right now — try again in a moment.";
+    return "Couldn't reach the AI.";
   }
 }

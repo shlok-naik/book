@@ -171,7 +171,7 @@ class PurchasesService {
     switch (code) {
       case PurchasesErrorCode.networkError:
       case PurchasesErrorCode.offlineConnectionError:
-        return "You're offline — connect to the internet and try again.";
+        return "You're offline.";
       case PurchasesErrorCode.purchaseNotAllowedError:
         return "Purchases aren't allowed on this device.";
       case PurchasesErrorCode.productAlreadyPurchasedError:
@@ -182,9 +182,9 @@ class PurchasesService {
         return 'That purchase is already linked to another account.';
       case PurchasesErrorCode.invalidCredentialsError:
       case PurchasesErrorCode.configurationError:
-        return "We couldn't reach the store right now. Try again in a moment.";
+        return "Couldn't reach the store.";
       default:
-        return 'Something went wrong. Try again in a moment.';
+        return 'Something went wrong.';
     }
   }
 }

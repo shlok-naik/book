@@ -34,7 +34,7 @@ class BookDetailsRepository {
           .eq('id', bookId)
           .maybeSingle();
       return row == null ? null : Book.fromRow(row);
-    }, friendlyMessage: "We couldn't load that book's details.");
+    }, friendlyMessage: "Couldn't load that book's details.");
   }
 
   /// Writes a fetched volume's extended info onto its existing cache row
@@ -63,7 +63,7 @@ class BookDetailsRepository {
         },
       );
       return Book.fromRow(row);
-    }, friendlyMessage: "We couldn't save that book's details.");
+    }, friendlyMessage: "Couldn't save that book's details.");
   }
 
   /// Every cached edition of [bookId], in display order. Returns an empty
@@ -76,7 +76,7 @@ class BookDetailsRepository {
           .select()
           .eq('book_id', bookId);
       return [for (final row in rows) ?BookEdition.fromRow(row)];
-    }, friendlyMessage: "We couldn't load that book's editions.");
+    }, friendlyMessage: "Couldn't load that book's editions.");
   }
 
   /// Caches [editions] for [bookId] (upserting, so an edition a reader
@@ -86,7 +86,7 @@ class BookDetailsRepository {
     List<BookEdition> editions,
   ) {
     if (editions.length > 40) {
-      throw const InvalidInputException('Too many editions to save at once.');
+      throw const InvalidInputException('Too many editions.');
     }
     return runSupabase(() async {
       final rows = await _client.rpc<List<dynamic>>(
@@ -100,6 +100,6 @@ class BookDetailsRepository {
         for (final row in rows.whereType<Map<String, dynamic>>())
           ?BookEdition.fromRow(row),
       ];
-    }, friendlyMessage: "We couldn't save that book's editions.");
+    }, friendlyMessage: "Couldn't save that book's editions.");
   }
 }

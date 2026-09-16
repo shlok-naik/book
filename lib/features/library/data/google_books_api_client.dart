@@ -93,7 +93,7 @@ class GoogleBooksApiClient {
   Future<List<GoogleBook>> search(String query, {int maxResults = 10}) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
-      throw const InvalidInputException('Enter a book title to search for.');
+      throw const InvalidInputException('Enter a title.');
     }
 
     final uri = _uri(_baseUrl, {
@@ -113,10 +113,7 @@ class GoogleBooksApiClient {
           .where((book) => book.id.isNotEmpty)
           .toList();
     } on TypeError catch (error) {
-      throw RemoteDataException(
-        'Google Books sent back something we could not read.',
-        cause: error,
-      );
+      throw RemoteDataException('Google Books error.', cause: error);
     }
   }
 
@@ -129,7 +126,7 @@ class GoogleBooksApiClient {
   Future<GoogleBook> fetchVolume(String googleBooksId) async {
     final id = googleBooksId.trim();
     if (id.isEmpty) {
-      throw const InvalidInputException("That book doesn't have a Google id.");
+      throw const InvalidInputException('No Google id.');
     }
 
     final uri = _uri('$_baseUrl/${Uri.encodeComponent(id)}', const {});
@@ -142,10 +139,7 @@ class GoogleBooksApiClient {
       return volume;
     } on Object catch (error) {
       if (error is LibraryException) rethrow;
-      throw RemoteDataException(
-        'Google Books sent back something we could not read.',
-        cause: error,
-      );
+      throw RemoteDataException('Google Books error.', cause: error);
     }
   }
 
@@ -159,20 +153,11 @@ class GoogleBooksApiClient {
           .get(uri, headers: await _authHeaders())
           .timeout(_timeout);
     } on TimeoutException catch (error) {
-      throw NetworkException(
-        '$subject timed out. Check your connection and try again.',
-        cause: error,
-      );
+      throw NetworkException('$subject timed out.', cause: error);
     } on SocketException catch (error) {
-      throw NetworkException(
-        "You're offline — connect to the internet and try again.",
-        cause: error,
-      );
+      throw NetworkException("You're offline.", cause: error);
     } on http.ClientException catch (error) {
-      throw NetworkException(
-        "We couldn't reach Google Books. Try again in a moment.",
-        cause: error,
-      );
+      throw NetworkException("Can't reach Google Books.", cause: error);
     }
   }
 
@@ -195,13 +180,13 @@ class GoogleBooksApiClient {
     if (response.statusCode >= 500 || response.statusCode == 429) {
       // Server-side or rate-limited, and therefore worth retrying later.
       throw NetworkException(
-        'Google Books is having trouble right now. Try again shortly.',
+        'Google Books is busy. Try again.',
         cause: 'HTTP ${response.statusCode}: ${response.body}',
       );
     }
     if (response.statusCode == 404) {
       throw BookNotFoundException(
-        "Google Books doesn't have that book any more.",
+        'Book no longer on Google Books.',
         cause: 'HTTP 404: ${response.body}',
       );
     }
@@ -209,7 +194,7 @@ class GoogleBooksApiClient {
       // 4xx: bad key, malformed query — retrying the same call will not
       // help, so this is a data/config error.
       throw RemoteDataException(
-        "Book search isn't available right now.",
+        'Search unavailable.',
         cause: 'HTTP ${response.statusCode}: ${response.body}',
       );
     }
@@ -221,10 +206,7 @@ class GoogleBooksApiClient {
       }
       return body;
     } on FormatException catch (error) {
-      throw RemoteDataException(
-        'Google Books sent back something we could not read.',
-        cause: error,
-      );
+      throw RemoteDataException('Google Books error.', cause: error);
     }
   }
 

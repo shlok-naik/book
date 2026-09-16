@@ -552,7 +552,7 @@ void main() {
         await tester.tap(find.text('join now'));
         await settleFrames(tester);
 
-        expect(find.textContaining("isn't active yet"), findsOneWidget);
+        expect(find.textContaining("isn't active"), findsOneWidget);
         expectStillOpen(tester);
       },
     );
@@ -577,19 +577,14 @@ void main() {
     testWidgets('a failed purchase surfaces its message', (tester) async {
       final purchases = FakePurchasesService(
         offering: _fakeOffering(),
-        purchaseError: const PurchasesException(
-          "You're offline — connect to the internet and try again.",
-        ),
+        purchaseError: const PurchasesException("You're offline."),
       );
       await pumpWithPurchases(tester, purchases);
 
       await tester.tap(find.text('join now'));
       await settleFrames(tester);
 
-      expect(
-        find.text("You're offline — connect to the internet and try again."),
-        findsOneWidget,
-      );
+      expect(find.text("You're offline."), findsOneWidget);
     });
 
     testWidgets(

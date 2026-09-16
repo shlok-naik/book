@@ -308,10 +308,7 @@ void main() {
       final result = await controller.addToSeries('Dune', 'Dune');
 
       expect(result.success, isFalse);
-      expect(
-        result.message,
-        'No series called "Dune" yet — make it first with make series Dune.',
-      );
+      expect(result.message, 'No series "Dune". Try: make series Dune');
       expect(series.calls, isEmpty);
       expect(series.mine, isEmpty, reason: 'never created implicitly');
     });

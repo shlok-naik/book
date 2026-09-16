@@ -455,7 +455,7 @@ class LibraryController extends ChangeNotifier {
       // Callers fire this without awaiting (startup, resume, a sync); an
       // unexpected parse error must still read as a failed load with a
       // retry, not escape as an unhandled error behind a spinner.
-      _errorMessage = "We couldn't load your library.";
+      _errorMessage = "Couldn't load library.";
       AppLogger.error(
         'LibraryController',
         'Loading the shelf failed unexpectedly.',
@@ -528,15 +528,13 @@ class LibraryController extends ChangeNotifier {
   }) async {
     if (!canMakeShelf(isPro)) {
       return const LibraryActionResult.failure(
-        'Upgrade to cactus pro to make custom shelves.',
+        'Custom shelves need cactus pro.',
       );
     }
     try {
       final clean = CollectionNames.validateShelf(name);
       if (findShelf(clean) != null) {
-        return LibraryActionResult.failure(
-          'You already have a shelf "$clean".',
-        );
+        return LibraryActionResult.failure('Shelf "$clean" exists.');
       }
       final shelf = await collections.createShelf(clean);
       _shelves = [..._shelves, shelf];
@@ -556,13 +554,13 @@ class LibraryController extends ChangeNotifier {
   }) async {
     if (!canMakeTag(isPro)) {
       return const LibraryActionResult.failure(
-        'Upgrade to cactus pro for unlimited tags — free includes 2.',
+        'Free has 2 tags. Get cactus pro for more.',
       );
     }
     try {
       final clean = CollectionNames.validateTag(name);
       if (findTag(clean) != null) {
-        return LibraryActionResult.failure('You already have a tag "$clean".');
+        return LibraryActionResult.failure('Tag "$clean" exists.');
       }
       final tag = await collections.createTag(clean);
       _tags = [..._tags, tag]..sort(_byName((t) => t.name));
@@ -583,15 +581,13 @@ class LibraryController extends ChangeNotifier {
   }) async {
     if (!canMakeSeries(isPro)) {
       return const LibraryActionResult.failure(
-        'Upgrade to cactus pro for unlimited series — free includes 1.',
+        'Free has 1 series. Get cactus pro for more.',
       );
     }
     try {
       final clean = CollectionNames.validateSeries(name);
       if (findSeries(clean) case final existing?) {
-        return LibraryActionResult.failure(
-          'You already have a series "${existing.name}".',
-        );
+        return LibraryActionResult.failure('Series "${existing.name}" exists.');
       }
       final made = await series.makeSeries(clean);
       _addSeriesLocal(made);
@@ -697,7 +693,7 @@ class LibraryController extends ChangeNotifier {
         // Already on the shelf locally: nothing to write, so no round trip
         // just to have the server say the same thing.
         return LibraryActionResult.failure(
-          '"${existing.book.title}" is already on your shelf.',
+          '"${existing.book.title}" is already shelved.',
         );
       }
       final started = await userBooks.start(book.id, startedAt: loggedAt);
@@ -706,7 +702,7 @@ class LibraryController extends ChangeNotifier {
       _warmEditions(book);
       if (started.alreadyExists) {
         return LibraryActionResult.failure(
-          '"${book.title}" is already on your shelf.',
+          '"${book.title}" is already shelved.',
         );
       }
       _logEvent(ReadingEventType.start, book.title, occurredAt: loggedAt);
@@ -857,7 +853,7 @@ class LibraryController extends ChangeNotifier {
   static LibraryActionResult _noSuchShelf(String name) {
     final clean = CollectionNames.clean(name);
     return LibraryActionResult.failure(
-      'No shelf called "$clean" — make it first with make shelf $clean.',
+      'No shelf "$clean". Try: make shelf $clean',
     );
   }
 
@@ -939,8 +935,7 @@ class LibraryController extends ChangeNotifier {
         _logEvent(_eventForShelf(moved.status), entry.book.title);
       }
       return LibraryActionResult.failure(
-        '${_movedMessage(entry.book.title, shelf)}, but its spot on the '
-        "shelf didn't save.",
+        "${_movedMessage(entry.book.title, shelf)}, but its spot didn't save.",
       );
     }
   }
@@ -1262,7 +1257,7 @@ class LibraryController extends ChangeNotifier {
   }) async {
     if (!entry.isFinished) {
       return LibraryActionResult.failure(
-        '"${entry.book.title}" hasn\'t been finished yet.',
+        '"${entry.book.title}" isn\'t finished.',
       );
     }
 
@@ -1339,10 +1334,10 @@ class LibraryController extends ChangeNotifier {
   static String? _validateRating(double rating) {
     // Checked before rounding: `round()` throws on NaN and infinity, and a
     // long enough run of typed digits parses to infinity.
-    if (!rating.isFinite) return 'Ratings are between 0.5 and 5 stars.';
+    if (!rating.isFinite) return 'Rate 0.5–5 stars.';
     final rounded = roundToHalf(rating);
     if (rounded <= 0 || rounded > 5) {
-      return 'Ratings are between 0.5 and 5 stars.';
+      return 'Rate 0.5–5 stars.';
     }
     return null;
   }
@@ -1360,7 +1355,7 @@ class LibraryController extends ChangeNotifier {
   ) async {
     if (!entry.isFinished) {
       return LibraryActionResult.failure(
-        'Finish "${entry.book.title}" before rating it.',
+        'Finish "${entry.book.title}" to rate it.',
       );
     }
 
@@ -1413,9 +1408,7 @@ class LibraryController extends ChangeNotifier {
     if (entry == null) return _missingById;
     final editionId = edition?.id;
     if (edition != null && editionId == null) {
-      return const LibraryActionResult.failure(
-        "That edition can't be selected yet — try again in a moment.",
-      );
+      return const LibraryActionResult.failure('Edition not ready. Try again.');
     }
     if (entry.progress.ownedEditionId == editionId) {
       return const LibraryActionResult.success();
@@ -1508,7 +1501,7 @@ class LibraryController extends ChangeNotifier {
   /// "No tag called …" — the one wording for a tag that hasn't been made.
   static String unknownTagMessage(String tagName) {
     final clean = CollectionNames.clean(tagName);
-    return 'No tag called "$clean" yet — make it first with make tag $clean.';
+    return 'No tag "$clean". Try: make tag $clean';
   }
 
   /// `add comment <comment> <book>` — comments on a book already on the
@@ -1539,8 +1532,7 @@ class LibraryController extends ChangeNotifier {
       final split = splitTrailingTitle(comment);
       if (split == null) {
         return const LibraryActionResult.failure(
-          "Couldn't tell which book that comment is for — try "
-          'add comment "your comment" <book>.',
+          'Which book? Try: add comment "text" <book>',
         );
       }
       body = split.prefix;
@@ -1671,8 +1663,7 @@ class LibraryController extends ChangeNotifier {
       return (
         series: null,
         failure: LibraryActionResult.failure(
-          'No series called "$clean" yet — make it first with make series '
-          '$clean.',
+          'No series "$clean". Try: make series $clean',
         ),
       );
     }
@@ -1680,9 +1671,7 @@ class LibraryController extends ChangeNotifier {
         (!position.isFinite || position <= 0 || position >= 10000)) {
       return (
         series: null,
-        failure: const LibraryActionResult.failure(
-          'A series number has to be above 0 and below 10000.',
-        ),
+        failure: const LibraryActionResult.failure('Number must be 1–9999.'),
       );
     }
     return (series: known, failure: null);
@@ -1900,7 +1889,7 @@ class LibraryController extends ChangeNotifier {
     final target = findShelf(shelfName);
     if (target is! CustomShelfRef) {
       return LibraryActionResult.failure(
-        'No shelf called "${CollectionNames.clean(shelfName)}".',
+        'No shelf "${CollectionNames.clean(shelfName)}".',
       );
     }
     if (entry.shelfId != target.shelfId) {
@@ -2017,7 +2006,7 @@ class LibraryController extends ChangeNotifier {
   Future<LibraryActionResult> deleteShelf(String shelfId) async {
     final shelf = _shelfById(shelfId);
     if (shelf == null) {
-      return const LibraryActionResult.failure("That shelf doesn't exist.");
+      return const LibraryActionResult.failure('No such shelf.');
     }
     try {
       await collections.deleteShelf(shelfId);
@@ -2064,7 +2053,7 @@ class LibraryController extends ChangeNotifier {
   Future<LibraryActionResult> deleteSeries(String seriesId) async {
     final found = seriesById(seriesId);
     if (found == null) {
-      return const LibraryActionResult.failure("That series doesn't exist.");
+      return const LibraryActionResult.failure('No such series.');
     }
     try {
       await series.deleteSeries(seriesId);
@@ -2214,9 +2203,7 @@ class LibraryController extends ChangeNotifier {
     final progress = entry.progress;
 
     if (finishedAt != null && !entry.isFinished) {
-      return const LibraryActionResult.failure(
-        'Only a finished book has a finish date.',
-      );
+      return const LibraryActionResult.failure('Not finished yet.');
     }
     final start = startedAt ?? progress.startedAt;
     final finish = finishedAt ?? progress.finishedAt;
@@ -2227,17 +2214,13 @@ class LibraryController extends ChangeNotifier {
     final endOfToday = DateTime(today.year, today.month, today.day + 1);
     for (final date in [startedAt, finishedAt]) {
       if (date != null && !date.isBefore(endOfToday)) {
-        return const LibraryActionResult.failure(
-          "That date hasn't happened yet.",
-        );
+        return const LibraryActionResult.failure('Date is in the future.');
       }
     }
     if (entry.isFinished &&
         finish != null &&
         _dayOf(finish).isBefore(_dayOf(start))) {
-      return const LibraryActionResult.failure(
-        "A book can't be finished before it was started.",
-      );
+      return const LibraryActionResult.failure('Finish is before start.');
     }
     if (_sameMoment(start, progress.startedAt) &&
         (!entry.isFinished || _sameMoment(finish, progress.finishedAt))) {
@@ -2465,23 +2448,19 @@ class LibraryController extends ChangeNotifier {
   String? _validateLoggedAt(DateTime? loggedAt) {
     if (loggedAt == null) return null;
     if (loggedAt.isAfter(DateTime.now())) {
-      return "That date hasn't happened yet.";
+      return 'Date is in the future.';
     }
     return null;
   }
 
   static LibraryActionResult _notStarted(String title) =>
-      LibraryActionResult.failure(
-        'You haven\'t started "$title" yet — try "start $title" first.',
-      );
+      LibraryActionResult.failure('"$title" not started. Try: start $title');
 
   static LibraryActionResult _notOnShelf(String title) =>
-      LibraryActionResult.failure(
-        '"$title" isn\'t on your shelf yet — try "move $title tbr" first.',
-      );
+      LibraryActionResult.failure('"$title" not shelved. Try: move $title tbr');
 
   static const _missingById = LibraryActionResult.failure(
-    "That book isn't on your shelf any more.",
+    'Book no longer shelved.',
   );
 
   /// Resolves what the reader typed to a book on the shelf: exact title

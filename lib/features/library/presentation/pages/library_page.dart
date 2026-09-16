@@ -233,10 +233,7 @@ class _LibraryPageState extends State<LibraryPage> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        _showMessage(
-          "We couldn't open that shelf. Try again.",
-          ConfirmationTone.failure,
-        );
+        _showMessage("Couldn't open shelf.", ConfirmationTone.failure);
       }
     }
   }
@@ -276,9 +273,7 @@ class _LibraryPageState extends State<LibraryPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      result = const LibraryActionResult.failure(
-        "We couldn't remove that book. Try again.",
-      );
+      result = const LibraryActionResult.failure("Couldn't remove book.");
     }
     if (!mounted) return;
     setState(() => _moving = false);
@@ -307,10 +302,7 @@ class _LibraryPageState extends State<LibraryPage> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        _showMessage(
-          "We couldn't open that. Try again.",
-          ConfirmationTone.failure,
-        );
+        _showMessage("Couldn't open that.", ConfirmationTone.failure);
       }
     }
   }
@@ -475,9 +467,7 @@ class _LibraryPageState extends State<LibraryPage> {
         error: error,
         stackTrace: stackTrace,
       );
-      result = const LibraryActionResult.failure(
-        "We couldn't move that book. Try again.",
-      );
+      result = const LibraryActionResult.failure("Couldn't move book.");
     }
     if (!mounted) return;
     setState(() => _moving = false);
@@ -509,10 +499,7 @@ class _LibraryPageState extends State<LibraryPage> {
         stackTrace: stackTrace,
       );
       if (mounted) {
-        _showMessage(
-          "We couldn't open that book. Try again.",
-          ConfirmationTone.failure,
-        );
+        _showMessage("Couldn't open book.", ConfirmationTone.failure);
       }
     }
   }

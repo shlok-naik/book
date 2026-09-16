@@ -35,7 +35,7 @@ class BookCacheRepository {
           .eq('google_books_id', googleBooksId.trim())
           .maybeSingle();
       return row == null ? null : Book.fromRow(row);
-    }, friendlyMessage: "We couldn't check your saved books.");
+    }, friendlyMessage: "Couldn't check your saved books.");
   }
 
   /// Cache lookup by ISBN-13 or ISBN-10 — both columns are filled in once a
@@ -50,7 +50,7 @@ class BookCacheRepository {
           .or('isbn_13.eq.$clean,isbn_10.eq.$clean')
           .limit(1);
       return rows.isEmpty ? null : Book.fromRow(rows.first);
-    }, friendlyMessage: "We couldn't check your saved books.");
+    }, friendlyMessage: "Couldn't check your saved books.");
   }
 
   /// Cache lookup by what the user actually typed.
@@ -76,7 +76,7 @@ class BookCacheRepository {
         titlePattern: '${escapeLikePattern(trimmedTitle)}%',
         author: author,
       );
-    }, friendlyMessage: "We couldn't check your saved books.");
+    }, friendlyMessage: "Couldn't check your saved books.");
   }
 
   Future<Book?> _selectFirst({
@@ -109,7 +109,7 @@ class BookCacheRepository {
   Future<Book> cache(GoogleBook volume) {
     if (volume.id.trim().isEmpty) {
       throw const RemoteDataException(
-        "We couldn't save that book to your library.",
+        "Couldn't save book.",
         cause: 'Google Books volume has no id; nothing to de-duplicate on.',
       );
     }
@@ -128,6 +128,6 @@ class BookCacheRepository {
         },
       );
       return Book.fromRow(row);
-    }, friendlyMessage: "We couldn't save that book to your library.");
+    }, friendlyMessage: "Couldn't save that book to your library.");
   }
 }

@@ -155,7 +155,7 @@ class _SettingsPageState extends State<SettingsPage> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      setState(() => _error = "We couldn't check your subscription right now.");
+      setState(() => _error = "Couldn't check subscription.");
     }
   }
 
