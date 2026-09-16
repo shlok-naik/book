@@ -6,14 +6,9 @@ import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/tilted_marquee_wall.dart';
 
-/// [CommandWall]'s Pro-tier counterpart: the same tilted, auto-scrolling
-/// wall, but the chips are natural-language snippets — the sort of
-/// thing a reader might actually type — in place of exact command
-/// syntax.
-///
-/// Styled in italic Inter rather than [CommandWall]'s monospace, so the
-/// two walls read as visually distinct at a glance: precise commands
-/// versus conversational language.
+/// A tilted, auto-scrolling wall of plain sentences — the sort of thing a
+/// reader might actually type on the add tab — in italic Inter so it reads
+/// as conversation rather than command syntax.
 class NaturalLanguageWall extends StatelessWidget {
   const NaturalLanguageWall({super.key});
 
@@ -21,7 +16,7 @@ class NaturalLanguageWall extends StatelessWidget {
     [
       'started the shining yesterday',
       'i read up to pg 28',
-      'recommend a book like this',
+      'finished circe last night',
     ],
     ['i liked the story', 'the pacing was alright ig', 'i like the characters'],
     ['finished dune, loved it', 'rate circe 5 stars', 'kinda confusing tbh'],

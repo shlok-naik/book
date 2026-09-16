@@ -69,21 +69,21 @@ import '../widgets/soft_pill_button.dart';
 /// specific feature in mind (settings' "get cactus pro", the once-per-
 /// install intro offer) and starts at the beginning.
 enum PaywallFeature {
-  /// Chapter I — natural-language logging (the add tab's pro path).
-  naturalLanguage,
+  /// Chapter I — unlimited shelves, tags and series, the stats page's
+  /// locked insights, and the Goodreads import.
+  expression,
 
-  /// Chapter II — the Memory tab and `remember`.
-  memory,
-
-  /// Chapter III — `recommend`.
-  recommendations,
-
-  /// Chapter IV — settings' "themes and icons".
+  /// Chapter II — settings' "themes and icons".
   customisation,
 
-  /// Chapter V — the stats page's locked insights and journal, custom
-  /// shelves/tags/series beyond the free caps, and the Goodreads import.
-  readingUnlocked,
+  /// Chapter III — the AI natural-language parser.
+  naturalLanguage,
+
+  /// Chapter IV — the memory page, `remember` and `recommend`.
+  memory,
+
+  /// Chapter V — no feature, just the last word.
+  cooler,
 
   /// No specific feature — opens on chapter I.
   general;
@@ -777,44 +777,43 @@ typedef _Chapter = ({String roman, String title, String body, String filler});
 const _chapters = <_Chapter>[
   (
     roman: 'I',
-    title: 'Converse & Express',
+    title: 'The Art of Expression',
     body:
-        'Interact with your library using your own words. Express your '
-        'emotions, and discover exactly what you are looking for next.',
+        'Unlimited shelves, tags and series, so every book sits exactly '
+        'where it belongs. Deeper stats, and your whole Goodreads library '
+        'in one import.',
     filler: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.',
   ),
   (
     roman: 'II',
-    title: 'A Mind of Its Own',
+    title: 'Unparalleled Customisation',
     body:
-        'Powered by advanced AI with long-term memory. It remembers '
-        'your preferences and conversations, so you never repeat '
-        'yourself.',
-    filler: 'Duis aute irure dolor in reprehenderit in voluptate velit.',
+        'Make cactus unmistakably yours. A wardrobe of themes, launcher '
+        'icons and fonts, each hand-tuned for reading.',
+    filler: 'Ut enim ad minim veniam, quis nostrud exercitation ullamco.',
   ),
   (
     roman: 'III',
-    title: 'The Perfect Match',
+    title: 'Fluent in You',
     body:
-        'Discover your next great story. Get tailored recommendations '
-        'built from your conversational history.',
+        'Our sharpest language model reads you like a favourite novel — '
+        'rambles, feelings, typos and all.',
     filler: 'Sed ut perspiciatis unde omnis iste natus error sit.',
   ),
   (
     roman: 'IV',
-    title: 'Unparalleled Customisation',
+    title: 'A Mind of Its Own',
     body:
-        'Make cactus unmistakably yours. Choose from a wardrobe of '
-        'launcher icons and a warm, hand-tuned reading theme.',
-    filler: 'Ut enim ad minim veniam, quis nostrud exercitation ullamco.',
+        'It remembers how every book made you feel, and turns that memory '
+        'into recommendations that truly fit.',
+    filler: 'Duis aute irure dolor in reprehenderit in voluptate velit.',
   ),
   (
     roman: 'V',
-    title: 'Your Reading, Unlocked',
+    title: 'Considerably Cooler',
     body:
-        'Unlimited shelves, tags and series. Deeper stats — your pace, '
-        'your genres, your trends over time. Bring your whole library '
-        'over from Goodreads in one import.',
+        'Studies show cactus pro readers are 73% cooler. We did not do the '
+        'study. You will still feel it.',
     filler: 'Excepteur sint occaecat cupidatat non proident, sunt in culpa.',
   ),
 ];

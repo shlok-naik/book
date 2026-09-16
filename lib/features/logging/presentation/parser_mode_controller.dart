@@ -22,9 +22,9 @@ enum ParserMode {
 }
 
 /// Which parser the add tab uses. Chosen in settings' **debug** section
-/// (debug builds only) — the beta parser isn't offered to readers yet. Until
-/// something is chosen, and always in a release build, it follows the plan:
-/// pro AI for cactus pro, classic otherwise ([effective]).
+/// (debug builds only). Until something is chosen, and always in a release
+/// build, it follows the plan: pro AI for cactus pro, the beta parser
+/// otherwise ([effective]).
 class ParserModeController {
   ParserModeController._();
 
@@ -33,15 +33,16 @@ class ParserModeController {
   /// The debug choice; null follows the plan.
   static final ValueNotifier<ParserMode?> chosen = ValueNotifier(null);
 
-  /// The plan's own parser.
+  /// The plan's own parser: the AI for cactus pro, and the on-device beta
+  /// parser — plain sentences — for everyone else.
   static ParserMode get planDefault =>
-      PlanController.isPro.value ? ParserMode.proAi : ParserMode.classic;
+      PlanController.isPro.value ? ParserMode.proAi : ParserMode.beta;
 
   /// What actually runs. Offline, the AI can't, so a pro AI choice falls
-  /// back to classic; the beta parser runs on the device and stays.
+  /// back to the beta parser, which runs on the device.
   static ParserMode effective({required bool offline}) {
     final mode = (kDebugMode ? chosen.value : null) ?? planDefault;
-    return mode == ParserMode.proAi && offline ? ParserMode.classic : mode;
+    return mode == ParserMode.proAi && offline ? ParserMode.beta : mode;
   }
 
   static Future<void> initialize() async {

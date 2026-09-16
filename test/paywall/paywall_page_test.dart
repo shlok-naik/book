@@ -656,7 +656,7 @@ void main() {
       await pumpPaywall(tester);
 
       expect(find.text('chapter I'), findsOneWidget);
-      expect(find.text('Converse & Express'), findsOneWidget);
+      expect(find.text('The Art of Expression'), findsOneWidget);
     });
 
     testWidgets('swiping left turns the page to the next chapter', (
@@ -664,26 +664,27 @@ void main() {
     ) async {
       await pumpPaywall(tester);
 
-      await tester.drag(find.text('Converse & Express'), const Offset(-400, 0));
+      await tester.drag(
+        find.text('The Art of Expression'),
+        const Offset(-400, 0),
+      );
       await settleFrames(tester);
 
       expect(find.text('chapter II'), findsOneWidget);
-      expect(find.text('A Mind of Its Own'), findsOneWidget);
+      expect(find.text('Unparalleled Customisation'), findsOneWidget);
     });
 
-    testWidgets('a fourth chapter pitches icon/theme customisation', (
-      tester,
-    ) async {
+    testWidgets('the last chapter is the cool one', (tester) async {
       await pumpPaywall(tester);
 
-      // I -> II -> III -> IV: three swipes land on the new chapter.
-      for (var i = 0; i < 3; i++) {
+      // I -> II -> III -> IV -> V.
+      for (var i = 0; i < 4; i++) {
         await tester.drag(find.byType(PageView), const Offset(-400, 0));
         await settleFrames(tester);
       }
 
-      expect(find.text('chapter IV'), findsOneWidget);
-      expect(find.text('Unparalleled Customisation'), findsOneWidget);
+      expect(find.text('chapter V'), findsOneWidget);
+      expect(find.text('Considerably Cooler'), findsOneWidget);
     });
 
     test('every specific feature names its own chapter', () {
@@ -697,9 +698,10 @@ void main() {
     });
 
     for (final (feature, roman, title) in [
-      (PaywallFeature.memory, 'II', 'A Mind of Its Own'),
-      (PaywallFeature.customisation, 'IV', 'Unparalleled Customisation'),
-      (PaywallFeature.readingUnlocked, 'V', 'Your Reading, Unlocked'),
+      (PaywallFeature.expression, 'I', 'The Art of Expression'),
+      (PaywallFeature.customisation, 'II', 'Unparalleled Customisation'),
+      (PaywallFeature.naturalLanguage, 'III', 'Fluent in You'),
+      (PaywallFeature.memory, 'IV', 'A Mind of Its Own'),
     ]) {
       testWidgets('opened for ${feature.name}, it starts on chapter $roman', (
         tester,
@@ -714,7 +716,7 @@ void main() {
     testWidgets('a reader can still swipe back from the chapter it opened on', (
       tester,
     ) async {
-      await pumpPaywall(tester, feature: PaywallFeature.customisation);
+      await pumpPaywall(tester, feature: PaywallFeature.memory);
 
       await tester.drag(find.byType(PageView), const Offset(400, 0));
       await settleFrames(tester);
@@ -753,7 +755,7 @@ void main() {
       // A real PageView page, unlike the marquee it replaced, needs no
       // summarising workaround — the chapter's title is just its own
       // text node.
-      expect(find.text('Converse & Express'), findsOneWidget);
+      expect(find.text('The Art of Expression'), findsOneWidget);
 
       handle.dispose();
     });

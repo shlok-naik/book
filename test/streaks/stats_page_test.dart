@@ -585,9 +585,9 @@ void main() {
       expect(find.byType(PaywallPage), findsOneWidget);
       expect(
         tester.widget<PaywallPage>(find.byType(PaywallPage)).feature,
-        PaywallFeature.readingUnlocked,
+        PaywallFeature.expression,
       );
-      expect(find.text('Your Reading, Unlocked'), findsOneWidget);
+      expect(find.text('The Art of Expression'), findsOneWidget);
     });
 
     testWidgets('a free reader sees reading days, but tags only as a preview', (

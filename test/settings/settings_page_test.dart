@@ -555,19 +555,24 @@ void main() {
 
       // `flutter test` runs in debug, so this section is compiled in
       // here by definition; a release build tree-shakes it away.
-      final beta = find.byKey(const ValueKey('parser-mode-beta'));
-      await tester.scrollUntilVisible(beta, 200);
-      await tester.ensureVisible(beta);
+      final classic = find.byKey(const ValueKey('parser-mode-classic'));
+      await tester.scrollUntilVisible(classic, 200);
+      await tester.ensureVisible(classic);
       await tester.pumpAndSettle();
       expect(find.text('pretend plan'), findsNothing);
-      expect(find.text('classic'), findsOneWidget);
+      expect(find.text('beta parser'), findsOneWidget);
       expect(find.text('pro ai'), findsOneWidget);
+      // Free readers start on the beta parser; classic is a debug choice.
+      expect(ParserModeController.effective(offline: false), ParserMode.beta);
 
-      await tester.tap(beta);
+      await tester.tap(classic);
       await tester.pumpAndSettle();
 
-      expect(ParserModeController.chosen.value, ParserMode.beta);
-      expect(ParserModeController.effective(offline: false), ParserMode.beta);
+      expect(ParserModeController.chosen.value, ParserMode.classic);
+      expect(
+        ParserModeController.effective(offline: false),
+        ParserMode.classic,
+      );
     });
   });
 

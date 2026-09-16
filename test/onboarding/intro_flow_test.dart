@@ -17,18 +17,19 @@ import 'package:book/features/memory/domain/memory.dart';
 import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
 import 'package:book/features/memory/presentation/memory_scope.dart';
 import 'package:book/features/onboarding/data/onboarding_store.dart';
-import 'package:book/features/onboarding/presentation/pages/add_book_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/buttons_tutorial_page.dart';
+import 'package:book/features/onboarding/presentation/pages/customisation_tour_page.dart';
+import 'package:book/features/onboarding/presentation/pages/express_yourself_page.dart';
 import 'package:book/features/onboarding/presentation/pages/finish_page.dart';
 import 'package:book/features/onboarding/presentation/pages/founders_note_page.dart';
 import 'package:book/features/onboarding/presentation/pages/goodreads_prompt_page.dart';
-import 'package:book/features/onboarding/presentation/pages/natural_language_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.dart';
 import 'package:book/features/onboarding/presentation/pages/reading_goal_page.dart';
 import 'package:book/features/onboarding/presentation/pages/reading_tastes_page.dart';
+import 'package:book/features/onboarding/presentation/pages/speak_freely_page.dart';
 import 'package:book/features/onboarding/presentation/pages/speed_up_prompt_page.dart';
-import 'package:book/features/onboarding/presentation/pages/tags_comments_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/theme_preference_page.dart';
+import 'package:book/features/onboarding/presentation/pages/track_reading_page.dart';
 import 'package:book/features/onboarding/presentation/pages/welcome_page.dart';
 import 'package:book/features/search/domain/reading_taste.dart';
 import 'package:book/features/search/presentation/reading_tastes_controller.dart';
@@ -169,6 +170,13 @@ Future<void> start(WidgetTester tester) async {
 
 Future<void> tapContinue(WidgetTester tester) => tapPill(tester, 'continue');
 
+/// The four tour pages, from the first through "track your reading".
+Future<void> walkTour(WidgetTester tester) async {
+  for (var i = 0; i < 4; i++) {
+    await tapContinue(tester);
+  }
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -184,39 +192,32 @@ void main() {
     expect(find.text('cactus'), findsOneWidget);
     await start(tester);
 
-    // Buttons first: the app is usable without a single command.
+    // The tour: tapping, expressing, customising (pro), tracking.
     expect(find.byType(ButtonsTutorialPage), findsOneWidget);
-    expect(find.text('want to read'), findsOneWidget);
+    expect(find.text('just a tap away'), findsOneWidget);
+    expect(find.text('free'), findsOneWidget);
+    await tapContinue(tester);
+
+    expect(find.byType(ExpressYourselfPage), findsOneWidget);
+    expect(find.text('express yourself'), findsOneWidget);
+    await tapContinue(tester);
+
+    expect(find.byType(CustomisationTourPage), findsOneWidget);
+    expect(find.text('cactus, how you want it'), findsOneWidget);
+    expect(find.text('cactus pro'), findsOneWidget);
+    await tapContinue(tester);
+
+    expect(find.byType(TrackReadingPage), findsOneWidget);
+    expect(find.text('track your reading'), findsOneWidget);
     await tapContinue(tester);
 
     expect(find.byType(SpeedUpPromptPage), findsOneWidget);
     await tapPill(tester, 'yes, show me');
 
-    expect(find.byType(AddBookTutorialPage), findsOneWidget);
-    // `move` isn't taught on the first tutorial any more.
-    expect(find.textContaining('move <book>'), findsNothing);
-    expect(find.textContaining('move '), findsNothing);
-    expect(find.text('free'), findsOneWidget);
-    await tapContinue(tester);
-
-    // Straight after the free-tier commands: tags and comments, and the
-    // DNF reason they're for.
-    expect(find.byType(TagsCommentsTutorialPage), findsOneWidget);
-    expect(find.textContaining('add tag <tag> <book>'), findsOneWidget);
-    expect(find.textContaining('add comment <comment> <book>'), findsOneWidget);
-    // Shelves are taught here, marked as the one pro command on the page.
-    expect(find.textContaining('make shelf <shelf name>'), findsOneWidget);
-    expect(find.text('  · pro'), findsOneWidget);
-    expect(
-      find.textContaining('why you stopped', findRichText: true),
-      findsOneWidget,
-    );
-    await tapContinue(tester);
-
-    // The first pro step says where the free tour ended.
-    expect(find.byType(NaturalLanguageTutorialPage), findsOneWidget);
-    expect(find.text('cactus pro'), findsOneWidget);
-    expect(find.textContaining('everything so far is free'), findsOneWidget);
+    // No command syntax taught: the add tab just reads sentences.
+    expect(find.byType(SpeakFreelyPage), findsOneWidget);
+    expect(find.text('speak how you want'), findsOneWidget);
+    expect(find.textContaining('<book>'), findsNothing);
     await tapContinue(tester);
 
     // A reader coming from Goodreads is asked here, before "pick a
@@ -255,7 +256,7 @@ void main() {
   ) async {
     await pumpIntro(tester);
     await start(tester);
-    await tapContinue(tester);
+    await walkTour(tester);
     await tapPill(tester, 'no thanks');
     await tapPill(tester, 'not now');
 
@@ -273,17 +274,16 @@ void main() {
     expect(ThemeController.mode.value, ThemeMode.dark);
   });
 
-  testWidgets('saying no to commands skips every command tutorial', (
+  testWidgets('saying no to speeding up skips the sentence page', (
     tester,
   ) async {
     await pumpIntro(tester);
     await start(tester);
-    await tapContinue(tester);
+    await walkTour(tester);
     await tapPill(tester, 'no thanks');
 
     expect(find.byType(GoodreadsPromptPage), findsOneWidget);
-    expect(find.byType(AddBookTutorialPage), findsNothing);
-    expect(find.byType(NaturalLanguageTutorialPage), findsNothing);
+    expect(find.byType(SpeakFreelyPage), findsNothing);
   });
 
   testWidgets('finishing records the flag and hands over to the app', (
@@ -311,11 +311,9 @@ void main() {
   Future<void> walkToGoal(WidgetTester tester, GoalController goals) async {
     await pumpIntro(tester, goals: goals);
     await start(tester);
-    await tapContinue(tester);
+    await walkTour(tester);
     await tapPill(tester, 'yes, show me');
-    for (var i = 0; i < 3; i++) {
-      await tapContinue(tester);
-    }
+    await tapContinue(tester);
     await tapPill(tester, 'not now');
     await tapContinue(tester);
     expect(find.byType(ReadingGoalPage), findsOneWidget);

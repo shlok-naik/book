@@ -92,7 +92,7 @@ class _StatsPageState extends State<StatsPage> with ProGateState<StatsPage> {
   PurchasesService? get purchasesOverride => widget.purchases;
 
   @override
-  PaywallFeature get paywallFeature => PaywallFeature.readingUnlocked;
+  PaywallFeature get paywallFeature => PaywallFeature.expression;
 
   /// Built lazily in [didChangeDependencies], not [initState] — it needs
   /// [LibraryScope.of], which isn't safe to call until this widget is in

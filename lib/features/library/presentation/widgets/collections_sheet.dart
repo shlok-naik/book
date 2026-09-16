@@ -207,7 +207,7 @@ class _MakeTabState extends State<_MakeTab> with AutomaticKeepAliveClientMixin {
       CollectionKind.series => library.canMakeSeries(isPro),
     };
     if (!canMake) {
-      await showPaywallPopup(context, feature: PaywallFeature.readingUnlocked);
+      await showPaywallPopup(context, feature: PaywallFeature.expression);
       if (mounted) setState(() {}); // re-reads PlanController.isPro below
       return;
     }

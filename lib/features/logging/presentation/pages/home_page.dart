@@ -248,8 +248,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _showMessage('Kept looking', ConfirmationTone.neutral);
       return CommandOutcome.dismissed;
     }
-    if (commands.length == 1 && commands.single == command.trim()) {
-      return _runManual(command);
+    // A typed command stays a typed command — at most its title was matched
+    // to the shelf ("delete dune" → "delete Dune") — so it keeps the field's
+    // own accept/shake instead of turning into an instruction list.
+    if (commands.length == 1 &&
+        (commands.single == command.trim() ||
+            LogCommandParser.parse(command).recognized)) {
+      return _runManual(commands.single);
     }
     _showInstructions(commands);
     return CommandOutcome.accepted;

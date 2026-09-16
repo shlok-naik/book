@@ -313,7 +313,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       isPro: unlocked,
                       onLocked: _busy
                           ? null
-                          : () => _upgrade(PaywallFeature.readingUnlocked),
+                          : () => _upgrade(PaywallFeature.expression),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     const _HelpSection(),

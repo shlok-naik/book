@@ -8,7 +8,7 @@ import 'marquee_row.dart';
 /// A tilted stack of auto-scrolling [MarqueeRow]s — the tutorial step's
 /// "command wall" look, generalised so any screen can wear it.
 ///
-/// Extracted from `CommandWall` when the paywall needed the same
+/// Extracted from the old onboarding command wall when the paywall needed the same
 /// treatment for its feature pills: rather than re-deriving the row
 /// cadence (and drifting out of sync with it later), both screens now
 /// pass their own chips into this one widget and inherit identical
