@@ -34,14 +34,10 @@ class GoogleBooksApiClient {
        _retryDelays = retryDelays ?? defaultRetryDelays;
 
   /// How long to wait before each retry of a request Google answered with a
-  /// 503/5xx or 429. Google Books sheds load with a fast 503 — the logs show
-  /// bursts of them within a second of each other (an import's parallel
-  /// lookups, a recommendation row), mostly gone a moment later — so a short
-  /// back-off turns most of them into answers instead of error messages.
-  static const defaultRetryDelays = [
-    Duration(milliseconds: 600),
-    Duration(milliseconds: 1500),
-  ];
+  /// 5xx. One short retry only: a 429 (and most 503s, which is how the edge
+  /// function sees a spent keyless quota) won't clear in seconds, and
+  /// `BookLookupService` falls back to Open Library rather than waiting.
+  static const defaultRetryDelays = [Duration(milliseconds: 400)];
 
   final List<Duration> _retryDelays;
 
@@ -175,7 +171,7 @@ class GoogleBooksApiClient {
   }) async {
     var response = await _send(uri, subject: subject);
     for (final delay in _retryDelays) {
-      if (response.statusCode < 500 && response.statusCode != 429) break;
+      if (response.statusCode < 500) break;
       await Future<void>.delayed(delay);
       response = await _send(uri, subject: subject);
     }

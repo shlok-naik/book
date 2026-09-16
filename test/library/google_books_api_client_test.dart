@@ -42,11 +42,17 @@ void main() {
     expect(calls, [503, 503, 200]);
   });
 
-  test('a 429 is retried too', () async {
-    final calls = <int>[];
-    await clientAnswering([429, 200], calls).search('dune');
-    expect(calls, [429, 200]);
-  });
+  test(
+    'a 429 is not retried — a spent quota will not clear in seconds',
+    () async {
+      final calls = <int>[];
+      await expectLater(
+        clientAnswering([429, 200], calls).search('dune'),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(calls, [429]);
+    },
+  );
 
   test('gives up after the retries, as a retryable network error', () async {
     final calls = <int>[];

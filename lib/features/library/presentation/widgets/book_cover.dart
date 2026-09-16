@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -58,6 +59,8 @@ class BookCover extends StatelessWidget {
         child: CoverImage(
           coverUrl: coverUrl,
           isbn: isbn,
+          title: title,
+          author: author,
           placeholder: _CoverPlaceholder(title: title, author: author),
         ),
       ),
@@ -261,10 +264,27 @@ class CoverImage extends StatefulWidget {
     required this.isbn,
     required this.placeholder,
     this.fit = BoxFit.cover,
+    this.title,
+    this.author,
   });
 
   final String? coverUrl;
   final String? isbn;
+
+  /// With [title], a book whose own sources both fail asks
+  /// [titleCoverResolver] — Open Library, by title and author — before
+  /// settling on the placeholder.
+  final String? title;
+  final String? author;
+
+  /// Set once by the composition root (`main.dart`) to
+  /// `OpenLibraryClient.coverFor`; null in tests, where no lookup happens.
+  static Future<String?> Function({
+    String? isbn,
+    required String title,
+    String? author,
+  })?
+  titleCoverResolver;
   final Widget placeholder;
   final BoxFit fit;
 
@@ -297,18 +317,43 @@ class _CoverImageState extends State<CoverImage> {
   /// Which of [CoverImage.candidates] is being tried.
   int _attempt = 0;
 
+  /// Open Library's cover by title, once the book's own sources ran out.
+  String? _resolved;
+  bool _resolving = false;
+
   @override
   void didUpdateWidget(CoverImage old) {
     super.didUpdateWidget(old);
     if (old.coverUrl != widget.coverUrl || old.isbn != widget.isbn) {
       _attempt = 0;
+      _resolved = null;
+      _resolving = false;
+    }
+  }
+
+  Future<void> _resolve() async {
+    final resolver = CoverImage.titleCoverResolver;
+    final title = widget.title;
+    if (_resolving || resolver == null || title == null) return;
+    _resolving = true;
+    try {
+      final url = await resolver(title: title, author: widget.author);
+      if (mounted && url != null) setState(() => _resolved = url);
+    } on Object {
+      // A missing cover is only cosmetic — the placeholder stays.
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final urls = CoverImage.candidates(widget.coverUrl, widget.isbn);
-    if (_attempt >= urls.length) return widget.placeholder;
+    final urls = [
+      ...CoverImage.candidates(widget.coverUrl, widget.isbn),
+      ?_resolved,
+    ];
+    if (_attempt >= urls.length) {
+      if (_resolved == null) unawaited(_resolve());
+      return widget.placeholder;
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) => Image.network(

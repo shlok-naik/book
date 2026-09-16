@@ -1,6 +1,7 @@
 import '../../../core/diagnostics/app_logger.dart';
 import '../data/book_details_repository.dart';
 import '../data/google_books_api_client.dart';
+import '../data/open_library_client.dart';
 import 'book.dart';
 import 'book_edition.dart';
 import 'edition_filter.dart';
@@ -43,6 +44,9 @@ class BookDetailsService {
   /// Books could answer — and callers can still render [book] itself.
   Future<Book> detailsFor(Book book) async {
     if (book.hasCachedDetails) return book;
+    // An Open Library book has no Google volume to ask; its own row (title,
+    // author, cover, pages, subjects) is all the detail there is.
+    if (OpenLibraryClient.isOpenLibraryId(book.googleBooksId)) return book;
 
     final cached = await _readCache(() => cache.fetchBook(book.id));
     if (cached != null && cached.hasCachedDetails) return cached;

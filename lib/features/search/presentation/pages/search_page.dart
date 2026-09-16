@@ -78,6 +78,9 @@ class _SearchPageState extends State<SearchPage> {
     ReadingTastesController.tastes.addListener(_refreshRows);
   }
 
+  /// The shelf the discover rows were last worked out for.
+  Object? _rowsBuiltFor;
+
   void _refreshRows() {
     if (!mounted) return;
     final library = LibraryScope.read(context);
@@ -177,7 +180,9 @@ class _SearchPageState extends State<SearchPage> {
   Widget build(BuildContext context) {
     final library = LibraryScope.of(context);
     final query = _text.text.trim();
-    if (library.hasLoaded) {
+    // Only when the shelf itself changed — not on every keystroke's rebuild.
+    if (library.hasLoaded && !identical(library.books, _rowsBuiltFor)) {
+      _rowsBuiltFor = library.books;
       WidgetsBinding.instance.addPostFrameCallback((_) => _refreshRows());
     }
 

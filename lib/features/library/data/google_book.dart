@@ -78,6 +78,30 @@ class GoogleBook {
     ratingsCount: book.ratingsCount,
   );
 
+  /// This volume with [url] as its cover — for filling in one Google had
+  /// none for.
+  GoogleBook withThumbnail(String url) => GoogleBook(
+    id: id,
+    title: title,
+    authors: authors,
+    thumbnailUrl: url,
+    description: description,
+    pageCount: pageCount,
+    subtitle: subtitle,
+    publisher: publisher,
+    publishedDate: publishedDate,
+    categories: categories,
+    language: language,
+    isbn10: isbn10,
+    isbn13: isbn13,
+    averageRating: averageRating,
+    ratingsCount: ratingsCount,
+    maturityRating: maturityRating,
+    previewLink: previewLink,
+    printType: printType,
+    isEbook: isEbook,
+  );
+
   /// Authors joined the way the app renders them everywhere (one line).
   String get authorLine =>
       authors.isEmpty ? Book.unknownAuthor : authors.join(', ');

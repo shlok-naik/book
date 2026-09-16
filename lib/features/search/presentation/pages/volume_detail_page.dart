@@ -9,6 +9,7 @@ import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../library/data/google_book.dart';
+import '../../../library/data/open_library_client.dart';
 import '../../../library/domain/edition_filter.dart';
 import '../../../library/domain/library_exception.dart';
 import '../../../library/presentation/controllers/library_controller.dart';
@@ -72,6 +73,11 @@ class _VolumeDetailPageState extends State<VolumeDetailPage> {
 
   Future<void> _load() async {
     if (!mounted) return;
+    // An Open Library result is already the whole record.
+    if (OpenLibraryClient.isOpenLibraryId(widget.volume.id)) {
+      setState(() => _loading = false);
+      return;
+    }
     try {
       final full = await LibraryScope.read(
         context,
@@ -200,7 +206,9 @@ class _VolumeDetailPageState extends State<VolumeDetailPage> {
                               ),
                               const SizedBox(height: AppSpacing.xs),
                               Text(
-                                'from google books',
+                                OpenLibraryClient.isOpenLibraryId(volume.id)
+                                    ? 'from open library'
+                                    : 'from google books',
                                 style: context.fonts.interface(
                                   fontSize: 12,
                                   color: colors.secondaryText,

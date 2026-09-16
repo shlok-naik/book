@@ -38,6 +38,7 @@ import 'features/library/data/book_details_repository.dart';
 import 'features/library/data/book_notes_repository.dart';
 import 'features/library/data/google_books_api_client.dart';
 import 'features/library/data/offline_library_cache.dart';
+import 'features/library/data/open_library_client.dart';
 import 'features/library/data/reading_event_repository.dart';
 import 'features/library/data/user_book_repository.dart';
 import 'features/library/domain/book_details_service.dart';
@@ -45,6 +46,7 @@ import 'features/library/domain/book_lookup_service.dart';
 import 'features/library/presentation/controllers/library_controller.dart';
 import 'features/library/presentation/library_scope.dart';
 import 'features/library/presentation/series_tile_style_controller.dart';
+import 'features/library/presentation/widgets/book_cover.dart';
 import 'features/logging/presentation/parser_mode_controller.dart';
 import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
@@ -368,12 +370,15 @@ class _BookAppState extends State<BookApp> {
   LibraryController _buildLibraryController() {
     final googleBooks = GoogleBooksApiClient();
     _ownedGoogleBooks = googleBooks;
+    final openLibrary = OpenLibraryClient();
+    CoverImage.titleCoverResolver = openLibrary.coverFor;
     final offline = _offline = _buildOffline();
 
     final controller = LibraryController(
       lookup: BookLookupService(
         cache: BookCacheRepository(),
         googleBooks: googleBooks,
+        openLibrary: openLibrary,
       ),
       userBooks: UserBookRepository(offline: offline?.cache),
       events: ReadingEventRepository(offline: offline?.cache),

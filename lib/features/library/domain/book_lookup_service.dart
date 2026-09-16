@@ -1,6 +1,7 @@
 import '../data/book_cache_repository.dart';
 import '../data/google_book.dart';
 import '../data/google_books_api_client.dart';
+import '../data/open_library_client.dart';
 import 'book.dart';
 import 'library_exception.dart';
 
@@ -9,13 +10,85 @@ import 'library_exception.dart';
 /// tomorrow — goes through [findOrFetch] so the caching policy exists
 /// once rather than being re-implemented per screen.
 class BookLookupService {
-  BookLookupService({required this.cache, required this.googleBooks});
+  BookLookupService({
+    required this.cache,
+    required this.googleBooks,
+    this.openLibrary,
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
 
   /// Supabase-backed cache, checked before any network call.
   final BookCacheRepository cache;
 
   /// Fallback source, only reached on a cache miss.
   final GoogleBooksApiClient googleBooks;
+
+  /// The backup when Google Books refuses — its keyless quota runs out every
+  /// day — and the source of covers Google doesn't have. Null (tests, mostly)
+  /// keeps Google Books the only source.
+  final OpenLibraryClient? openLibrary;
+
+  final DateTime Function() _clock;
+
+  /// After Google fails once, it's skipped for [googleCooldown] and every
+  /// search goes straight to Open Library — waiting on a quota that's spent
+  /// is what made search slow.
+  static const googleCooldown = Duration(minutes: 3);
+  DateTime? _skipGoogleUntil;
+
+  bool get _googleResting {
+    final until = _skipGoogleUntil;
+    return until != null && _clock().isBefore(until);
+  }
+
+  /// Google Books first, Open Library when Google is resting or fails with
+  /// anything but "no such book". [newest] and [maxResults] carry over.
+  Future<List<GoogleBook>> _searchVolumes(
+    String query, {
+    int maxResults = 10,
+    String? orderBy,
+  }) async {
+    final backup = openLibrary;
+    if (backup != null && _googleResting) {
+      return backup.search(
+        query,
+        limit: maxResults,
+        newest: orderBy == 'newest',
+      );
+    }
+    try {
+      return await googleBooks.search(
+        query,
+        maxResults: maxResults,
+        orderBy: orderBy,
+      );
+    } on LibraryException catch (error) {
+      if (backup == null ||
+          error is InvalidInputException ||
+          error is BookNotFoundException) {
+        rethrow;
+      }
+      _skipGoogleUntil = _clock().add(googleCooldown);
+      return backup.search(
+        query,
+        limit: maxResults,
+        newest: orderBy == 'newest',
+      );
+    }
+  }
+
+  /// [volume], with an Open Library cover when Google had none — so the
+  /// cover cached for every reader is a real one.
+  Future<GoogleBook> _withCover(GoogleBook volume) async {
+    final backup = openLibrary;
+    if (backup == null || _hasCover(volume)) return volume;
+    final url = await backup.coverFor(
+      isbn: volume.isbn13 ?? volume.isbn10,
+      title: volume.title,
+      author: volume.authors.firstOrNull,
+    );
+    return url == null ? volume : volume.withThumbnail(url);
+  }
 
   /// Longest query we'll accept. Google Books ignores anything past a
   /// few hundred characters anyway, and it keeps a pasted paragraph from
@@ -68,7 +141,7 @@ class BookLookupService {
     if (cached != null) return cached;
 
     // ---- 3. Cache miss: go to Google Books ---------------------------
-    final results = await googleBooks.search(
+    final results = await _searchVolumes(
       author == null || author.isEmpty ? query : '$query $author',
     );
     if (results.isEmpty) {
@@ -81,7 +154,7 @@ class BookLookupService {
     if (alreadyCached != null) return alreadyCached;
 
     // ---- 5. Write back so the next lookup is a cache hit -------------
-    return cache.cache(volume);
+    return cache.cache(await _withCover(volume));
   }
 
   /// Resolves an ISBN to a cached [Book] — the import's first choice, since
@@ -102,14 +175,14 @@ class BookLookupService {
       // Degrades to a miss, like every other cache read.
     }
 
-    final results = await googleBooks.search('isbn:$clean', maxResults: 5);
+    final results = await _searchVolumes('isbn:$clean', maxResults: 5);
     if (results.isEmpty) {
       throw BookNotFoundException('No book for ISBN $clean.');
     }
     final volume = results.first;
     final alreadyCached = await _findCachedById(volume.id);
     if (alreadyCached != null) return alreadyCached;
-    return cache.cache(volume);
+    return cache.cache(await _withCover(volume));
   }
 
   /// Every Google Books volume matching [rawQuery], in Google's order —
@@ -130,7 +203,7 @@ class BookLookupService {
     if (query.length > maxQueryLength) {
       throw const InvalidInputException('Search too long.');
     }
-    return googleBooks.search(query, maxResults: maxResults, orderBy: orderBy);
+    return _searchVolumes(query, maxResults: maxResults, orderBy: orderBy);
   }
 
   /// The cached [Book] for a volume the reader picked from [searchCatalogue]
@@ -139,7 +212,7 @@ class BookLookupService {
   Future<Book> resolveVolume(GoogleBook volume) async {
     final cached = await _findCachedById(volume.id);
     if (cached != null) return cached;
-    return cache.cache(volume);
+    return cache.cache(await _withCover(volume));
   }
 
   /// Cache read that degrades to a miss. A cache that is down must slow
