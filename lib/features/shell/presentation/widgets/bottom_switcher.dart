@@ -5,7 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 
-/// Floating pill tab bar. Memory / stats / library share the wide,
+/// Floating pill tab bar. Search / stats / library share the wide,
 /// fully-rounded left pill; "+" gets its own complete circle, set apart,
 /// as the primary action.
 ///
@@ -23,7 +23,7 @@ class BottomSwitcher extends StatelessWidget {
   final ValueChanged<int> onChanged;
 
   static const _groupIcons = [
-    Icons.bookmark_border,
+    Icons.search,
     Icons.local_fire_department_outlined,
     Icons.menu_book_outlined,
   ];
@@ -34,7 +34,7 @@ class BottomSwitcher extends StatelessWidget {
   /// strings *are* the tab names. One word, title case, no verb: the
   /// "+" slot follows the same rule as its three neighbours rather than
   /// describing an action the others don't describe either.
-  static const _groupLabels = ['Memory', 'Stats', 'Library'];
+  static const _groupLabels = ['Search', 'Stats', 'Library'];
 
   /// The "+" tab — named to match the page it opens, whose own `TopBar`
   /// now carries the visible title `'add'` too.

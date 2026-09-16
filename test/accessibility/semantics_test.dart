@@ -55,7 +55,7 @@ void main() {
 
       // Icon-only slots: without these the whole primary navigation is
       // four unlabelled buttons.
-      expect(find.bySemanticsLabel('Memory'), findsOneWidget);
+      expect(find.bySemanticsLabel('Search'), findsOneWidget);
       expect(find.bySemanticsLabel('Stats'), findsOneWidget);
       expect(find.bySemanticsLabel('Library'), findsOneWidget);
       expect(find.bySemanticsLabel('Add'), findsOneWidget);
@@ -68,8 +68,8 @@ void main() {
         isSemantics(label: 'Library', isButton: true, isSelected: true),
       );
       expect(
-        tester.getSemantics(find.bySemanticsLabel('Memory')),
-        isSemantics(label: 'Memory', isButton: true, isSelected: false),
+        tester.getSemantics(find.bySemanticsLabel('Search')),
+        isSemantics(label: 'Search', isButton: true, isSelected: false),
       );
 
       handle.dispose();

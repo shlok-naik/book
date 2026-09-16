@@ -16,9 +16,11 @@ import 'package:book/features/settings/data/profile_repository.dart';
 import 'package:book/features/settings/presentation/pages/commands_page.dart';
 import 'package:book/features/settings/presentation/pages/customisation_page.dart';
 import 'package:book/features/settings/presentation/pages/settings_page.dart';
+import 'package:book/features/shell/presentation/start_page_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_goals.dart';
 
@@ -310,6 +312,46 @@ void main() {
     });
   });
 
+  group('starting page', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(StartPageController.reset);
+    });
+
+    testWidgets('offers add, search and library, add ticked by default', (
+      tester,
+    ) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
+
+      await scrollTo(tester, find.text('starting page'));
+      expect(StartPageController.page.value, StartPage.add);
+
+      await scrollTo(tester, find.text('search').last);
+      await tester.tap(find.text('search').last);
+      await tester.pumpAndSettle();
+
+      expect(StartPageController.page.value, StartPage.search);
+    });
+  });
+
+  group('profile', () {
+    testWidgets('holds the email row and the memory row', (tester) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
+
+      expect(find.text('profile'), findsOneWidget);
+      expect(find.text('link your email'), findsOneWidget);
+      expect(find.text('memory'), findsOneWidget);
+    });
+  });
+
   group('membership card', () {
     testWidgets('an anonymous reader is offered a backup, not a sign-out', (
       tester,
@@ -320,7 +362,7 @@ void main() {
         session: _FakeSession(),
       );
 
-      expect(find.text('add email'), findsOneWidget);
+      expect(find.text('link your email'), findsOneWidget);
       // Signing out of an anonymous account would strand its shelf
       // behind a uid nobody can authenticate as again.
       expect(find.text('sign out'), findsNothing);
@@ -330,7 +372,7 @@ void main() {
       );
     });
 
-    testWidgets('a linked reader sees their address and can change it', (
+    testWidgets('a linked reader sees their address on the card', (
       tester,
     ) async {
       await pumpSettings(
@@ -340,57 +382,53 @@ void main() {
       );
 
       expect(find.text('reader@example.com'), findsOneWidget);
-      expect(find.text('add email'), findsNothing);
+      expect(find.text('change email'), findsOneWidget);
+      expect(find.text('link your email'), findsNothing);
       // Signing out is not offered anywhere: for an anonymous reader
       // there is no credential to sign back in with, so it destroys a
       // library rather than protecting one.
       expect(find.text('sign out'), findsNothing);
     });
 
-    testWidgets(
-      'tapping the backup line opens the email sheet in its "link" wording',
-      (tester) async {
-        await pumpSettings(
-          tester,
-          purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-          session: _FakeSession(),
-        );
+    testWidgets('the profile row opens the email sheet in its "link" wording', (
+      tester,
+    ) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
 
-        await tester.tap(find.text('add email'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.text('link your email'));
+      await tester.pumpAndSettle();
 
-        expect(find.text('send code'), findsOneWidget);
-        expect(
-          find.textContaining('a way back to you on another device'),
-          findsOneWidget,
-        );
-      },
-    );
+      expect(find.text('send code'), findsOneWidget);
+      expect(
+        find.textContaining('a way back to you on another device'),
+        findsOneWidget,
+      );
+    });
 
-    testWidgets(
-      'tapping the address opens the same sheet, reworded to change it',
-      (tester) async {
-        await pumpSettings(
-          tester,
-          purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-          session: _FakeSession(
-            anonymous: false,
-            address: 'reader@example.com',
-          ),
-        );
+    testWidgets('the change row opens the same sheet, reworded to change it', (
+      tester,
+    ) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(anonymous: false, address: 'reader@example.com'),
+      );
 
-        await tester.tap(find.text('reader@example.com'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.text('change email'));
+      await tester.pumpAndSettle();
 
-        // Same two-step sheet, same call underneath — only the copy
-        // knows the difference.
-        expect(find.text('send code'), findsOneWidget);
-        expect(
-          find.textContaining('only the address it answers to changes'),
-          findsOneWidget,
-        );
-      },
-    );
+      // Same two-step sheet, same call underneath — only the copy
+      // knows the difference.
+      expect(find.text('send code'), findsOneWidget);
+      expect(
+        find.textContaining('only the address it answers to changes'),
+        findsOneWidget,
+      );
+    });
 
     testWidgets('shows no PRO badge for a free reader', (tester) async {
       await pumpSettings(

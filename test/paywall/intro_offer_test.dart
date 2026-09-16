@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:book/core/purchases/entitlements.dart';
 import 'package:book/core/purchases/plan_controller.dart';
 import 'package:book/core/purchases/purchases_service.dart';
@@ -18,9 +20,11 @@ import 'package:book/features/memory/data/memory_repository.dart';
 import 'package:book/features/memory/domain/memory.dart';
 import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
 import 'package:book/features/memory/presentation/memory_scope.dart';
+import 'package:book/features/memory/presentation/pages/memory_page.dart';
 import 'package:book/features/paywall/data/intro_offer_store.dart';
 import 'package:book/features/paywall/presentation/pages/paywall_page.dart';
 import 'package:book/features/shell/presentation/pages/root_shell.dart';
+import 'package:book/features/shell/presentation/start_page_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -281,12 +285,21 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
   });
 
-  group('memory tab', () {
+  group('memory page', () {
     int shownTab(WidgetTester tester) =>
         tester.widget<IndexedStack>(find.byType(IndexedStack)).index!;
 
-    Future<void> tapMemory(WidgetTester tester) async {
-      await tester.tap(find.bySemanticsLabel('Memory'));
+    /// Opens it the way settings' profile row and a typed `memory` do.
+    Future<void> openMemory(
+      WidgetTester tester,
+      PurchasesService purchases,
+    ) async {
+      unawaited(
+        openMemoryPage(
+          tester.element(find.byType(IndexedStack)),
+          purchases: purchases,
+        ),
+      );
       await tester.pumpAndSettle();
     }
 
@@ -296,16 +309,14 @@ void main() {
     testWidgets(
       'on the free plan, it opens on a locked preview rather than a paywall',
       (tester) async {
+        late PurchasesService purchases;
         await pumpShell(
           tester,
           introOffer: _FakeIntroOfferStore(seen: true),
-          purchases: _FakePurchasesService(pro: false),
+          purchases: purchases = _FakePurchasesService(pro: false),
         );
-        expect(shownTab(tester), 3);
-
-        await tapMemory(tester);
-
-        expect(shownTab(tester), 0);
+        await openMemory(tester, purchases);
+        expect(find.byType(MemoryPage), findsOneWidget);
         expect(find.byType(PaywallPage), findsNothing);
         expect(find.text(lockedLine), findsOneWidget);
       },
@@ -314,12 +325,13 @@ void main() {
     testWidgets('tapping the preview opens the paywall on the memory chapter', (
       tester,
     ) async {
+      late PurchasesService purchases;
       await pumpShell(
         tester,
         introOffer: _FakeIntroOfferStore(seen: true),
-        purchases: _FakePurchasesService(pro: false),
+        purchases: purchases = _FakePurchasesService(pro: false),
       );
-      await tapMemory(tester);
+      await openMemory(tester, purchases);
 
       await tester.tap(find.byKey(const ValueKey('locked-memory')));
       await tester.pumpAndSettle();
@@ -332,50 +344,53 @@ void main() {
     testWidgets('a store that cannot be reached keeps it locked', (
       tester,
     ) async {
+      late PurchasesService purchases;
       await pumpShell(
         tester,
         introOffer: _FakeIntroOfferStore(seen: true),
-        purchases: _FakePurchasesService(
+        purchases: purchases = _FakePurchasesService(
           pro: false,
           failure: const PurchasesException('offline'),
         ),
       );
 
-      await tapMemory(tester);
+      await openMemory(tester, purchases);
 
       // Unknown entitlement fails closed — never a free peek at the notes.
       expect(find.text(lockedLine), findsOneWidget);
-      expect(shownTab(tester), 0);
+      expect(find.byType(MemoryPage), findsOneWidget);
     });
 
     testWidgets('a real subscriber sees their memories, not the preview', (
       tester,
     ) async {
+      late PurchasesService purchases;
       await pumpShell(
         tester,
         introOffer: _FakeIntroOfferStore(seen: true),
-        purchases: _FakePurchasesService(pro: true),
+        purchases: purchases = _FakePurchasesService(pro: true),
       );
 
-      await tapMemory(tester);
+      await openMemory(tester, purchases);
 
       expect(find.byType(PaywallPage), findsNothing);
-      expect(shownTab(tester), 0);
+      expect(find.byType(MemoryPage), findsOneWidget);
       expect(find.text(lockedLine), findsNothing);
     });
 
     testWidgets('the pro plan opens it directly', (tester) async {
       PlanController.isPro.value = true;
+      late PurchasesService purchases;
       await pumpShell(
         tester,
         introOffer: _FakeIntroOfferStore(seen: true),
-        purchases: _FakePurchasesService(pro: false),
+        purchases: purchases = _FakePurchasesService(pro: false),
       );
 
-      await tapMemory(tester);
+      await openMemory(tester, purchases);
 
       expect(find.byType(PaywallPage), findsNothing);
-      expect(shownTab(tester), 0);
+      expect(find.byType(MemoryPage), findsOneWidget);
       expect(find.text(lockedLine), findsNothing);
     });
 
@@ -383,22 +398,22 @@ void main() {
       tester,
     ) async {
       PlanController.isPro.value = true;
+      late PurchasesService purchases;
       await pumpShell(
         tester,
         introOffer: _FakeIntroOfferStore(seen: true),
-        purchases: _FakePurchasesService(pro: false),
+        purchases: purchases = _FakePurchasesService(pro: false),
       );
-      await tapMemory(tester);
+      await openMemory(tester, purchases);
       expect(find.text(lockedLine), findsNothing);
 
       PlanController.isPro.value = false;
       await tester.pumpAndSettle();
-
-      expect(shownTab(tester), 0);
+      expect(find.byType(MemoryPage), findsOneWidget);
       expect(find.text(lockedLine), findsOneWidget);
     });
 
-    testWidgets('other tabs are never gated', (tester) async {
+    testWidgets('no tab is gated', (tester) async {
       await pumpShell(
         tester,
         introOffer: _FakeIntroOfferStore(seen: true),
@@ -410,6 +425,38 @@ void main() {
 
       expect(find.byType(PaywallPage), findsNothing);
       expect(shownTab(tester), 2);
+
+      await tester.tap(find.bySemanticsLabel('Search'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PaywallPage), findsNothing);
+      expect(shownTab(tester), 0);
     });
+  });
+
+  group('starting page', () {
+    tearDown(StartPageController.reset);
+
+    int shownTab(WidgetTester tester) =>
+        tester.widget<IndexedStack>(find.byType(IndexedStack)).index!;
+
+    for (final (page, index) in [
+      (StartPage.add, 3),
+      (StartPage.search, 0),
+      (StartPage.library, 2),
+    ]) {
+      testWidgets('opens on ${page.label} when that is the choice', (
+        tester,
+      ) async {
+        StartPageController.page.value = page;
+        await pumpShell(
+          tester,
+          introOffer: _FakeIntroOfferStore(seen: true),
+          purchases: _FakePurchasesService(pro: false),
+        );
+
+        expect(shownTab(tester), index);
+      });
+    }
   });
 }

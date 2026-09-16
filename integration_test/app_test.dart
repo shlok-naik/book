@@ -262,11 +262,11 @@ void main() {
 
       await submit(tester, 'start Dune');
 
-      // Memory → streak → library → settings → back → add: the same
+      // Search → stats → library → settings → back → add: the same
       // LibraryController instance sits behind every one of these, so
       // "Dune" being on the shelf can't depend on which tab is open.
-      await goToTab(tester, Icons.bookmark_border);
-      expect(find.text('memory'), findsOneWidget);
+      await goToTab(tester, Icons.search);
+      expect(find.text('search'), findsOneWidget);
 
       await goToTab(tester, Icons.local_fire_department_outlined);
       expect(find.text('streak'), findsOneWidget);
