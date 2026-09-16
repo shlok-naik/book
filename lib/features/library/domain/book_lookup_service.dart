@@ -121,6 +121,7 @@ class BookLookupService {
   Future<List<GoogleBook>> searchCatalogue(
     String rawQuery, {
     int maxResults = 20,
+    String? orderBy,
   }) async {
     final query = rawQuery.trim();
     if (query.isEmpty) {
@@ -129,7 +130,7 @@ class BookLookupService {
     if (query.length > maxQueryLength) {
       throw const InvalidInputException('Search too long.');
     }
-    return googleBooks.search(query, maxResults: maxResults);
+    return googleBooks.search(query, maxResults: maxResults, orderBy: orderBy);
   }
 
   /// The cached [Book] for a volume the reader picked from [searchCatalogue]

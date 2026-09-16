@@ -5,6 +5,7 @@ import '../../../library/data/google_book.dart';
 import '../../../library/domain/book_lookup_service.dart';
 import '../../../library/domain/library_book.dart';
 import '../../../library/domain/library_exception.dart';
+import '../../data/popular_books_repository.dart';
 import '../../domain/reading_taste.dart';
 import '../../domain/recommendation_seeds.dart';
 
@@ -32,9 +33,16 @@ class RecommendationRow {
 /// `LibraryController.lookup` it already has, so no HTTP client is made in
 /// a widget.
 class BookSearchController extends ChangeNotifier {
-  BookSearchController({required this.lookup});
+  BookSearchController({required this.lookup, this.popularBooks});
 
   final BookLookupService lookup;
+
+  /// The "our readers read" row's source. Null skips that row.
+  final PopularBooksRepository? popularBooks;
+
+  /// How many rows fetch at once. Google Books answers a burst of parallel
+  /// searches with 503s, so the rows fill in a couple at a time.
+  static const rowConcurrency = 2;
 
   String _query = '';
   List<GoogleBook> _results = const [];
@@ -54,14 +62,37 @@ class BookSearchController extends ChangeNotifier {
   List<GoogleBook> get results => _results;
   bool get isSearching => _searching;
   String? get errorMessage => _error;
-  List<RecommendationRow> get recommendations => _rows;
+
+  /// Rows still loading or with books — a row that came back empty (or,
+  /// for "our readers read", failed) is left out rather than shown blank.
+  List<RecommendationRow> get recommendations => [
+    for (final row in _rows)
+      if (row.loading ||
+          row.books.isNotEmpty ||
+          (row.error != null && row.seed.source == SeedSource.catalogue))
+        row,
+  ];
 
   void _notify() {
     if (!_disposed) notifyListeners();
   }
 
-  /// Searches Google Books for [query]. An empty query clears the results.
-  /// Never throws — a failure is [errorMessage].
+  /// Most ratings on Google Books first — the nearest thing it has to
+  /// "most popular". Stable, so Google's own relevance order breaks ties
+  /// (and keeps volumes with no ratings in their original order).
+  static List<GoogleBook> byPopularity(List<GoogleBook> books) {
+    final indexed = books.indexed.toList()
+      ..sort((a, b) {
+        final byCount = (b.$2.ratingsCount ?? 0).compareTo(
+          a.$2.ratingsCount ?? 0,
+        );
+        return byCount != 0 ? byCount : a.$1.compareTo(b.$1);
+      });
+    return [for (final (_, book) in indexed) book];
+  }
+
+  /// Searches Google Books for [query], most popular first. An empty query
+  /// clears the results. Never throws — a failure is [errorMessage].
   Future<void> search(String query) async {
     final trimmed = query.trim();
     final generation = ++_generation;
@@ -79,7 +110,7 @@ class BookSearchController extends ChangeNotifier {
     try {
       final found = await lookup.searchCatalogue(trimmed);
       if (generation != _generation) return;
-      _results = found;
+      _results = byPopularity(found);
     } on LibraryException catch (error) {
       if (generation != _generation) return;
       _results = const [];
@@ -106,7 +137,10 @@ class BookSearchController extends ChangeNotifier {
     List<LibraryBook> books, {
     List<ReadingTaste> tastes = const [],
   }) async {
-    final seeds = RecommendationSeeds.from(books, tastes: tastes);
+    final seeds = [
+      for (final seed in RecommendationSeeds.from(books, tastes: tastes))
+        if (seed.source != SeedSource.readers || popularBooks != null) seed,
+    ];
     if (listEquals(seeds, _seeds)) return;
     _seeds = seeds;
     _rows = [
@@ -115,9 +149,34 @@ class BookSearchController extends ChangeNotifier {
     _notify();
 
     final onShelf = {for (final entry in books) entry.book.googleBooksId};
-    await Future.wait([
-      for (final (i, seed) in seeds.indexed) _loadRow(i, seed, onShelf),
-    ]);
+    for (var start = 0; start < seeds.length; start += rowConcurrency) {
+      if (_disposed || !identical(_seeds, seeds)) return;
+      await Future.wait([
+        for (var i = start; i < start + rowConcurrency && i < seeds.length; i++)
+          _loadRow(i, seeds[i], onShelf),
+      ]);
+    }
+  }
+
+  Future<List<GoogleBook>> _fetch(RecommendationSeed seed) async {
+    switch (seed.source) {
+      case SeedSource.readers:
+        final books = await popularBooks!.fetch();
+        return [for (final book in books) GoogleBook.fromBook(book)];
+      case SeedSource.catalogue:
+        var found = await lookup.searchCatalogue(
+          seed.query,
+          maxResults: 40,
+          orderBy: seed.orderBy,
+        );
+        if (seed.maxPages case final max?) {
+          found = [
+            for (final book in found)
+              if ((book.pageCount ?? 0) > 0 && book.pageCount! <= max) book,
+          ];
+        }
+        return seed.byPopularity ? byPopularity(found) : found;
+    }
   }
 
   Future<void> _loadRow(
@@ -127,7 +186,7 @@ class BookSearchController extends ChangeNotifier {
   ) async {
     RecommendationRow row;
     try {
-      final found = await lookup.searchCatalogue(seed.query);
+      final found = await _fetch(seed);
       final seen = <String>{};
       row = RecommendationRow(
         seed: seed,
@@ -136,7 +195,7 @@ class BookSearchController extends ChangeNotifier {
             if (!onShelf.contains(book.id) &&
                 seen.add(book.title.toLowerCase()))
               book,
-        ],
+        ].take(20).toList(),
       );
     } on LibraryException catch (error) {
       row = RecommendationRow(seed: seed, error: error.message);

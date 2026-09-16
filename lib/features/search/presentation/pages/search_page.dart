@@ -21,6 +21,7 @@ import '../../../library/presentation/widgets/book_cover.dart';
 import '../../../logging/presentation/widgets/confirmation_pill.dart';
 import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
+import '../../data/popular_books_repository.dart';
 import '../controllers/book_search_controller.dart';
 import '../reading_tastes_controller.dart';
 import '../widgets/book_preview_sheet.dart';
@@ -38,7 +39,10 @@ import '../widgets/book_rows.dart';
 /// [showBookPreviewSheet] — the "want to read" button and the other
 /// shelves — on a tap. Offline, only the shelf half answers.
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
+  const SearchPage({super.key, this.popularBooks});
+
+  /// Injection point for tests; the app uses the real repository.
+  final PopularBooksRepository? popularBooks;
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -64,7 +68,10 @@ class _SearchPageState extends State<SearchPage> {
     super.didChangeDependencies();
     if (_search != null) return;
     final library = LibraryScope.read(context);
-    _search = BookSearchController(lookup: library.lookup);
+    _search = BookSearchController(
+      lookup: library.lookup,
+      popularBooks: widget.popularBooks ?? PopularBooksRepository(),
+    );
     // After the first frame: the shelf may still be loading, and the
     // controller notifies synchronously.
     WidgetsBinding.instance.addPostFrameCallback((_) => _refreshRows());

@@ -90,7 +90,11 @@ class GoogleBooksApiClient {
   /// Throws [InvalidInputException] for an empty query, [NetworkException]
   /// for offline/timeout/5xx, and [RemoteDataException] for a response
   /// we cannot parse or that the API rejected (4xx — bad key, quota).
-  Future<List<GoogleBook>> search(String query, {int maxResults = 10}) async {
+  Future<List<GoogleBook>> search(
+    String query, {
+    int maxResults = 10,
+    String? orderBy,
+  }) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
       throw const InvalidInputException('Enter a title.');
@@ -100,6 +104,7 @@ class GoogleBooksApiClient {
       'q': trimmed,
       // Google caps maxResults at 40; keep the request inside that.
       'maxResults': '${maxResults.clamp(1, 40)}',
+      'orderBy': ?orderBy,
     });
 
     final body = await _getJson(uri, subject: 'Book search');

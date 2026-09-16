@@ -58,6 +58,26 @@ class GoogleBook {
   /// as an ebook.
   final bool isEbook;
 
+  /// A book from the shared catalogue, as a volume — for rows that list
+  /// cactus's own `books` (what other readers read) alongside Google's.
+  factory GoogleBook.fromBook(Book book) => GoogleBook(
+    id: book.googleBooksId,
+    title: book.title,
+    authors: [book.author],
+    thumbnailUrl: book.coverUrl,
+    description: book.description,
+    pageCount: book.pageCount,
+    subtitle: book.subtitle,
+    publisher: book.publisher,
+    publishedDate: book.publishedDate,
+    categories: book.categories,
+    language: book.language,
+    isbn10: book.isbn10,
+    isbn13: book.isbn13,
+    averageRating: book.averageRating,
+    ratingsCount: book.ratingsCount,
+  );
+
   /// Authors joined the way the app renders them everywhere (one line).
   String get authorLine =>
       authors.isEmpty ? Book.unknownAuthor : authors.join(', ');

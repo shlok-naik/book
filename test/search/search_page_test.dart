@@ -12,8 +12,10 @@ import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
 import 'package:book/features/library/presentation/library_scope.dart';
 import 'package:book/features/library/presentation/pages/book_detail_page.dart';
+import 'package:book/features/search/data/popular_books_repository.dart';
 import 'package:book/features/search/domain/reading_taste.dart';
 import 'package:book/features/search/domain/recommendation_seeds.dart';
+import 'package:book/features/search/presentation/controllers/book_search_controller.dart';
 import 'package:book/features/search/presentation/pages/search_page.dart';
 import 'package:book/features/search/presentation/pages/volume_detail_page.dart';
 import 'package:book/features/search/presentation/widgets/book_picker_sheet.dart';
@@ -103,6 +105,15 @@ class _Cache extends BookCacheRepository {
   );
 }
 
+class _Readers extends PopularBooksRepository {
+  _Readers(this.books);
+
+  final List<Book> books;
+
+  @override
+  Future<List<Book>> fetch({int limit = 20}) async => books;
+}
+
 void main() {
   late _Shelf shelf;
   late List<String> queries;
@@ -111,6 +122,7 @@ void main() {
     WidgetTester tester, {
     List<LibraryBook> rows = const [],
     List<Map<String, dynamic>> volumes = const [],
+    List<Book> readers = const [],
     Widget? home,
   }) async {
     tester.view.physicalSize = const Size(1080, 2400);
@@ -138,7 +150,7 @@ void main() {
         controller: controller,
         child: MaterialApp(
           theme: AppTheme.light,
-          home: home ?? const SearchPage(),
+          home: home ?? SearchPage(popularBooks: _Readers(readers)),
         ),
       ),
     );
@@ -153,45 +165,66 @@ void main() {
   }
 
   group('recommendations', () {
-    test('come from the author being read, then the top genre', () {
-      final seeds = RecommendationSeeds.from([
-        _entry(_dune),
-        _entry(
-          const Book(
-            id: 'book-2',
-            googleBooksId: 'gb-2',
-            title: 'Foundation',
-            author: 'Isaac Asimov',
-            categories: ['Fiction / Science Fiction / General'],
-          ),
-          id: 'progress-2',
-          status: ReadingStatus.finished,
-        ),
-      ]);
+    List<String> labels(List<RecommendationSeed> seeds) => [
+      for (final seed in seeds) seed.label,
+    ];
+    final browse = labels(RecommendationSeeds.browse);
 
-      expect(seeds.first.label, 'more by Frank Herbert');
-      expect(seeds.first.query, 'inauthor:"Frank Herbert"');
-      expect(seeds, hasLength(2));
-      expect(seeds.last.label, startsWith('more in '));
-    });
-
-    test('tastes add a row each, and stand in for classics', () {
+    test('readers first, then author, tastes and genre, then browsing', () {
       final seeds = RecommendationSeeds.from(
-        const [],
-        tastes: [ReadingTaste.fantasy, ReadingTaste.mystery],
+        [
+          _entry(_dune),
+          _entry(
+            const Book(
+              id: 'book-2',
+              googleBooksId: 'gb-2',
+              title: 'Foundation',
+              author: 'Isaac Asimov',
+              categories: ['Fiction / Science Fiction / General'],
+            ),
+            id: 'progress-2',
+            status: ReadingStatus.finished,
+          ),
+        ],
+        tastes: [ReadingTaste.fantasy],
       );
-      expect(seeds.map((s) => s.label), [
+
+      expect(labels(seeds).take(3), [
+        'our readers read',
+        'more by Frank Herbert',
         'fantasy for you',
-        'mystery & thriller for you',
       ]);
-      expect(seeds.first.query, 'subject:"fantasy"');
+      expect(seeds[1].query, 'inauthor:"Frank Herbert"');
+      expect(labels(seeds)[3], startsWith('more in '));
+      expect(labels(seeds).skip(4), browse);
     });
 
-    test('an empty shelf starts with classics', () {
-      expect(
-        RecommendationSeeds.from(const []).single.label,
-        'classics to start with',
+    test('everyone gets popular, new, classics and more to browse', () {
+      expect(labels(RecommendationSeeds.from(const [])), [
+        'our readers read',
+        ...browse,
+      ]);
+      expect(browse, containsAll(['popular right now', 'timeless classics']));
+      final newest = RecommendationSeeds.browse.firstWhere(
+        (seed) => seed.label == 'new releases',
       );
+      expect(newest.orderBy, 'newest');
+    });
+
+    test('popularity sorts by ratings count, keeping ties in order', () {
+      GoogleBook book(String id, int? ratings) => GoogleBook(
+        id: id,
+        title: id,
+        authors: const ['x'],
+        ratingsCount: ratings,
+      );
+      final sorted = BookSearchController.byPopularity([
+        book('a', null),
+        book('b', 50),
+        book('c', 900),
+        book('d', null),
+      ]);
+      expect([for (final b in sorted) b.id], ['c', 'b', 'a', 'd']);
     });
 
     testWidgets('show under an empty search bar, without books already '
@@ -207,11 +240,38 @@ void main() {
 
       expect(find.text('more by Frank Herbert'), findsOneWidget);
       expect(queries, contains('inauthor:"Frank Herbert"'));
+      expect(find.byKey(const ValueKey('recommended-gb-dune')), findsNothing);
       expect(
         find.byKey(const ValueKey('recommended-gb-messiah')),
+        findsWidgets,
+      );
+    });
+
+    testWidgets('our readers read lists what other cactus readers shelve', (
+      tester,
+    ) async {
+      await pumpSearch(
+        tester,
+        readers: const [
+          Book(
+            id: 'book-9',
+            googleBooksId: 'gb-circe',
+            title: 'Circe',
+            author: 'Madeline Miller',
+          ),
+        ],
+      );
+
+      expect(find.text('our readers read'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('recommended-gb-circe')),
         findsOneWidget,
       );
-      expect(find.byKey(const ValueKey('recommended-gb-dune')), findsNothing);
+    });
+
+    testWidgets('an empty readers row is left out', (tester) async {
+      await pumpSearch(tester);
+      expect(find.text('our readers read'), findsNothing);
     });
   });
 

@@ -25,7 +25,7 @@
 const GOOGLE_BOOKS = "https://www.googleapis.com/books/v1/volumes";
 
 /** Query parameters the app sends; anything else is dropped. */
-const ALLOWED_PARAMS = ["q", "maxResults", "startIndex", "printType", "projection", "langRestrict"];
+const ALLOWED_PARAMS = ["q", "maxResults", "startIndex", "printType", "projection", "langRestrict", "orderBy"];
 
 /** Long enough for any real title/author/ISBN query. */
 const MAX_QUERY_LENGTH = 500;

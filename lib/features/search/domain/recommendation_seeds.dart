@@ -3,43 +3,117 @@ import '../../library/domain/user_book.dart';
 import '../../streaks/domain/reading_stats.dart';
 import 'reading_taste.dart';
 
-/// One row of recommendations on the search tab: what it's called and the
-/// Google Books query that fills it.
+/// Where a recommendation row's books come from.
+enum SeedSource {
+  /// A Google Books query.
+  catalogue,
+
+  /// What other cactus readers have on their shelves (`popular_books`).
+  readers,
+}
+
+/// One row of recommendations on the search tab: what it's called and how
+/// it's filled.
 class RecommendationSeed {
-  const RecommendationSeed({required this.label, required this.query});
+  const RecommendationSeed({
+    required this.label,
+    this.query = '',
+    this.source = SeedSource.catalogue,
+    this.orderBy,
+    this.byPopularity = false,
+    this.maxPages,
+  });
 
   final String label;
+
+  /// The Google Books query, for [SeedSource.catalogue].
   final String query;
+  final SeedSource source;
+
+  /// Google's own `orderBy` — only `newest` means anything beyond its
+  /// default relevance.
+  final String? orderBy;
+
+  /// Re-sort the results by how many ratings each has on Google Books —
+  /// the closest thing it offers to "most popular".
+  final bool byPopularity;
+
+  /// Keep only books this short.
+  final int? maxPages;
 
   @override
   bool operator ==(Object other) =>
       other is RecommendationSeed &&
       other.label == label &&
-      other.query == query;
+      other.query == query &&
+      other.source == source &&
+      other.orderBy == orderBy &&
+      other.byPopularity == byPopularity &&
+      other.maxPages == maxPages;
 
   @override
-  int get hashCode => Object.hash(label, query);
+  int get hashCode =>
+      Object.hash(label, query, source, orderBy, byPopularity, maxPages);
 }
 
-/// Picks the recommendation rows from the reader's own shelf — no AI, just
-/// what they've read, so every reader gets them for free:
+/// Picks the search tab's rows, Goodreads-discover style. Personal rows
+/// first, then the same browsing rows for everyone:
 ///
-/// * **more by (author)** — the author of the book they're reading now, or
-///   else the one they finished most recently;
-/// * **more in (genre)** — their most-read genre among finished books
-///   ([ReadingStats.genreOf]), when there is one;
-/// * **(taste) for you** — one row per kind of book the reader said they
-///   like ([ReadingTaste], from onboarding or settings), up to three, right
-///   after the author row;
-/// * **classics to start with** — only when there's nothing else to go on.
+/// * **our readers read** — what's on the most cactus shelves;
+/// * **more by (author)** — the book being read, else the latest finished;
+/// * **(taste) for you** — up to three of the reader's [ReadingTaste]s;
+/// * **more in (genre)** — their most-read finished genre, unless a taste
+///   already covers it;
+/// * [browse]: popular right now, new releases, timeless classics, short
+///   reads, award winners and nonfiction worth reading.
 abstract final class RecommendationSeeds {
   static const maxTasteRows = 3;
+
+  /// The rows every reader gets, after their own.
+  static const browse = [
+    RecommendationSeed(
+      label: 'popular right now',
+      query: 'subject:"fiction"',
+      byPopularity: true,
+    ),
+    RecommendationSeed(
+      label: 'new releases',
+      query: 'subject:"fiction"',
+      orderBy: 'newest',
+    ),
+    RecommendationSeed(
+      label: 'timeless classics',
+      query: 'subject:"classics"',
+      byPopularity: true,
+    ),
+    RecommendationSeed(
+      label: 'short reads',
+      query: 'subject:"fiction"',
+      byPopularity: true,
+      maxPages: 220,
+    ),
+    RecommendationSeed(
+      label: 'award winners',
+      query: 'subject:"fiction" "award winning"',
+      byPopularity: true,
+    ),
+    RecommendationSeed(
+      label: 'nonfiction worth reading',
+      query: 'subject:"nonfiction"',
+      byPopularity: true,
+    ),
+  ];
 
   static List<RecommendationSeed> from(
     List<LibraryBook> books, {
     List<ReadingTaste> tastes = const [],
   }) {
-    final seeds = <RecommendationSeed>[];
+    final seeds = <RecommendationSeed>[
+      const RecommendationSeed(
+        label: 'our readers read',
+        source: SeedSource.readers,
+      ),
+    ];
 
     final author = _anchorAuthor(books);
     if (author != null) {
@@ -47,6 +121,7 @@ abstract final class RecommendationSeeds {
         RecommendationSeed(
           label: 'more by $author',
           query: 'inauthor:"$author"',
+          byPopularity: true,
         ),
       );
     }
@@ -56,6 +131,7 @@ abstract final class RecommendationSeeds {
         RecommendationSeed(
           label: '${taste.label} for you',
           query: 'subject:"${taste.subject}"',
+          byPopularity: true,
         ),
       );
     }
@@ -67,19 +143,12 @@ abstract final class RecommendationSeeds {
         RecommendationSeed(
           label: 'more in ${genre.toLowerCase()}',
           query: 'subject:"$genre"',
+          byPopularity: true,
         ),
       );
     }
 
-    if (seeds.isEmpty) {
-      seeds.add(
-        const RecommendationSeed(
-          label: 'classics to start with',
-          query: 'subject:"classics"',
-        ),
-      );
-    }
-    return seeds;
+    return [...seeds, ...browse];
   }
 
   /// [books] come most recently updated first — the shelf's own natural
