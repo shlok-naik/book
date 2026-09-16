@@ -13,14 +13,18 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_progress_view.dart';
 import '../../../library/domain/collections.dart';
+import '../../../library/domain/library_exception.dart';
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../library/presentation/widgets/removal_confirmations.dart';
 import '../../../memory/presentation/memory_scope.dart';
+import '../../../search/presentation/widgets/book_picker_sheet.dart';
 import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../../streaks/domain/reading_stats.dart';
 import '../../domain/log_command_parser.dart';
+import '../../domain/smart_command_parser.dart';
+import '../parser_mode_controller.dart';
 import '../widgets/command_input.dart';
 import '../widgets/confirmation_pill.dart';
 import '../widgets/currently_reading_card.dart';
@@ -186,18 +190,99 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  /// Routes a submitted line to whichever mode is active — the manual
-  /// parser, or (on "cactus pro") the AI's natural-language extraction.
-  /// Read at submit time rather than cached, so a mid-session plan
-  /// switch takes effect on the very next command.
+  /// Routes a submitted line to whichever parser is active
+  /// ([ParserModeController.effective]) — the manual parser, the on-device
+  /// beta parser, or (on "cactus pro") the AI's natural-language
+  /// extraction. Read at submit time rather than cached, so a mid-session
+  /// plan or debug switch takes effect on the very next command.
   Future<CommandOutcome> _run(String command) {
     if (_isOpenMemory(command)) return Future.value(_openMemory());
     // Offline, the AI path can't run at all (it's an edge function), so a
     // pro reader's line goes to the manual parser instead — a typed command
     // still saves offline, where a sentence would only fail.
-    final useAi =
-        PlanController.isPro.value && !ConnectivityController.isOffline.value;
-    return useAi ? _runAi(command) : _runManual(command);
+    return switch (ParserModeController.effective(
+      offline: ConnectivityController.isOffline.value,
+    )) {
+      ParserMode.proAi => _runAi(command),
+      ParserMode.beta => _runSmart(command),
+      ParserMode.classic => _runManual(command),
+    };
+  }
+
+  /// The beta parser: [SmartCommandParser] turns a sentence into command
+  /// lines on the device, asking with the book picker for any action whose
+  /// book is missing or unclear — then the lines run exactly as the AI's
+  /// do ([_showInstructions]). A line that was already a command, unchanged,
+  /// runs as a plain manual command.
+  Future<CommandOutcome> _runSmart(String command) async {
+    final library = LibraryScope.read(context);
+    final lines = SmartCommandParser.parse(
+      command,
+      library: [
+        for (final entry in library.books)
+          SmartBook(
+            title: entry.book.title,
+            author: entry.book.author,
+            isReading: entry.isReading,
+          ),
+      ],
+      today: DateTime.now(),
+    );
+    if (lines.isEmpty) return _runManual(command);
+
+    final commands = <String>[];
+    for (final line in lines) {
+      switch (line) {
+        case ResolvedLine(command: final resolved):
+          commands.add(resolved);
+        case UnrecognizedLine(:final text):
+          commands.add(text);
+        case NeedsBookLine():
+          final title = await _askForBook(line);
+          if (!mounted) return CommandOutcome.rejected;
+          if (title != null) commands.add(line.commandFor(title));
+      }
+    }
+
+    if (commands.isEmpty) {
+      _showMessage('Kept looking', ConfirmationTone.neutral);
+      return CommandOutcome.dismissed;
+    }
+    if (commands.length == 1 && commands.single == command.trim()) {
+      return _runManual(command);
+    }
+    _showInstructions(commands);
+    return CommandOutcome.accepted;
+  }
+
+  /// Which book an action meant, from the book picker: a shelf book's own
+  /// title, or a Google Books volume cached first so the command that runs
+  /// next finds exactly that book. Null when the reader backs out.
+  Future<String?> _askForBook(NeedsBookLine line) async {
+    _focusNode.unfocus();
+    final query = line.query;
+    final pick = await showBookPicker(
+      context,
+      query: query,
+      prompt: query.isEmpty ? 'which book?' : 'which "$query"?',
+    );
+    if (!mounted) return null;
+    switch (pick) {
+      case null:
+        return null;
+      case ShelfPick(:final entry):
+        return entry.book.title;
+      case CataloguePick(:final volume):
+        try {
+          final book = await LibraryScope.read(
+            context,
+          ).lookup.resolveVolume(volume);
+          return book.title;
+        } on LibraryException catch (error) {
+          if (mounted) _showMessage(error.message, ConfirmationTone.failure);
+          return null;
+        }
+    }
   }
 
   /// A bare `memory` (any case, surrounding space ignored) is a way to the
@@ -391,18 +476,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     // The prompt asks for a literal "gibberish" line rather than
     // an empty list when it finds nothing — this is a defensive fallback
     // for the rare reply that doesn't comply, not the normal path.
-    final effectiveCommands = commands.isEmpty ? const ['gibberish'] : commands;
+    setState(() => _aiThinking = false);
+    _showInstructions(commands.isEmpty ? const ['gibberish'] : commands);
+    return CommandOutcome.accepted;
+  }
 
+  /// Swaps the typed sentence for [commands] and runs them in order — see
+  /// [_runAi] and [_runInstructions].
+  void _showInstructions(List<String> commands) {
     _instructionsOpacity.value = 1;
     setState(() {
-      _aiThinking = false;
       _message = null;
-      _instructions = [
-        for (final line in effectiveCommands) _Instruction(line),
-      ];
+      _instructions = [for (final line in commands) _Instruction(line)];
     });
     unawaited(_runInstructions());
-    return CommandOutcome.accepted;
   }
 
   /// Runs [_instructions] one at a time, in order, each through

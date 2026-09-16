@@ -16,6 +16,7 @@ import 'package:book/features/library/domain/reading_event.dart';
 import 'package:book/features/library/domain/user_book.dart';
 import 'package:book/features/library/presentation/controllers/library_controller.dart';
 import 'package:book/features/logging/presentation/pages/home_page.dart';
+import 'package:book/features/logging/presentation/parser_mode_controller.dart';
 import 'package:book/features/memory/data/memory_repository.dart';
 import 'package:book/features/memory/domain/memory.dart';
 import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
@@ -941,5 +942,67 @@ void main() {
       findsOneWidget,
     );
     await tester.pump(const Duration(seconds: 4));
+  });
+
+  group('beta parser', () {
+    setUp(() => ParserModeController.chosen.value = ParserMode.beta);
+    tearDown(ParserModeController.reset);
+
+    testWidgets('turns one sentence into several commands and runs them', (
+      WidgetTester tester,
+    ) async {
+      await useDeviceSize(tester);
+      final library = _newLibraryController();
+      await tester.pumpWidget(
+        BookApp(
+          libraryController: library,
+          memoryController: _newMemoryController(),
+          sessionService: _FakeSession(),
+          goalController: goalControllerFor(),
+        ),
+      );
+
+      await submit(tester, 'start Dune');
+      expect(library.inProgress.single.book.title, 'Dune');
+
+      await send(tester, 'finished dune and gave it 5 stars');
+      // Each line gets its turn, then the list fades away.
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      await tester.pumpAndSettle();
+
+      final dune = library.finished.single;
+      expect(dune.book.title, 'Dune');
+      expect(dune.rating, 5);
+    });
+
+    testWidgets('asks which book when a sentence names none', (
+      WidgetTester tester,
+    ) async {
+      await useDeviceSize(tester);
+      await tester.pumpWidget(
+        BookApp(
+          libraryController: _newLibraryController(),
+          memoryController: _newMemoryController(),
+          sessionService: _FakeSession(),
+          goalController: goalControllerFor(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await send(tester, 'finished it yesterday');
+      await tester.pumpAndSettle();
+
+      expect(find.text('which book?'), findsOneWidget);
+      expect(find.text('your library'), findsOneWidget);
+      expect(find.text('google books'), findsOneWidget);
+
+      // Backing out runs nothing.
+      Navigator.of(tester.element(find.text('which book?'))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Kept looking'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+    });
   });
 }

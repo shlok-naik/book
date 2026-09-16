@@ -20,6 +20,7 @@ import '../../../library/presentation/library_scope.dart';
 import '../../../library/presentation/series_tile_style_controller.dart';
 import '../../../library_transfer/presentation/library_exporter.dart';
 import '../../../library_transfer/presentation/pages/import_page.dart';
+import '../../../logging/presentation/parser_mode_controller.dart';
 import '../../../memory/presentation/pages/memory_page.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
 import '../../../shell/presentation/start_page_controller.dart';
@@ -116,8 +117,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// The pro-gated rows below read [PlanController.isPro], so a plan
-  /// change anywhere (the debug toggle, a purchase pushed from another
-  /// device) redraws them.
+  /// change anywhere (a purchase pushed from another device) redraws them.
   void _onPlanChanged() {
     if (mounted) setState(() {});
   }
@@ -710,25 +710,44 @@ class _Check extends StatelessWidget {
   }
 }
 
-/// Debug-only override for a state that otherwise needs a real purchase
-/// to reach. Never compiled into a release build.
+/// Debug-only: which parser the add tab uses — classic commands, the
+/// on-device beta parser, or pro AI — as three choices like
+/// [_AppearanceSection]. Never compiled into a release build, where the
+/// plan decides (see [ParserModeController]).
 class _DebugSection extends StatelessWidget {
   const _DebugSection();
 
+  static const _icons = {
+    ParserMode.classic: Icons.terminal,
+    ParserMode.beta: Icons.science_outlined,
+    ParserMode.proAi: Icons.auto_awesome,
+  };
+
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: PlanController.isPro,
-      builder: (context, isPro, _) {
+    return ValueListenableBuilder<ParserMode?>(
+      valueListenable: ParserModeController.chosen,
+      builder: (context, chosen, _) {
+        final current = chosen ?? ParserModeController.planDefault;
         return SettingsSection(
-          title: 'debug',
+          title: 'debug · parser',
           rows: [
-            SettingsRow(
-              icon: isPro ? Icons.auto_awesome : Icons.person_outline,
-              label: 'pretend plan',
-              value: isPro ? 'pro' : 'free',
-              onTap: PlanController.toggle,
-            ),
+            for (final mode in ParserMode.values)
+              SettingsRow(
+                key: ValueKey('parser-mode-${mode.name}'),
+                icon: _icons[mode]!,
+                label: mode.label,
+                trailing: _Check(selected: current == mode),
+                onTap: () {
+                  if (current == mode) return;
+                  AppHaptics.selection();
+                  reportingFailure(
+                    ParserModeController.select(mode),
+                    source: 'SettingsPage',
+                    message: 'Could not save the parser mode.',
+                  );
+                },
+              ),
           ],
         );
       },
