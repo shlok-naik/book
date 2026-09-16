@@ -18,12 +18,14 @@ import 'package:book/features/memory/presentation/controllers/memory_controller.
 import 'package:book/features/memory/presentation/memory_scope.dart';
 import 'package:book/features/onboarding/data/onboarding_store.dart';
 import 'package:book/features/onboarding/presentation/pages/add_book_tutorial_page.dart';
+import 'package:book/features/onboarding/presentation/pages/buttons_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/finish_page.dart';
 import 'package:book/features/onboarding/presentation/pages/founders_note_page.dart';
 import 'package:book/features/onboarding/presentation/pages/goodreads_prompt_page.dart';
 import 'package:book/features/onboarding/presentation/pages/natural_language_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.dart';
 import 'package:book/features/onboarding/presentation/pages/reading_goal_page.dart';
+import 'package:book/features/onboarding/presentation/pages/speed_up_prompt_page.dart';
 import 'package:book/features/onboarding/presentation/pages/tags_comments_tutorial_page.dart';
 import 'package:book/features/onboarding/presentation/pages/theme_preference_page.dart';
 import 'package:book/features/onboarding/presentation/pages/welcome_page.dart';
@@ -176,6 +178,14 @@ void main() {
     expect(find.text('cactus'), findsOneWidget);
     await start(tester);
 
+    // Buttons first: the app is usable without a single command.
+    expect(find.byType(ButtonsTutorialPage), findsOneWidget);
+    expect(find.text('want to read'), findsOneWidget);
+    await tapContinue(tester);
+
+    expect(find.byType(SpeedUpPromptPage), findsOneWidget);
+    await tapPill(tester, 'yes, show me');
+
     expect(find.byType(AddBookTutorialPage), findsOneWidget);
     // `move` isn't taught on the first tutorial any more.
     expect(find.textContaining('move <book>'), findsNothing);
@@ -237,8 +247,7 @@ void main() {
     await pumpIntro(tester);
     await start(tester);
     await tapContinue(tester);
-    await tapContinue(tester);
-    await tapContinue(tester);
+    await tapPill(tester, 'no thanks');
     await tapPill(tester, 'not now');
 
     expect(find.byType(ThemePreferencePage), findsOneWidget);
@@ -253,6 +262,19 @@ void main() {
     // choice made here is one a reader can revisit rather than a
     // separate piece of state that drifts.
     expect(ThemeController.mode.value, ThemeMode.dark);
+  });
+
+  testWidgets('saying no to commands skips every command tutorial', (
+    tester,
+  ) async {
+    await pumpIntro(tester);
+    await start(tester);
+    await tapContinue(tester);
+    await tapPill(tester, 'no thanks');
+
+    expect(find.byType(GoodreadsPromptPage), findsOneWidget);
+    expect(find.byType(AddBookTutorialPage), findsNothing);
+    expect(find.byType(NaturalLanguageTutorialPage), findsNothing);
   });
 
   testWidgets('finishing records the flag and hands over to the app', (
@@ -280,6 +302,8 @@ void main() {
   Future<void> walkToGoal(WidgetTester tester, GoalController goals) async {
     await pumpIntro(tester, goals: goals);
     await start(tester);
+    await tapContinue(tester);
+    await tapPill(tester, 'yes, show me');
     for (var i = 0; i < 3; i++) {
       await tapContinue(tester);
     }

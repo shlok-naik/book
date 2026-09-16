@@ -5,7 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/dotted_background.dart';
 import '../../../paywall/presentation/widgets/soft_pill_button.dart';
-import 'add_book_tutorial_page.dart';
+import 'buttons_tutorial_page.dart';
 
 /// The first screen of a fresh install: "cactus" holds centered for a
 /// beat, slides up a little, a short description fades in beneath it,
@@ -90,8 +90,8 @@ class _WelcomePageState extends State<WelcomePage>
   void _start() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        settings: const RouteSettings(name: 'onboarding_add_book_tutorial'),
-        builder: (_) => const AddBookTutorialPage(),
+        settings: const RouteSettings(name: 'onboarding_buttons_tutorial'),
+        builder: (_) => const ButtonsTutorialPage(),
       ),
     );
   }
