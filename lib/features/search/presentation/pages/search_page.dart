@@ -22,6 +22,7 @@ import '../../../logging/presentation/widgets/confirmation_pill.dart';
 import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../data/popular_books_repository.dart';
+import '../../data/recommendation_row_cache.dart';
 import '../controllers/book_search_controller.dart';
 import '../reading_tastes_controller.dart';
 import '../widgets/book_preview_sheet.dart';
@@ -39,7 +40,16 @@ import '../widgets/book_rows.dart';
 /// [showBookPreviewSheet] — the "want to read" button and the other
 /// shelves — on a tap. Offline, only the shelf half answers.
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key, this.popularBooks, this.resetSignal});
+  const SearchPage({
+    super.key,
+    this.popularBooks,
+    this.rowCache,
+    this.resetSignal,
+  });
+
+  /// Where discover rows are kept between launches; defaults to
+  /// [RecommendationRowCache.installed].
+  final RecommendationRowCache? rowCache;
 
   /// Fires when the reader leaves the tab — the search clears so coming
   /// back starts fresh.
@@ -75,6 +85,7 @@ class _SearchPageState extends State<SearchPage> {
     _search = BookSearchController(
       lookup: library.lookup,
       popularBooks: widget.popularBooks ?? PopularBooksRepository(),
+      rowCache: widget.rowCache ?? RecommendationRowCache.installed,
     );
     // After the first frame: the shelf may still be loading, and the
     // controller notifies synchronously.
@@ -384,7 +395,7 @@ class _SearchPageState extends State<SearchPage> {
         for (final row in rows) ...[
           ListHeading(row.seed.label),
           if (row.loading)
-            const SizedBox(height: _RecommendationStrip.height)
+            const _RecommendationSkeleton()
           else if (row.error case final error?)
             Text(
               error,
@@ -409,8 +420,8 @@ class _RecommendationStrip extends StatelessWidget {
   final List<GoogleBook> books;
   final ValueChanged<GoogleBook> onTap;
 
-  static const _coverWidth = 92.0;
-  static const height = _coverWidth / BookCover.aspectRatio + 44;
+  static const coverWidth = 92.0;
+  static const height = coverWidth / BookCover.aspectRatio + 44;
 
   @override
   Widget build(BuildContext context) {
@@ -432,7 +443,7 @@ class _RecommendationStrip extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppRadius.sm),
               onTap: () => onTap(volume),
               child: SizedBox(
-                width: _coverWidth,
+                width: coverWidth,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -459,6 +470,50 @@ class _RecommendationStrip extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// A row still loading: blank covers where its books will land, so the
+/// page has its shape from the first frame instead of popping in.
+class _RecommendationSkeleton extends StatelessWidget {
+  const _RecommendationSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    const width = _RecommendationStrip.coverWidth;
+    final block = BoxDecoration(
+      color: colors.surface,
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      border: Border.all(color: colors.divider),
+    );
+    return Semantics(
+      label: 'Loading books',
+      excludeSemantics: true,
+      child: SizedBox(
+        height: _RecommendationStrip.height,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: 5,
+          separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
+          itemBuilder: (_, _) => SizedBox(
+            width: width,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AspectRatio(
+                  aspectRatio: BookCover.aspectRatio,
+                  child: DecoratedBox(decoration: block),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Container(height: 10, width: width * 0.8, decoration: block),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

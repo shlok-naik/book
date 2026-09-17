@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
@@ -6,6 +8,7 @@ import '../../../library/domain/book_lookup_service.dart';
 import '../../../library/domain/library_book.dart';
 import '../../../library/domain/library_exception.dart';
 import '../../data/popular_books_repository.dart';
+import '../../data/recommendation_row_cache.dart';
 import '../../domain/reading_taste.dart';
 import '../../domain/recommendation_seeds.dart';
 
@@ -33,12 +36,23 @@ class RecommendationRow {
 /// `LibraryController.lookup` it already has, so no HTTP client is made in
 /// a widget.
 class BookSearchController extends ChangeNotifier {
-  BookSearchController({required this.lookup, this.popularBooks});
+  BookSearchController({
+    required this.lookup,
+    this.popularBooks,
+    this.rowCache,
+  });
 
   final BookLookupService lookup;
 
   /// The "our readers read" row's source. Null skips that row.
   final PopularBooksRepository? popularBooks;
+
+  /// Last time's discover rows, shown at once and refreshed underneath.
+  /// Null (tests, mostly) always fetches.
+  final RecommendationRowCache? rowCache;
+
+  /// A cached row younger than this isn't fetched again at all.
+  static const rowFreshFor = Duration(hours: 12);
 
   /// How many rows fetch at once. Google Books answers a burst of parallel
   /// searches with 503s, so the rows fill in a couple at a time.
@@ -133,6 +147,10 @@ class BookSearchController extends ChangeNotifier {
   /// Fills the recommendation rows for [books] — the reader's shelf. Only
   /// refetches when the rows it would show changed ([RecommendationSeeds]),
   /// so opening the tab again, or a progress update, costs nothing.
+  ///
+  /// Rows [rowCache] already has show straight away; only stale or missing
+  /// ones are fetched, [rowConcurrency] at a time as a pool — a slow row
+  /// holds up its own worker, never the next row.
   Future<void> loadRecommendations(
     List<LibraryBook> books, {
     List<ReadingTaste> tastes = const [],
@@ -149,13 +167,49 @@ class BookSearchController extends ChangeNotifier {
     _notify();
 
     final onShelf = {for (final entry in books) entry.book.googleBooksId};
-    for (var start = 0; start < seeds.length; start += rowConcurrency) {
-      if (_disposed || !identical(_seeds, seeds)) return;
-      await Future.wait([
-        for (var i = start; i < start + rowConcurrency && i < seeds.length; i++)
-          _loadRow(i, seeds[i], onShelf),
-      ]);
+    final pending = <int>[];
+    final cached = await rowCache?.readAll() ?? const <String, CachedRow>{};
+    if (_disposed || !identical(_seeds, seeds)) return;
+    final now = DateTime.now();
+    for (final (index, seed) in seeds.indexed) {
+      final hit = cached[RecommendationRowCache.keyFor(seed)];
+      if (hit != null && hit.books.isNotEmpty) {
+        _rows = [..._rows]..[index] = _rowFrom(seed, hit.books, onShelf);
+        if (now.difference(hit.fetchedAt) < rowFreshFor) continue;
+      }
+      pending.add(index);
     }
+    if (cached.isNotEmpty) _notify();
+
+    Future<void> worker() async {
+      while (pending.isNotEmpty) {
+        if (_disposed || !identical(_seeds, seeds)) return;
+        final index = pending.removeAt(0);
+        await _loadRow(index, seeds[index], onShelf);
+      }
+    }
+
+    await Future.wait([
+      for (var i = 0; i < rowConcurrency && i < pending.length; i++) worker(),
+    ]);
+  }
+
+  /// [found] as [seed]'s row: without books already on the shelf or a title
+  /// twice, at most 20.
+  RecommendationRow _rowFrom(
+    RecommendationSeed seed,
+    List<GoogleBook> found,
+    Set<String?> onShelf,
+  ) {
+    final seen = <String>{};
+    return RecommendationRow(
+      seed: seed,
+      books: [
+        for (final book in found)
+          if (!onShelf.contains(book.id) && seen.add(book.title.toLowerCase()))
+            book,
+      ].take(20).toList(),
+    );
   }
 
   Future<List<GoogleBook>> _fetch(RecommendationSeed seed) async {
@@ -187,16 +241,10 @@ class BookSearchController extends ChangeNotifier {
     RecommendationRow row;
     try {
       final found = await _fetch(seed);
-      final seen = <String>{};
-      row = RecommendationRow(
-        seed: seed,
-        books: [
-          for (final book in found)
-            if (!onShelf.contains(book.id) &&
-                seen.add(book.title.toLowerCase()))
-              book,
-        ].take(20).toList(),
-      );
+      row = _rowFrom(seed, found, onShelf);
+      if (found.isNotEmpty && seed.source == SeedSource.catalogue) {
+        unawaited(rowCache?.write(seed, found));
+      }
     } on LibraryException catch (error) {
       row = RecommendationRow(seed: seed, error: error.message);
     } on Object catch (error, stackTrace) {
@@ -210,6 +258,8 @@ class BookSearchController extends ChangeNotifier {
     }
     // The seeds may have moved on while this row loaded.
     if (index >= _rows.length || _rows[index].seed != seed) return;
+    // A failed refresh keeps the books the row already shows.
+    if (row.error != null && _rows[index].books.isNotEmpty) return;
     _rows = [..._rows]..[index] = row;
     _notify();
   }

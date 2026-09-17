@@ -200,4 +200,62 @@ void main() {
       );
     });
   });
+  group('BookLookupService hedges a slow Google search', () {
+    BookLookupService hedged({
+      required Duration googleDelay,
+      required List<Uri> openLibraryCalls,
+    }) => BookLookupService(
+      cache: _Cache(),
+      googleBooks: GoogleBooksApiClient(
+        client: MockClient((request) async {
+          await Future<void>.delayed(googleDelay);
+          return http.Response(
+            jsonEncode({
+              'items': [
+                {
+                  'id': 'gb-dune',
+                  'volumeInfo': {
+                    'title': 'Dune',
+                    'authors': ['Frank Herbert'],
+                  },
+                },
+              ],
+            }),
+            200,
+          );
+        }),
+        authHeaders: () async => const {},
+        retryDelays: const [],
+      ),
+      openLibrary: _openLibrary([_doc()], openLibraryCalls),
+      hedgeAfter: const Duration(milliseconds: 20),
+    );
+
+    test('a slow Google answer loses to Open Library', () async {
+      final calls = <Uri>[];
+      final lookup = hedged(
+        googleDelay: const Duration(milliseconds: 300),
+        openLibraryCalls: calls,
+      );
+
+      final results = await lookup.searchCatalogue('doctor sleep');
+
+      expect(results.single.id, 'ol:OL81634W');
+      expect(calls, hasLength(1));
+    });
+
+    test('a quick Google answer never asks Open Library', () async {
+      final calls = <Uri>[];
+      final lookup = hedged(
+        googleDelay: Duration.zero,
+        openLibraryCalls: calls,
+      );
+
+      final results = await lookup.searchCatalogue('dune');
+
+      expect(results.single.id, 'gb-dune');
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(calls, isEmpty);
+    });
+  });
 }

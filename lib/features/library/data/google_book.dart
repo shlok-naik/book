@@ -106,6 +106,35 @@ class GoogleBook {
   String get authorLine =>
       authors.isEmpty ? Book.unknownAuthor : authors.join(', ');
 
+  /// This volume in the Google Books API's own shape, so [GoogleBook.fromJson]
+  /// reads it back unchanged — for caching a volume on the device without a
+  /// second serialization to keep in step.
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'volumeInfo': {
+      'title': title,
+      'authors': authors,
+      if (thumbnailUrl != null) 'imageLinks': {'thumbnail': thumbnailUrl},
+      'description': ?description,
+      'pageCount': ?pageCount,
+      'subtitle': ?subtitle,
+      'publisher': ?publisher,
+      'publishedDate': ?publishedDate,
+      if (categories.isNotEmpty) 'categories': categories,
+      'language': ?language,
+      'industryIdentifiers': [
+        if (isbn10 != null) {'type': 'ISBN_10', 'identifier': isbn10},
+        if (isbn13 != null) {'type': 'ISBN_13', 'identifier': isbn13},
+      ],
+      'averageRating': ?averageRating,
+      'ratingsCount': ?ratingsCount,
+      'maturityRating': ?maturityRating,
+      'previewLink': ?previewLink,
+      'printType': ?printType,
+    },
+    'saleInfo': {'isEbook': isEbook},
+  };
+
   /// Lenient by design: the API omits fields freely (no authors, no
   /// cover, no page count), and a missing field must not fail the parse.
   /// Only a structurally wrong payload — a non-object item — is fatal,

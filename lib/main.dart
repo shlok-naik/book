@@ -52,6 +52,7 @@ import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
 import 'features/onboarding/data/onboarding_store.dart';
 import 'features/onboarding/presentation/pages/welcome_page.dart';
+import 'features/search/data/recommendation_row_cache.dart';
 import 'features/search/presentation/reading_tastes_controller.dart';
 import 'features/settings/data/profile_repository.dart';
 import 'features/shell/presentation/pages/root_shell.dart';
@@ -74,6 +75,7 @@ Future<void> main() async {
 }
 
 Future<void> _bootstrap() async {
+  RecommendationRowCache.installed = RecommendationRowCache();
   WidgetsFlutterBinding.ensureInitialized();
   // Fonts ship with the app; never download one (see [BundledFonts]).
   BundledFonts.configure();
@@ -379,6 +381,7 @@ class _BookAppState extends State<BookApp> {
         cache: BookCacheRepository(),
         googleBooks: googleBooks,
         openLibrary: openLibrary,
+        hedgeAfter: const Duration(milliseconds: 2500),
       ),
       userBooks: UserBookRepository(offline: offline?.cache),
       events: ReadingEventRepository(offline: offline?.cache),

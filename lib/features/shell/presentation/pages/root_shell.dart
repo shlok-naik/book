@@ -8,6 +8,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../goals/presentation/goal_scope.dart';
+import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../library/presentation/pages/library_page.dart';
 import '../../../logging/presentation/pages/home_page.dart';
@@ -98,10 +99,21 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
       // The add tab shows the currently-reading book and goal progress from
       // the shelf, so the shelf loads at launch whichever tab mounts first.
       final library = LibraryScope.read(context);
-      if (!library.hasLoaded) unawaited(library.load());
+      unawaited(_prefetchSearch(library));
       unawaited(_maybeShowIntroOffer());
     });
   }
+
+  /// Loads the shelf, then mounts the search tab offstage so its discover
+  /// rows (personalised from that shelf) are filling in — or already
+  /// shown from the device — before the reader ever opens it.
+  Future<void> _prefetchSearch(LibraryController library) async {
+    if (!library.hasLoaded) await library.load();
+    if (!mounted || _visited.contains(_searchIndex)) return;
+    setState(() => _visited.add(_searchIndex));
+  }
+
+  static const _searchIndex = 0;
 
   /// Coming back to the app reloads the shelf and the goal: another device
   /// signed in to the same email may have changed them — or replaced the

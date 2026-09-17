@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../data/book_cache_repository.dart';
 import '../data/google_book.dart';
 import '../data/google_books_api_client.dart';
@@ -14,8 +16,16 @@ class BookLookupService {
     required this.cache,
     required this.googleBooks,
     this.openLibrary,
+    this.hedgeAfter,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
+
+  /// How long a search waits on Google Books before also asking Open
+  /// Library, then taking whichever answers first. Google's own 5xx retries
+  /// (in the `google-books` function) can hold a search for up to 9s; a
+  /// reader looking at an empty screen shouldn't pay that. Null waits on
+  /// Google alone, as tests expect.
+  final Duration? hedgeAfter;
 
   /// Supabase-backed cache, checked before any network call.
   final BookCacheRepository cache;
@@ -56,12 +66,29 @@ class BookLookupService {
         newest: orderBy == 'newest',
       );
     }
+    final google = googleBooks.search(
+      query,
+      maxResults: maxResults,
+      orderBy: orderBy,
+    );
+    final hedge = hedgeAfter;
+    if (backup == null || hedge == null) {
+      return _googleOrBackup(google, query, maxResults, orderBy);
+    }
+    return _hedged(google, backup, hedge, query, maxResults, orderBy);
+  }
+
+  /// Waits on [google], falling back to Open Library when it fails with
+  /// anything but "no such book" (and resting Google for [googleCooldown]).
+  Future<List<GoogleBook>> _googleOrBackup(
+    Future<List<GoogleBook>> google,
+    String query,
+    int maxResults,
+    String? orderBy,
+  ) async {
+    final backup = openLibrary;
     try {
-      return await googleBooks.search(
-        query,
-        maxResults: maxResults,
-        orderBy: orderBy,
-      );
+      return await google;
     } on LibraryException catch (error) {
       if (backup == null ||
           error is InvalidInputException ||
@@ -74,6 +101,79 @@ class BookLookupService {
         limit: maxResults,
         newest: orderBy == 'newest',
       );
+    }
+  }
+
+  /// Google first; if it hasn't answered within [hedge], Open Library is
+  /// asked too and the first *successful* answer wins. A Google failure
+  /// still rests Google, and a "no such book" from Google still counts.
+  Future<List<GoogleBook>> _hedged(
+    Future<List<GoogleBook>> google,
+    OpenLibraryClient backup,
+    Duration hedge,
+    String query,
+    int maxResults,
+    String? orderBy,
+  ) async {
+    final result = Completer<List<GoogleBook>>();
+    var googleDone = false;
+    Future<List<GoogleBook>>? openLibraryAnswer;
+
+    Future<List<GoogleBook>> askBackup() => openLibraryAnswer ??= backup.search(
+      query,
+      limit: maxResults,
+      newest: orderBy == 'newest',
+    );
+
+    final timer = Timer(hedge, () {
+      if (result.isCompleted || googleDone) return;
+      askBackup().then(
+        (books) {
+          if (!result.isCompleted) result.complete(books);
+        },
+        onError: (Object _, StackTrace _) {
+          // Google may still answer; if it already failed, the Google
+          // branch below reports this same error.
+        },
+      );
+    });
+
+    unawaited(
+      google.then(
+        (books) {
+          googleDone = true;
+          if (!result.isCompleted) result.complete(books);
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          googleDone = true;
+          final retryable =
+              error is LibraryException &&
+              error is! InvalidInputException &&
+              error is! BookNotFoundException;
+          if (retryable) _skipGoogleUntil = _clock().add(googleCooldown);
+          if (result.isCompleted) return;
+          if (!retryable) {
+            result.completeError(error, stackTrace);
+            return;
+          }
+          askBackup().then(
+            (books) {
+              if (!result.isCompleted) result.complete(books);
+            },
+            onError: (Object backupError, StackTrace backupStack) {
+              if (!result.isCompleted) {
+                result.completeError(backupError, backupStack);
+              }
+            },
+          );
+        },
+      ),
+    );
+
+    try {
+      return await result.future;
+    } finally {
+      timer.cancel();
     }
   }
 
