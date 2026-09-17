@@ -31,6 +31,7 @@ class EmailSheetResult {
 Future<EmailSheetResult?> showEmailSheet(
   BuildContext context, {
   required SessionService session,
+  String? initialEmail,
 }) {
   return showModalBottomSheet<EmailSheetResult>(
     context: context,
@@ -43,6 +44,7 @@ Future<EmailSheetResult?> showEmailSheet(
     builder: (_) => _EmailSheet(
       session: session,
       mode: session.isAnonymous ? _EmailMode.link : _EmailMode.change,
+      initialEmail: initialEmail,
     ),
   );
 }
@@ -67,17 +69,25 @@ enum _EmailMode {
 /// signing in would provision a different account and abandon this one.
 /// See [SessionService.linkEmail].
 class _EmailSheet extends StatefulWidget {
-  const _EmailSheet({required this.session, required this.mode});
+  const _EmailSheet({
+    required this.session,
+    required this.mode,
+    this.initialEmail,
+  });
 
   final SessionService session;
   final _EmailMode mode;
+
+  /// Prefilled when the reader already typed an address somewhere else —
+  /// onboarding's profile screen. They still confirm the code.
+  final String? initialEmail;
 
   @override
   State<_EmailSheet> createState() => _EmailSheetState();
 }
 
 class _EmailSheetState extends State<_EmailSheet> {
-  final _email = TextEditingController();
+  late final _email = TextEditingController(text: widget.initialEmail ?? '');
   final _code = TextEditingController();
 
   /// True once "send code" succeeds — that's what switches the card from

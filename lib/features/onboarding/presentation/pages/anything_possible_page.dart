@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../widgets/natural_language_wall.dart';
 import '../widgets/tier_label.dart';
 import 'buttons_tutorial_page.dart';
-import 'goodreads_prompt_page.dart';
+import 'cactus_understands_page.dart';
 import 'tutorial_step_page.dart';
 
 /// After [SpeakFreelyPage]: it isn't only progress — shelves, tags, series
@@ -34,8 +34,8 @@ class AnythingPossiblePage extends StatelessWidget {
       ),
       onContinue: () => Navigator.of(context).push(
         MaterialPageRoute(
-          settings: const RouteSettings(name: 'onboarding_goodreads_prompt'),
-          builder: (_) => const GoodreadsPromptPage(),
+          settings: const RouteSettings(name: 'onboarding_cactus_understands'),
+          builder: (_) => const CactusUnderstandsPage(),
         ),
       ),
     );

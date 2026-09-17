@@ -33,6 +33,7 @@ import 'core/theme/text_size_controller.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/widgets/startup_failure_page.dart';
 import 'features/goals/presentation/controllers/goal_controller.dart';
+import 'features/goals/presentation/daily_goal_controller.dart';
 import 'features/goals/presentation/goal_scope.dart';
 import 'features/library/data/book_cache_repository.dart';
 import 'features/library/data/book_details_repository.dart';
@@ -54,6 +55,7 @@ import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
 import 'features/onboarding/data/onboarding_store.dart';
 import 'features/onboarding/presentation/pages/welcome_page.dart';
+import 'features/profile/presentation/profile_identity_controller.dart';
 import 'features/search/data/recommendation_row_cache.dart';
 import 'features/search/presentation/reading_tastes_controller.dart';
 import 'features/settings/data/profile_repository.dart';
@@ -264,6 +266,8 @@ Future<void> _bootstrap() async {
       StartPageController.initialize(),
       TextSizeController.initialize(),
       FirstStepsController.initialize(),
+      DailyGoalController.initialize(),
+      ProfileIdentityController.initialize(),
       ParserModeController.initialize(),
       ReadingTastesController.initialize(),
     ]),

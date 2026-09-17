@@ -208,7 +208,22 @@ class _CoverPlaceholder extends StatelessWidget {
     );
   }
 
+  /// The most the placeholder's own type scales by. A cover is a fixed
+  /// shape, so at the largest reader text sizes its title cannot both scale
+  /// and fit — and it doesn't need to: every surface that shows a cover
+  /// prints the title beside it at full size, and a screen reader is given
+  /// it either way.
+  static const _maxTextScale = 1.3;
+
   Widget _labelled(BuildContext context, AppColors colors) {
+    final scaler = MediaQuery.textScalerOf(context);
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: _maxTextScale,
+      child: _body(context, colors, scaler),
+    );
+  }
+
+  Widget _body(BuildContext context, AppColors colors, TextScaler scaler) {
     return Container(
       color: colors.surface,
       padding: const EdgeInsets.all(AppSpacing.sm),

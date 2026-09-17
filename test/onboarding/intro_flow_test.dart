@@ -19,6 +19,8 @@ import 'package:book/features/memory/presentation/memory_scope.dart';
 import 'package:book/features/onboarding/data/onboarding_store.dart';
 import 'package:book/features/onboarding/presentation/pages/anything_possible_page.dart';
 import 'package:book/features/onboarding/presentation/pages/buttons_tutorial_page.dart';
+import 'package:book/features/onboarding/presentation/pages/cactus_understands_page.dart';
+import 'package:book/features/onboarding/presentation/pages/create_profile_page.dart';
 import 'package:book/features/onboarding/presentation/pages/customisation_tour_page.dart';
 import 'package:book/features/onboarding/presentation/pages/express_yourself_page.dart';
 import 'package:book/features/onboarding/presentation/pages/finish_page.dart';
@@ -167,6 +169,19 @@ Future<void> tapPill(WidgetTester tester, String label) async {
 Future<void> start(WidgetTester tester) async {
   await settleWelcome(tester);
   await tapPill(tester, 'start');
+  await skipProfile(tester);
+}
+
+/// Walks past the account screen — the first thing after the welcome, and
+/// the only screen in the flow that asks for anything — without filling
+/// anything in.
+Future<void> skipProfile(WidgetTester tester) async {
+  expect(find.byType(CreateProfilePage), findsOneWidget);
+  final skip = find.byKey(const ValueKey('onboarding-profile-skip'));
+  await tester.ensureVisible(skip);
+  await settle(tester);
+  await tester.tap(skip);
+  await settle(tester);
 }
 
 Future<void> tapContinue(WidgetTester tester) => tapPill(tester, 'continue');
@@ -250,6 +265,12 @@ void main() {
     expectNoEmoji(tester);
     await tapContinue(tester);
 
+    // The pro half of the same idea: cactus ai reads whole sentences.
+    expect(find.byType(CactusUnderstandsPage), findsOneWidget);
+    expect(find.text('cactus understands you'), findsOneWidget);
+    expectNoEmoji(tester);
+    await tapContinue(tester);
+
     // A reader coming from Goodreads is asked here, before "pick a
     // look" — "not now" skips it exactly like every other onboarding
     // question can be skipped. Importing here is free; it only becomes
@@ -278,8 +299,8 @@ void main() {
     // real RevenueCat SDK without a fake injected.
     expect(find.byType(FoundersNotePage), findsOneWidget);
 
-    // Not one text field anywhere along the way — no name, no email, no
-    // code to paste. That is the whole point of the rewrite.
+    // Nothing asked for outside the account screen the reader skipped at
+    // the start — no password, no code to paste.
     expect(find.byType(TextField), findsNothing);
   });
 
@@ -345,6 +366,8 @@ void main() {
     await start(tester);
     await walkTour(tester);
     await tapPill(tester, 'yes, show me');
+    // speak freely → anything is possible → cactus understands you
+    await tapContinue(tester);
     await tapContinue(tester);
     await tapContinue(tester);
     await tapPill(tester, 'not now');

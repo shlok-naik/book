@@ -22,6 +22,7 @@ import 'package:book/features/memory/data/memory_repository.dart';
 import 'package:book/features/memory/domain/memory.dart';
 import 'package:book/features/memory/presentation/controllers/memory_controller.dart';
 import 'package:book/features/memory/presentation/pages/memory_page.dart';
+import 'package:book/features/profile/presentation/pages/profile_page.dart';
 import 'package:book/features/settings/presentation/pages/settings_page.dart';
 import 'package:book/features/streaks/presentation/pages/stats_page.dart';
 import 'package:book/main.dart';
@@ -684,7 +685,7 @@ void main() {
     },
   );
 
-  testWidgets('the settings gear opens the settings screen', (
+  testWidgets('the profile avatar opens the account, and settings from it', (
     WidgetTester tester,
   ) async {
     await useDeviceSize(tester);
@@ -697,16 +698,27 @@ void main() {
       ),
     );
 
-    // One gear per top-level page, all four of them built eagerly into
-    // the IndexedStack — so tap the one on the page actually on screen.
-    // (Its 'Settings' semantics label is pinned down separately, in
-    // test/accessibility/semantics_test.dart.)
+    // One avatar per top-level page, so tap the one on the page actually
+    // on screen. (Its 'Profile' semantics label is pinned down separately,
+    // in test/accessibility/semantics_test.dart.)
     await tester.tap(
       find.descendant(
         of: find.byType(HomePage),
-        matching: find.byIcon(Icons.settings_outlined),
+        matching: find.byIcon(Icons.account_circle_outlined),
       ),
     );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ProfilePage), findsOneWidget);
+
+    // Settings is one row inside it — the app's own behaviour, kept apart
+    // from who the reader is.
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('profile-settings')),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.byKey(const ValueKey('profile-settings')));
     await tester.pumpAndSettle();
 
     expect(find.byType(SettingsPage), findsOneWidget);
@@ -1010,12 +1022,16 @@ void main() {
     TextSizeController.size.value = TextSize.largest;
     addTearDown(TextSizeController.reset);
 
-    final overflows = <String>[];
-    final previous = FlutterError.onError;
-    FlutterError.onError = (details) {
-      overflows.add(details.exceptionAsString());
-    };
-    addTearDown(() => FlutterError.onError = previous);
+    final problems = <String>[];
+
+    /// Whatever the framework complained about since the last look. Taken
+    /// per pump rather than by overriding `FlutterError.onError`, which
+    /// would also swallow errors this test isn't about — and leave the
+    /// binding with a pending exception it then fails the test over.
+    void collect() {
+      final thrown = tester.takeException();
+      if (thrown != null) problems.add('$thrown');
+    }
 
     await tester.pumpWidget(
       BookApp(
@@ -1026,16 +1042,22 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 500));
+    collect();
     await submit(tester, 'start Dune');
+    collect();
 
     for (final tab in ['Search', 'Stats', 'Library', 'Add']) {
       await tester.tap(find.bySemanticsLabel(tab).first);
-      for (var i = 0; i < 5; i++) {
+      for (var i = 0; i < 4; i++) {
         await tester.pump(const Duration(milliseconds: 200));
+        collect();
       }
     }
-    FlutterError.onError = previous;
 
-    expect(overflows.where((e) => e.contains('overflowed')), isEmpty);
+    expect(
+      problems.where((problem) => problem.contains('overflowed')),
+      isEmpty,
+      reason: problems.join(', '),
+    );
   });
 }

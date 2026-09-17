@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:book/core/auth/session_service.dart';
 import 'package:book/core/platform/app_icon.dart';
 import 'package:book/core/platform/app_icon_channel.dart';
@@ -14,8 +12,6 @@ import 'package:book/features/goals/presentation/goal_scope.dart';
 import 'package:book/features/logging/domain/command_catalog.dart';
 import 'package:book/features/logging/presentation/parser_mode_controller.dart';
 import 'package:book/features/paywall/presentation/pages/paywall_page.dart';
-import 'package:book/features/search/domain/reading_taste.dart';
-import 'package:book/features/search/presentation/reading_tastes_controller.dart';
 import 'package:book/features/settings/data/profile_repository.dart';
 import 'package:book/features/settings/presentation/pages/commands_page.dart';
 import 'package:book/features/settings/presentation/pages/customisation_page.dart';
@@ -28,11 +24,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_goals.dart';
 
-/// The settings screen — everything the deleted profile page used to
-/// carry, plus the membership card that replaced onboarding's email
-/// step (and the settings screen's own former "account" section). The
-/// store, the session, and the profile repository are all faked;
-/// nothing here touches RevenueCat or Supabase.
+/// The settings screen — how the app behaves, and nothing about who the
+/// reader is: the membership card and the profile rows live on the profile
+/// screen now (`test/profile/profile_page_test.dart`). The store, the
+/// session and the profile repository are all faked; nothing here touches
+/// RevenueCat or Supabase.
 
 class _FakePurchasesService extends PurchasesService {
   _FakePurchasesService({required this.info});
@@ -56,19 +52,14 @@ class _FakePurchasesService extends PurchasesService {
 }
 
 class _FakeSession extends SessionService {
-  _FakeSession({this.anonymous = true, this.address});
-
-  final bool anonymous;
-  final String? address;
-
   @override
   bool get isSignedIn => true;
 
   @override
-  bool get isAnonymous => anonymous;
+  bool get isAnonymous => true;
 
   @override
-  String? get email => address;
+  String? get email => null;
 
   @override
   String? get userId => 'fake-user-id';
@@ -79,10 +70,6 @@ class _FakeSession extends SessionService {
 class _FakeProfileRepository extends ProfileRepository {
   _FakeProfileRepository({DateTime? joinedAt})
     : _future = Future.value(joinedAt);
-
-  /// Never resolves — for the one test that needs to catch the card
-  /// mid-load, before `fetchJoinedAt` has answered at all.
-  _FakeProfileRepository.pending() : _future = Completer<DateTime?>().future;
 
   final Future<DateTime?> _future;
 
@@ -364,186 +351,6 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(TextSizeController.size.value, TextSize.largest);
-    });
-  });
-
-  group('profile', () {
-    testWidgets('reading tastes open a picker that saves as you tap', (
-      tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({});
-      addTearDown(ReadingTastesController.reset);
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-      );
-
-      expect(find.text('none yet'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('profile-reading-tastes')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('taste-fantasy')));
-      await tester.pumpAndSettle();
-
-      expect(ReadingTastesController.tastes.value, [ReadingTaste.fantasy]);
-    });
-
-    testWidgets('holds the email row and the memory row', (tester) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-      );
-
-      expect(find.text('profile'), findsOneWidget);
-      expect(find.text('link your email'), findsOneWidget);
-      expect(find.text('memory'), findsOneWidget);
-    });
-  });
-
-  group('membership card', () {
-    testWidgets('an anonymous reader is offered a backup, not a sign-out', (
-      tester,
-    ) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-      );
-
-      expect(find.text('link your email'), findsOneWidget);
-      // Signing out of an anonymous account would strand its shelf
-      // behind a uid nobody can authenticate as again.
-      expect(find.text('sign out'), findsNothing);
-      expect(
-        find.textContaining('Your shelf lives on this device only'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('a linked reader sees their address on the card', (
-      tester,
-    ) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(anonymous: false, address: 'reader@example.com'),
-      );
-
-      expect(find.text('reader@example.com'), findsOneWidget);
-      expect(find.text('change email'), findsOneWidget);
-      expect(find.text('link your email'), findsNothing);
-      // Signing out is not offered anywhere: for an anonymous reader
-      // there is no credential to sign back in with, so it destroys a
-      // library rather than protecting one.
-      expect(find.text('sign out'), findsNothing);
-    });
-
-    testWidgets('the profile row opens the email sheet in its "link" wording', (
-      tester,
-    ) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-      );
-
-      await tester.tap(find.text('link your email'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('send code'), findsOneWidget);
-      expect(
-        find.textContaining('a way back to you on another device'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('the change row opens the same sheet, reworded to change it', (
-      tester,
-    ) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(anonymous: false, address: 'reader@example.com'),
-      );
-
-      await tester.tap(find.text('change email'));
-      await tester.pumpAndSettle();
-
-      // Same two-step sheet, same call underneath — only the copy
-      // knows the difference.
-      expect(find.text('send code'), findsOneWidget);
-      expect(
-        find.textContaining('only the address it answers to changes'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('shows no PRO badge for a free reader', (tester) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-      );
-      expect(find.text('PRO'), findsNothing);
-    });
-
-    testWidgets('shows the PRO badge for a paying reader', (tester) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: true)),
-        session: _FakeSession(),
-      );
-      expect(find.text('PRO'), findsOneWidget);
-    });
-
-    testWidgets('shows when the account was created', (tester) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-        profileRepository: _FakeProfileRepository(
-          // Noon UTC, not midnight — safely the same calendar day once
-          // `_dateLabel` converts it to local, regardless of which
-          // timezone this test happens to run in.
-          joinedAt: DateTime.utc(2026, 3, 5, 12),
-        ),
-      );
-
-      expect(find.text('member since'), findsOneWidget);
-      expect(find.text('3.5.26'), findsOneWidget);
-    });
-
-    testWidgets(
-      'shows a loading placeholder rather than growing once the date lands',
-      (tester) async {
-        await pumpSettings(
-          tester,
-          purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-          session: _FakeSession(),
-          profileRepository: _FakeProfileRepository.pending(),
-        );
-
-        // "member since" is never conditional on the fetch — only the
-        // value below it is — so the card's height is already settled
-        // here, before `fetchJoinedAt` has even answered.
-        expect(find.text('member since'), findsOneWidget);
-        expect(find.text('···'), findsOneWidget);
-      },
-    );
-
-    testWidgets('shows a dash when the join date could not be loaded', (
-      tester,
-    ) async {
-      await pumpSettings(
-        tester,
-        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
-        session: _FakeSession(),
-        profileRepository: _FakeProfileRepository(),
-      );
-
-      expect(find.text('member since'), findsOneWidget);
-      expect(find.text('—'), findsOneWidget);
     });
   });
 

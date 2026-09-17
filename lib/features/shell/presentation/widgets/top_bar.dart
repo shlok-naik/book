@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/feedback/app_haptics.dart';
@@ -5,7 +7,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/offline_indicator.dart';
-import '../../../settings/presentation/pages/settings_page.dart';
+import '../../../profile/presentation/pages/profile_page.dart';
 
 /// The header every top-level page wears: the page's own name on the
 /// left, an optional [trailing] affordance, and the settings gear in the
@@ -24,8 +26,14 @@ import '../../../settings/presentation/pages/settings_page.dart';
 ///
 /// Pages keep their own horizontal padding; this adds none.
 ///
-/// Left of the gear sits [OfflineIndicator] — nothing while online, a
+/// Left of the avatar sits [OfflineIndicator] — nothing while online, a
 /// crossed-out cloud while the app is working offline.
+///
+/// The icon top right used to be a gear straight into settings. It is the
+/// reader's own profile now ([openProfilePage]) — the account, their name,
+/// their memory and their year — with settings one row inside it, because
+/// "who am I" is what a reader looks for up there far more often than
+/// "how does the app behave".
 class TopBar extends StatelessWidget {
   const TopBar({super.key, required this.title, this.trailing});
 
@@ -65,35 +73,28 @@ class TopBar extends StatelessWidget {
           // Just left of the gear, on every tab; takes no room at all
           // while online — see [OfflineIndicator].
           const OfflineIndicator(),
-          _SettingsButton(color: colors.secondaryText),
+          _ProfileButton(color: colors.secondaryText),
         ],
       ),
     );
   }
 }
 
-class _SettingsButton extends StatelessWidget {
-  const _SettingsButton({required this.color});
+class _ProfileButton extends StatelessWidget {
+  const _ProfileButton({required this.color});
 
   final Color color;
 
   void _open(BuildContext context) {
     AppHaptics.selection();
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        // Named so the screen shows up in the analytics funnel — see
-        // [AppAnalytics.navigatorObservers].
-        settings: const RouteSettings(name: 'settings'),
-        builder: (_) => const SettingsPage(),
-      ),
-    );
+    unawaited(openProfilePage(context));
   }
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: 'Settings',
+      label: 'Profile',
       excludeSemantics: true,
       onTap: () => _open(context),
       child: SizedBox(
@@ -119,7 +120,11 @@ class _SettingsButton extends StatelessWidget {
             InkResponse(
               onTap: () => _open(context),
               radius: TopBar._tapTarget / 2,
-              child: Icon(Icons.settings_outlined, size: 20, color: color),
+              child: Icon(
+                Icons.account_circle_outlined,
+                size: 24,
+                color: color,
+              ),
             ),
           ],
         ),

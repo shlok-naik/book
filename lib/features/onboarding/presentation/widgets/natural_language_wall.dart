@@ -21,6 +21,17 @@ class NaturalLanguageWall extends StatelessWidget {
     ['make a series the expanse', 'add leviathan wakes to the expanse series'],
   ];
 
+  /// Whole sentences, as a reader would actually type them — the pro
+  /// "cactus understands you" page, where cactus ai reads them.
+  static const conversational = [
+    ['finally finished dune last night, loved it', 'gave up on ulysses'],
+    [
+      'started circe and im already hooked',
+      'remember that the ending wrecked me',
+    ],
+    ['what should i read next?', 'about halfway through the hobbit i think'],
+  ];
+
   /// Logging reading in words.
   static const logging = [
     [

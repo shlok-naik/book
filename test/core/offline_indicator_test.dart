@@ -48,7 +48,7 @@ void main() {
     expect(find.byKey(syncingMark), findsNothing);
   });
 
-  testWidgets('offline, it sits just left of the settings gear', (
+  testWidgets('offline, it sits just left of the profile avatar', (
     tester,
   ) async {
     await pumpHeader(tester, header: const TopBar(title: 'add'));
@@ -57,9 +57,9 @@ void main() {
     await tester.pump();
 
     final mark = tester.getCenter(find.byKey(offlineMark));
-    final gear = tester.getCenter(find.byIcon(Icons.settings_outlined));
-    expect(mark.dx, lessThan(gear.dx));
-    expect((mark.dy - gear.dy).abs(), lessThan(1));
+    final avatar = tester.getCenter(find.byIcon(Icons.account_circle_outlined));
+    expect(mark.dx, lessThan(avatar.dx));
+    expect((mark.dy - avatar.dy).abs(), lessThan(1));
 
     ConnectivityController.debugSetOffline(false);
     await tester.pump();

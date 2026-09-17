@@ -264,7 +264,7 @@ void main() {
       await pumpPage(tester, controller);
 
       expect(
-        find.byKey(const ValueKey('shelf-folder-loading-reading')),
+        find.byKey(const ValueKey('shelf-folder-loading-toBeRead')),
         findsOneWidget,
       );
       expect(find.text('···'), findsWidgets);
@@ -272,13 +272,10 @@ void main() {
       pending.complete(const []);
       await tester.pump();
       await tester.pump();
-      expect(
-        find.byKey(const ValueKey('shelf-folder-reading')),
-        findsOneWidget,
-      );
+      expect(folder('toBeRead'), findsOneWidget);
     });
 
-    testWidgets('the library lists every shelf as a folder with its count', (
+    testWidgets('the books being read open the page, above the folders', (
       tester,
     ) async {
       final semantics = tester.ensureSemantics();
@@ -287,14 +284,27 @@ void main() {
         controllerFor([_entry(_dune, page: 120), _entry(_noCover, page: 3)]),
       );
 
-      for (final status in ReadingStatus.values) {
+      // The reading shelf is the row at the top, so it gets no folder of
+      // its own — every other shelf still does.
+      expect(find.text('currently reading'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('reading-now-progress-progress-book-1')),
+        findsOneWidget,
+      );
+      expect(folder('reading'), findsNothing);
+      for (final status in [
+        ReadingStatus.toBeRead,
+        ReadingStatus.finished,
+        ReadingStatus.dnf,
+      ]) {
         expect(folder(status.name), findsOneWidget, reason: status.name);
       }
-      expect(find.text('2 books'), findsOneWidget);
       expect(find.text('0 books'), findsNWidgets(3));
       expect(
-        tester.getSemantics(find.bySemanticsLabel('Reading, 2 books')),
-        isSemantics(label: 'Reading, 2 books', isButton: true),
+        tester.getSemantics(
+          find.bySemanticsLabel('Dune by Frank Herbert, 30%'),
+        ),
+        isSemantics(label: 'Dune by Frank Herbert, 30%', isButton: true),
       );
       expect(find.bySemanticsLabel('To read, 0 books'), findsOneWidget);
       // Folders, not grids: no book's own progress line is on this page.
@@ -303,7 +313,7 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('folders run reading, to read, custom shelves, finished, '
+    testWidgets('folders run to read, custom shelves, finished, '
         'did not finish', (tester) async {
       await pumpPage(
         tester,
@@ -316,7 +326,6 @@ void main() {
       );
 
       final order = [
-        'reading',
         'toBeRead',
         'custom-shelf-summer',
         'finished',
@@ -827,7 +836,8 @@ void main() {
 
       await tester.tap(find.bySemanticsLabel('Close search'));
       await tester.pump();
-      expect(folder('reading'), findsOneWidget);
+      expect(find.text('currently reading'), findsOneWidget);
+      expect(folder('toBeRead'), findsOneWidget);
       expect(find.byKey(const ValueKey('library-search')), findsNothing);
     });
   });
@@ -1291,7 +1301,8 @@ void main() {
       await pumpPage(tester, controller);
 
       expect(find.bySemanticsLabel('summer reads, 1 book'), findsOneWidget);
-      expect(find.bySemanticsLabel('Reading, 1 book'), findsOneWidget);
+      // The book being read is the row at the top, not a folder.
+      expect(find.bySemanticsLabel(RegExp('^Pale Fire')), findsOneWidget);
 
       await pumpShelf(tester, controller, ReadingStatus.reading);
       final semantics = tester.ensureSemantics();

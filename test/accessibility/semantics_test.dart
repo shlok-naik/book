@@ -76,17 +76,18 @@ void main() {
     });
   });
 
-  group('the settings gear', () {
+  group('the profile avatar', () {
     testWidgets('is a named button, not an unlabelled icon', (tester) async {
       final handle = tester.ensureSemantics();
 
       await tester.pumpWidget(_harness(const TopBar(title: 'memory')));
 
-      // The app's only route to settings. Unlabelled, it is a screen
-      // reader dead end on all four top-level pages at once.
+      // The app's only route to the account — and, one row in, to
+      // settings. Unlabelled, it is a screen reader dead end on all four
+      // top-level pages at once.
       expect(
-        tester.getSemantics(find.bySemanticsLabel('Settings')),
-        isSemantics(label: 'Settings', isButton: true),
+        tester.getSemantics(find.bySemanticsLabel('Profile')),
+        isSemantics(label: 'Profile', isButton: true),
       );
 
       handle.dispose();

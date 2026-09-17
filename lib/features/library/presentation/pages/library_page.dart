@@ -51,6 +51,12 @@ const List<_Shelf> _activeShelves = [
   ),
 ];
 
+/// The one shelf the library tab draws no folder for: the page opens with
+/// the books being read as a row of covers ([_CurrentlyReadingRow]), which
+/// is the same shelf said better, so a folder under it would be a second
+/// door to one place. It is still a shelf everywhere else — its own page,
+/// a drag's "move to…" sheet, a search's headings.
+
 /// The built-in sections a reader is done with, last.
 const List<_Shelf> _closedShelves = [
   (
@@ -74,6 +80,8 @@ List<_Shelf> _shelvesOf(LibraryController controller) => [
     (ref: CustomShelfRef(shelf.id), label: shelf.name, spoken: shelf.name),
   ..._closedShelves,
 ];
+
+const _readingShelf = StatusShelfRef(ReadingStatus.reading);
 
 /// A stable key fragment for a section — `reading`, `custom-<id>`.
 String _shelfKey(ShelfRef ref) => switch (ref) {
@@ -640,14 +648,15 @@ class _LibraryPageState extends State<LibraryPage> {
       if (widget.shelf == null) {
         return [
           for (final shelf in _shelvesOf(controller))
-            SliverToBoxAdapter(
-              child: _ShelfFolder(
-                key: ValueKey('shelf-folder-loading-${_shelfKey(shelf.ref)}'),
-                shelf: shelf,
-                entries: const [],
-                loading: true,
+            if (shelf.ref != _readingShelf)
+              SliverToBoxAdapter(
+                child: _ShelfFolder(
+                  key: ValueKey('shelf-folder-loading-${_shelfKey(shelf.ref)}'),
+                  shelf: shelf,
+                  entries: const [],
+                  loading: true,
+                ),
               ),
-            ),
         ];
       }
       return const [
@@ -719,28 +728,42 @@ class _LibraryPageState extends State<LibraryPage> {
     bool closed(Object section) =>
         !filtering && !_openSections.contains(section);
 
-    // The library tab, not searching: one folder per shelf.
+    // The library tab, not searching: what's being read, then one folder
+    // per shelf.
     if (only == null && !filtering) {
+      final reading = controller.section(ReadingStatus.reading);
       return [
-        for (final shelf in shelves) ...[
+        if (reading.isNotEmpty) ...[
+          const SliverToBoxAdapter(child: _RowHeading('currently reading')),
           SliverToBoxAdapter(
-            child: _ShelfFolder(
-              key: ValueKey('shelf-folder-${_shelfKey(shelf.ref)}'),
-              shelf: shelf,
-              entries: sections[shelf.ref]!,
-              onTap: () => _openFolder(shelf.ref),
+            child: _CurrentlyReadingRow(
+              entries: reading,
+              onTap: (entry) => unawaited(openBookDetail(context, entry)),
             ),
           ),
-          if (shelf.ref == const StatusShelfRef(ReadingStatus.toBeRead) &&
-              groups.isNotEmpty) ...[
+          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
+        ],
+        for (final shelf in shelves) ...[
+          if (shelf.ref != _readingShelf) ...[
             SliverToBoxAdapter(
-              child: _SeriesHeading(
-                collapsed: closed(_seriesRow),
-                onToggleCollapse: () => _toggleOpen(_seriesRow),
+              child: _ShelfFolder(
+                key: ValueKey('shelf-folder-${_shelfKey(shelf.ref)}'),
+                shelf: shelf,
+                entries: sections[shelf.ref]!,
+                onTap: () => _openFolder(shelf.ref),
               ),
             ),
-            if (!closed(_seriesRow))
-              SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
+            if (shelf.ref == const StatusShelfRef(ReadingStatus.toBeRead) &&
+                groups.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: _SeriesHeading(
+                  collapsed: closed(_seriesRow),
+                  onToggleCollapse: () => _toggleOpen(_seriesRow),
+                ),
+              ),
+              if (!closed(_seriesRow))
+                SliverToBoxAdapter(child: _SeriesRow(groups: groups)),
+            ],
           ],
         ],
       ];
@@ -1908,6 +1931,124 @@ class _SearchField extends StatelessWidget {
 /// The series row's heading — the same face, spacing and collapse chevron
 /// as a shelf's [_SectionHeading], without its drop target (a book can't be
 /// dropped into a series by dragging).
+/// A plain section heading over the library tab's currently-reading row.
+class _RowHeading extends StatelessWidget {
+  const _RowHeading(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        AppSpacing.sm,
+        AppSpacing.xl,
+        AppSpacing.sm,
+      ),
+      child: Semantics(
+        header: true,
+        child: Text(
+          text,
+          style: context.fonts.interface(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: context.colors.secondaryText,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The books being read, across the top of the library tab — what a reader
+/// opens the library for most days, and the reason there is no "reading"
+/// folder below. Covers with how far through each one is; a tap opens the
+/// book.
+class _CurrentlyReadingRow extends StatelessWidget {
+  const _CurrentlyReadingRow({required this.entries, required this.onTap});
+
+  final List<LibraryBook> entries;
+  final ValueChanged<LibraryBook> onTap;
+
+  static const _coverWidth = 84.0;
+
+  /// Room under the cover for the progress label, in the reader's own text
+  /// size — a fixed allowance squeezed the cover (and then the placeholder
+  /// inside it) at the largest sizes.
+  static const _labelExtent = 20.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final textExtent = MediaQuery.textScalerOf(context).scale(_labelExtent);
+    return SizedBox(
+      height: _coverWidth / BookCover.aspectRatio + textExtent + AppSpacing.xs,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+        itemCount: entries.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
+        itemBuilder: (context, index) {
+          final entry = entries[index];
+          final book = entry.displayBook;
+          final completion = entry.completion;
+          final label = completion == null
+              ? 'page ${entry.currentPage}'
+              : '${(completion * 100).round()}%';
+          return Semantics(
+            button: true,
+            label: '${book.title} by ${book.author}, $label',
+            excludeSemantics: true,
+            onTap: () => onTap(entry),
+            child: InkWell(
+              key: ValueKey('reading-now-${entry.id}'),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              onTap: () => onTap(entry),
+              child: SizedBox(
+                width: _coverWidth,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // A fixed box, not a flexible one: the cover would
+                    // otherwise take the label's room at large text sizes.
+                    SizedBox(
+                      width: _coverWidth,
+                      height: _coverWidth / BookCover.aspectRatio,
+                      child: BookCover(
+                        title: book.title,
+                        author: book.author,
+                        coverUrl: book.coverUrl,
+                        isbn: book.isbn13 ?? book.isbn10,
+                        rereadCount: entry.rereadCount,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      label,
+                      key: ValueKey('reading-now-progress-${entry.id}'),
+                      // One line, always: "page 120" would wrap at the
+                      // largest text sizes, and the whole label is on the
+                      // tile's semantics node anyway.
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.fonts.interface(
+                        fontSize: 12,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _SeriesHeading extends StatelessWidget {
   const _SeriesHeading({
     required this.collapsed,

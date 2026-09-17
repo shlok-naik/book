@@ -22,11 +22,7 @@ import '../../../library/presentation/series_tile_style_controller.dart';
 import '../../../library_transfer/presentation/library_exporter.dart';
 import '../../../library_transfer/presentation/pages/import_page.dart';
 import '../../../logging/presentation/parser_mode_controller.dart';
-import '../../../memory/presentation/pages/memory_page.dart';
 import '../../../paywall/presentation/pages/paywall_page.dart';
-import '../../../search/domain/reading_taste.dart';
-import '../../../search/presentation/reading_tastes_controller.dart';
-import '../../../search/presentation/widgets/reading_tastes_picker.dart';
 import '../../../shell/presentation/start_page_controller.dart';
 import '../../data/profile_repository.dart';
 import '../widgets/membership_card.dart';
@@ -54,6 +50,26 @@ import 'customisation_page.dart';
 /// but the same `Scaffold` + `SafeArea` + `AppSpacing.xl` gutter, the
 /// same lowercase `jetBrainsMono` heading, and rows built from
 /// `AppColors`/`AppRadius` tokens — never a hardcoded hex.
+/// Opens the settings screen. The one way it should be pushed, so the
+/// route always carries its analytics name.
+Future<void> openSettingsPage(
+  BuildContext context, {
+  PurchasesService? purchases,
+  SessionService? session,
+  ProfileRepository? profileRepository,
+}) {
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'settings'),
+      builder: (_) => SettingsPage(
+        purchases: purchases,
+        session: session,
+        profileRepository: profileRepository,
+      ),
+    ),
+  );
+}
+
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,
@@ -90,10 +106,6 @@ class _SettingsPageState extends State<SettingsPage> {
   CustomerInfo? _info;
   bool _busy = false;
 
-  /// Bumped when linking an email swapped this device's library for the
-  /// email account's, remounting [MembershipCard] so it reloads the new
-  /// account's join date.
-  int _accountVersion = 0;
   String? _error;
 
   /// The app version, shown in the about section so a support
@@ -104,8 +116,6 @@ class _SettingsPageState extends State<SettingsPage> {
   /// Developer Mode to install here. **Keep this in step with
   /// `version:` in pubspec.yaml.**
   static const _version = '1.0.0';
-
-  SessionService get _session => widget.session ?? SessionScope.of(context);
 
   @override
   void initState() {
@@ -211,15 +221,6 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) await _refresh();
   }
 
-  Future<void> _editEmail() async {
-    AppHaptics.selection();
-    final swapped = await editAccountEmail(context, session: _session);
-    if (!mounted) return;
-    setState(() {
-      if (swapped) _accountVersion++;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -231,7 +232,6 @@ class _SettingsPageState extends State<SettingsPage> {
     // gated row asks, and matches every other gate in the app.
     final isPro = info != null && _purchases.isPro(info);
     final unlocked = isPro || PlanController.isPro.value;
-    final session = _session;
     final error = _error;
 
     return Scaffold(
@@ -256,14 +256,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: ListView(
                   padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
                   children: [
-                    MembershipCard(
-                      key: ValueKey(_accountVersion),
-                      session: session,
-                      isPro: isPro,
-                      profileRepository: widget.profileRepository,
-                    ),
                     if (error != null) ...[
-                      const SizedBox(height: AppSpacing.sm),
                       Text(
                         error,
                         style: context.fonts.body(
@@ -271,20 +264,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           color: colors.secondaryText,
                         ),
                       ),
+                      const SizedBox(height: AppSpacing.lg),
                     ],
-                    const SizedBox(height: AppSpacing.lg),
-                    _ProfileSection(
-                      anonymous: session.isAnonymous,
-                      memoryUnlocked: unlocked,
-                      onEmail: _busy ? null : _editEmail,
-                      onOpenMemory: () {
-                        AppHaptics.selection();
-                        unawaited(
-                          openMemoryPage(context, purchases: widget.purchases),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
                     SettingsSection(
                       title: 'cactus pro',
                       rows: [
@@ -362,64 +343,6 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// What's the reader's own, under the card that shows the account:
-/// linking an email to it (the plain, labelled way in — the card itself
-/// isn't tappable) and their reading memory.
-///
-/// Memory is cactus pro, but the row is never faded: `MemoryPage` gates its
-/// own contents and shows a free reader a preview of what it holds, which
-/// says more than a faded row would.
-class _ProfileSection extends StatelessWidget {
-  const _ProfileSection({
-    required this.anonymous,
-    required this.memoryUnlocked,
-    required this.onEmail,
-    required this.onOpenMemory,
-  });
-
-  final bool anonymous;
-  final bool memoryUnlocked;
-  final VoidCallback? onEmail;
-  final VoidCallback onOpenMemory;
-
-  @override
-  Widget build(BuildContext context) {
-    return SettingsSection(
-      title: 'profile',
-      rows: [
-        SettingsRow(
-          icon: anonymous ? Icons.mail_outline : Icons.edit_outlined,
-          label: anonymous ? 'link your email' : 'change email',
-          onTap: onEmail,
-        ),
-        ValueListenableBuilder<List<ReadingTaste>>(
-          valueListenable: ReadingTastesController.tastes,
-          builder: (context, tastes, _) => SettingsRow(
-            key: const ValueKey('profile-reading-tastes'),
-            icon: Icons.local_library_outlined,
-            label: 'reading tastes',
-            value: switch (tastes.length) {
-              0 => 'none yet',
-              1 => tastes.single.label,
-              final n => '$n picked',
-            },
-            onTap: () {
-              AppHaptics.selection();
-              unawaited(showReadingTastesSheet(context));
-            },
-          ),
-        ),
-        SettingsRow(
-          icon: Icons.bookmark_border,
-          label: 'memory',
-          value: memoryUnlocked ? null : 'pro',
-          onTap: onOpenMemory,
-        ),
-      ],
     );
   }
 }

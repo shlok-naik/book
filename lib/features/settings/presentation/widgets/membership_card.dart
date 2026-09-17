@@ -9,8 +9,8 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../profile/domain/profile_identity.dart';
 import '../../data/profile_repository.dart';
-import '../../domain/profile_exception.dart';
 import '../pages/email_sheet.dart';
 import '../pages/library_conflict_page.dart';
 
@@ -21,8 +21,13 @@ import '../pages/library_conflict_page.dart';
 Future<bool> editAccountEmail(
   BuildContext context, {
   required SessionService session,
+  String? initialEmail,
 }) async {
-  final result = await showEmailSheet(context, session: session);
+  final result = await showEmailSheet(
+    context,
+    session: session,
+    initialEmail: initialEmail,
+  );
   if (result == null || !context.mounted) return false;
   final existing = result.existingAccount;
   if (existing == null) return false;
@@ -55,10 +60,15 @@ class MembershipCard extends StatefulWidget {
     required this.session,
     required this.isPro,
     this.profileRepository,
+    this.identity = ProfileIdentity.empty,
   });
 
   final SessionService session;
   final bool isPro;
+
+  /// The reader's name and `@username`, shown over the join date once they
+  /// have set either. Empty by default — the card works without one.
+  final ProfileIdentity identity;
 
   /// Injection point for tests: a fake wrapping a fake Supabase call
   /// instead of the real SDK. Null in the app.
@@ -104,11 +114,15 @@ class _MembershipCardState extends State<MembershipCard> {
         _joinedAt = joinedAt;
         _loading = false;
       });
-    } on ProfileException catch (error) {
-      AppLogger.error(
+    } on Object catch (error, stackTrace) {
+      // Any failure, not just a ProfileException: an SDK that was never
+      // configured throws outright, and a card that can't show a join date
+      // must still be a card rather than an error in the framework.
+      AppLogger.warning(
         'MembershipCard',
         'Could not load the profile.',
         error: error,
+        stackTrace: stackTrace,
       );
       if (!mounted) return;
       setState(() => _loading = false);
@@ -208,6 +222,29 @@ class _MembershipCardState extends State<MembershipCard> {
                         ],
                       ),
                       const SizedBox(height: AppSpacing.lg),
+                      if (widget.identity.displayName case final name?)
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.fonts.interface(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: onPanel,
+                          ),
+                        ),
+                      if (widget.identity.handle case final handle?)
+                        Text(
+                          handle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.fonts.body(
+                            fontSize: 13,
+                            color: onPanel.withValues(alpha: 0.75),
+                          ),
+                        ),
+                      if (!widget.identity.isEmpty)
+                        const SizedBox(height: AppSpacing.md),
                       Text(
                         'member since',
                         style: context.fonts.body(

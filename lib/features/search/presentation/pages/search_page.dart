@@ -425,13 +425,21 @@ class _RecommendationStrip extends StatelessWidget {
   final ValueChanged<GoogleBook> onTap;
 
   static const coverWidth = 92.0;
-  static const height = coverWidth / BookCover.aspectRatio + 44;
+
+  /// Room under each cover for its title, two lines at 13px — in the
+  /// reader's own text size, so a large one grows the row instead of
+  /// bursting it.
+  static const _titleExtent = 44.0;
+
+  static double heightOf(BuildContext context) =>
+      coverWidth / BookCover.aspectRatio +
+      MediaQuery.textScalerOf(context).scale(_titleExtent);
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     return SizedBox(
-      height: height,
+      height: heightOf(context),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: books.length,
@@ -452,11 +460,15 @@ class _RecommendationStrip extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    BookCover(
-                      title: volume.title,
-                      author: volume.authorLine,
-                      coverUrl: volume.thumbnailUrl,
-                      isbn: volume.isbn13 ?? volume.isbn10,
+                    SizedBox(
+                      width: coverWidth,
+                      height: coverWidth / BookCover.aspectRatio,
+                      child: BookCover(
+                        title: volume.title,
+                        author: volume.authorLine,
+                        coverUrl: volume.thumbnailUrl,
+                        isbn: volume.isbn13 ?? volume.isbn10,
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
@@ -498,7 +510,7 @@ class _RecommendationSkeleton extends StatelessWidget {
       label: 'Loading books',
       excludeSemantics: true,
       child: SizedBox(
-        height: _RecommendationStrip.height,
+        height: _RecommendationStrip.heightOf(context),
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           physics: const NeverScrollableScrollPhysics(),

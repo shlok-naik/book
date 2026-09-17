@@ -11,7 +11,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../goals/presentation/goal_scope.dart';
-import '../../../goals/presentation/widgets/goal_progress_view.dart';
+import '../../../goals/presentation/widgets/daily_goal_prompt.dart';
 import '../../../goals/presentation/widgets/goal_sheet.dart';
 import '../../../library/domain/collections.dart';
 import '../../../library/domain/library_exception.dart';
@@ -23,7 +23,6 @@ import '../../../memory/presentation/memory_scope.dart';
 import '../../../search/presentation/widgets/book_picker_sheet.dart';
 import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
-import '../../../streaks/domain/reading_stats.dart';
 import '../../domain/log_command_parser.dart';
 import '../../domain/smart_command_parser.dart';
 import '../first_steps_controller.dart';
@@ -988,26 +987,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               color: colors.divider,
                             ),
                             const SizedBox(height: AppSpacing.md),
-                            // The yearly goal sits between the book and the streak:
-                            // hidden until it has loaded, so a reader who has one
-                            // never sees a "set a goal" prompt flash first.
-                            if (goals.isLoaded) ...[
-                              GoalProgressView(
-                                compact: true,
-                                editable: false,
-                                progress: ReadingStats.forShelf(
-                                  library.books,
-                                  importedAt: library.importedAt,
-                                ).goalProgress(goals.goal),
-                              ),
-                              const SizedBox(height: AppSpacing.md),
-                              Divider(
-                                height: 1,
-                                thickness: 1,
-                                color: colors.divider,
-                              ),
-                              const SizedBox(height: AppSpacing.md),
-                            ],
+                            // Today's reading habit sits between the book and
+                            // the streak — "have you read 10 minutes today?"
+                            // and a tick. The yearly books goal it replaced
+                            // lives on the stats tab with the other numbers.
+                            const DailyGoalPrompt(),
+                            const SizedBox(height: AppSpacing.md),
+                            Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: colors.divider,
+                            ),
+                            const SizedBox(height: AppSpacing.md),
                           ],
                           // Visibility, not a conditional in the list above: an
                           // `if` that removes this from the tree would unmount
