@@ -55,7 +55,7 @@ class CelebrationPage extends StatelessWidget {
                 message,
                 textAlign: TextAlign.center,
                 style: GoogleFonts.inter(
-                  fontSize: 14,
+                  fontSize: 16,
                   height: 1.5,
                   color: colors.secondaryText,
                 ),

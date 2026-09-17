@@ -13,6 +13,7 @@ class TrackReadingPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TutorialStepPage(
+      tourStep: 4,
       topContent: const StatsIllustration(),
       tier: OnboardingTier.pro,
       heading: 'track your reading',

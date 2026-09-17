@@ -78,7 +78,7 @@ class _ReadingGoalPageState extends State<ReadingGoalPage> {
             'how many books do you want to read this year? you can change '
             'it any time.',
             style: GoogleFonts.inter(
-              fontSize: 14,
+              fontSize: 16,
               height: 1.5,
               color: colors.secondaryText,
             ),

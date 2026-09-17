@@ -63,7 +63,7 @@ class _ReadingTastesPageState extends State<ReadingTastesPage> {
             'pick a few — we\'ll recommend books you\'ll like. change them '
             'any time in settings.',
             style: GoogleFonts.inter(
-              fontSize: 14,
+              fontSize: 16,
               height: 1.5,
               color: colors.secondaryText,
             ),

@@ -55,7 +55,7 @@ class GoodreadsPromptPage extends StatelessWidget {
             'if you\'ve been tracking your reading there, we can bring '
             'your whole library over — shelves, ratings, everything.',
             style: GoogleFonts.inter(
-              fontSize: 14,
+              fontSize: 16,
               height: 1.5,
               color: colors.secondaryText,
             ),

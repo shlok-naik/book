@@ -16,6 +16,7 @@ class ButtonsTutorialPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TutorialStepPage(
+      tourStep: 1,
       topContent: const TapIllustration(),
       tier: OnboardingTier.free,
       heading: 'just a tap away',

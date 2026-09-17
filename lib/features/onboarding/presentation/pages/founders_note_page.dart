@@ -88,7 +88,7 @@ class FoundersNotePage extends StatelessWidget {
             'like math homework (lol). thanks for giving it a try - i '
             'hope you love it as much as i do.',
             style: GoogleFonts.inter(
-              fontSize: 14,
+              fontSize: 16,
               height: 1.5,
               color: colors.secondaryText,
             ),

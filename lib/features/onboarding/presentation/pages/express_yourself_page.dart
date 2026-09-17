@@ -13,6 +13,7 @@ class ExpressYourselfPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TutorialStepPage(
+      tourStep: 2,
       topContent: const ExpressIllustration(),
       tier: OnboardingTier.free,
       heading: 'express yourself',

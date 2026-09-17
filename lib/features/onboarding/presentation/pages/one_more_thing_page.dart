@@ -36,7 +36,7 @@ class OneMoreThingPage extends StatelessWidget {
           Text(
             'we have a little surprise for you.',
             style: GoogleFonts.inter(
-              fontSize: 14,
+              fontSize: 16,
               height: 1.5,
               color: colors.secondaryText,
             ),

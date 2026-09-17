@@ -13,6 +13,7 @@ class CustomisationTourPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TutorialStepPage(
+      tourStep: 3,
       topContent: const CustomiseIllustration(),
       tier: OnboardingTier.pro,
       heading: 'cactus, how you want it',
