@@ -1,5 +1,6 @@
 import 'package:book/core/auth/session_service.dart';
 import 'package:book/core/purchases/plan_controller.dart';
+import 'package:book/core/theme/text_size_controller.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/book_notes_repository.dart';
 import 'package:book/features/library/data/google_book.dart';
@@ -993,5 +994,48 @@ void main() {
       expect(find.text('Kept looking'), findsOneWidget);
       await tester.pump(const Duration(seconds: 4));
     });
+  });
+
+  testWidgets('every tab lays out at the largest text size on a small phone', (
+    tester,
+  ) async {
+    // A 360x640 phone with the system text size up and cactus's own
+    // "largest" on top — the reader this setting is for.
+    tester.view.physicalSize = const Size(1080, 1920);
+    tester.view.devicePixelRatio = 3;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.85;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    TextSizeController.size.value = TextSize.largest;
+    addTearDown(TextSizeController.reset);
+
+    final overflows = <String>[];
+    final previous = FlutterError.onError;
+    FlutterError.onError = (details) {
+      overflows.add(details.exceptionAsString());
+    };
+    addTearDown(() => FlutterError.onError = previous);
+
+    await tester.pumpWidget(
+      BookApp(
+        libraryController: _newLibraryController(),
+        memoryController: _newMemoryController(),
+        sessionService: _FakeSession(),
+        goalController: goalControllerFor(),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    await submit(tester, 'start Dune');
+
+    for (final tab in ['Search', 'Stats', 'Library', 'Add']) {
+      await tester.tap(find.bySemanticsLabel(tab).first);
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 200));
+      }
+    }
+    FlutterError.onError = previous;
+
+    expect(overflows.where((e) => e.contains('overflowed')), isEmpty);
   });
 }

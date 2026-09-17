@@ -108,6 +108,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ? ConfirmationTone.success
       : ConfirmationTone.failure;
 
+  /// The most of the page the stack under the command line may take before
+  /// it scrolls — only reached at very large text sizes on a small phone.
+  static const _peekShare = 0.55;
+
   /// Whether the on-screen keyboard is up — what decides whether the
   /// currently-reading card, the goal and the streak show (see [build]).
   /// The keyboard *replaces* them: while it's up the page is just its title
@@ -868,129 +872,164 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               // The streak sits just clear of the floating bar.
               BottomSwitcher.pageFootprint + AppSpacing.lg,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Same AppSpacing.md top inset as library/streak/memory
-                // — without it "add" sat lower than the title on every
-                // other tab despite sharing the exact same TopBar.
-                const TopBar(title: 'add'),
-                const SizedBox(height: AppSpacing.lg),
-                Expanded(child: commandInput),
-                FadeTransition(
-                  opacity: _messageOpacity,
-                  child: message != null
-                      ? Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ConfirmationPill(
-                              message: message,
-                              tone: _messageTone,
-                            ),
-                            const SizedBox(height: AppSpacing.xs),
-                          ],
-                        )
-                      : const SizedBox.shrink(),
-                ),
-                // The currently-reading row, the goal and the streak
-                // readout, stacked just above the floating bottom bar.
-                // Hidden while the keyboard is up — it takes their place,
-                // see [_keyboardVisible] — and back once it's down. A
-                // hairline (not a box — see both widgets' own doc
-                // comments on why this app doesn't use card chrome) is
-                // what keeps them legible as separate things now that
-                // none has a fill of its own to do that.
-                if (showPeek) ...[
-                  ValueListenableBuilder<bool>(
-                    valueListenable: FirstStepsController.visible,
-                    builder: (context, visible, _) {
-                      if (!visible || !library.hasLoaded || !goals.isLoaded) {
-                        return const SizedBox.shrink();
-                      }
-                      final done = FirstSteps.done(
-                        books: library.books,
-                        goal: goals.goal,
-                      );
-                      if (done.length == FirstStep.values.length) {
-                        WidgetsBinding.instance.addPostFrameCallback(
-                          (_) => unawaited(FirstStepsController.finish()),
-                        );
-                        return const SizedBox.shrink();
-                      }
-                      final book = currentBook ?? library.books.firstOrNull;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                        child: FirstStepsCard(
-                          done: done,
-                          onDismiss: () =>
-                              unawaited(FirstStepsController.finish()),
-                          onStep: (step) => switch (step) {
-                            FirstStep.addBook => widget.onOpenSearch,
-                            FirstStep.setGoal => () => unawaited(
-                              showGoalSheet(context),
-                            ),
-                            FirstStep.logPage || FirstStep.finishBook =>
-                              book == null
-                                  ? null
-                                  : () => unawaited(
-                                      openBookDetail(context, book),
-                                    ),
-                          },
-                        ),
-                      );
-                    },
+            child: LayoutBuilder(
+              builder: (context, page) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Same AppSpacing.md top inset as library/streak/memory
+                  // — without it "add" sat lower than the title on every
+                  // other tab despite sharing the exact same TopBar.
+                  const TopBar(title: 'add'),
+                  const SizedBox(height: AppSpacing.lg),
+                  Expanded(child: commandInput),
+                  FadeTransition(
+                    opacity: _messageOpacity,
+                    child: message != null
+                        ? Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              ConfirmationPill(
+                                message: message,
+                                tone: _messageTone,
+                              ),
+                              const SizedBox(height: AppSpacing.xs),
+                            ],
+                          )
+                        : const SizedBox.shrink(),
                   ),
-                  if (currentBook != null)
-                    CurrentlyReadingCard(entry: currentBook)
-                  else
-                    // Same copy the streak journal's own empty state
-                    // uses for "nothing to show here yet" — one phrase
-                    // for the one situation, not two different ways of
-                    // saying it depending which screen you're on.
-                    Text(
-                      'nothing logged yet — start a book.',
-                      style: context.fonts.interface(
-                        fontSize: 13,
-                        color: colors.secondaryText,
+                  // Capped and scrollable: at the largest text sizes on a small
+                  // phone this stack is taller than the page. Normally it never
+                  // reaches the cap, so nothing about the layout changes.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: page.maxHeight * _peekShare,
+                    ),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // The currently-reading row, the goal and the streak
+                          // readout, stacked just above the floating bottom bar.
+                          // Hidden while the keyboard is up — it takes their place,
+                          // see [_keyboardVisible] — and back once it's down. A
+                          // hairline (not a box — see both widgets' own doc
+                          // comments on why this app doesn't use card chrome) is
+                          // what keeps them legible as separate things now that
+                          // none has a fill of its own to do that.
+                          if (showPeek) ...[
+                            ValueListenableBuilder<bool>(
+                              valueListenable: FirstStepsController.visible,
+                              builder: (context, visible, _) {
+                                if (!visible ||
+                                    !library.hasLoaded ||
+                                    !goals.isLoaded) {
+                                  return const SizedBox.shrink();
+                                }
+                                final done = FirstSteps.done(
+                                  books: library.books,
+                                  goal: goals.goal,
+                                );
+                                if (done.length == FirstStep.values.length) {
+                                  WidgetsBinding.instance.addPostFrameCallback(
+                                    (_) => unawaited(
+                                      FirstStepsController.finish(),
+                                    ),
+                                  );
+                                  return const SizedBox.shrink();
+                                }
+                                final book =
+                                    currentBook ?? library.books.firstOrNull;
+                                return Padding(
+                                  padding: const EdgeInsets.only(
+                                    bottom: AppSpacing.md,
+                                  ),
+                                  child: FirstStepsCard(
+                                    done: done,
+                                    onDismiss: () => unawaited(
+                                      FirstStepsController.finish(),
+                                    ),
+                                    onStep: (step) => switch (step) {
+                                      FirstStep.addBook => widget.onOpenSearch,
+                                      FirstStep.setGoal => () => unawaited(
+                                        showGoalSheet(context),
+                                      ),
+                                      FirstStep.logPage ||
+                                      FirstStep.finishBook =>
+                                        book == null
+                                            ? null
+                                            : () => unawaited(
+                                                openBookDetail(context, book),
+                                              ),
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                            if (currentBook != null)
+                              CurrentlyReadingCard(entry: currentBook)
+                            else
+                              // Same copy the streak journal's own empty state
+                              // uses for "nothing to show here yet" — one phrase
+                              // for the one situation, not two different ways of
+                              // saying it depending which screen you're on.
+                              Text(
+                                'nothing logged yet — start a book.',
+                                style: context.fonts.interface(
+                                  fontSize: 13,
+                                  color: colors.secondaryText,
+                                ),
+                              ),
+                            const SizedBox(height: AppSpacing.md),
+                            Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: colors.divider,
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            // The yearly goal sits between the book and the streak:
+                            // hidden until it has loaded, so a reader who has one
+                            // never sees a "set a goal" prompt flash first.
+                            if (goals.isLoaded) ...[
+                              GoalProgressView(
+                                compact: true,
+                                editable: false,
+                                progress: ReadingStats.forShelf(
+                                  library.books,
+                                  importedAt: library.importedAt,
+                                ).goalProgress(goals.goal),
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                              Divider(
+                                height: 1,
+                                thickness: 1,
+                                color: colors.divider,
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                            ],
+                          ],
+                          // Visibility, not a conditional in the list above: an
+                          // `if` that removes this from the tree would unmount
+                          // ReadingStreak's State every time the keyboard rises,
+                          // losing its already-loaded streak and forcing a fresh
+                          // Supabase fetch (with a flash of nothing while it
+                          // reloads) every single time it goes back down.
+                          // `maintainState: true` keeps it alive and loaded the
+                          // whole session through, exactly like the streak/memory
+                          // pages' own controllers do.
+                          Visibility(
+                            visible: showPeek,
+                            maintainState: true,
+                            maintainAnimation: true,
+                            child: const ReadingStreak(),
+                          ),
+                        ],
                       ),
                     ),
-                  const SizedBox(height: AppSpacing.md),
-                  Divider(height: 1, thickness: 1, color: colors.divider),
-                  const SizedBox(height: AppSpacing.md),
-                  // The yearly goal sits between the book and the streak:
-                  // hidden until it has loaded, so a reader who has one
-                  // never sees a "set a goal" prompt flash first.
-                  if (goals.isLoaded) ...[
-                    GoalProgressView(
-                      compact: true,
-                      editable: false,
-                      progress: ReadingStats.forShelf(
-                        library.books,
-                        importedAt: library.importedAt,
-                      ).goalProgress(goals.goal),
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    Divider(height: 1, thickness: 1, color: colors.divider),
-                    const SizedBox(height: AppSpacing.md),
-                  ],
+                  ),
                 ],
-                // Visibility, not a conditional in the list above: an
-                // `if` that removes this from the tree would unmount
-                // ReadingStreak's State every time the keyboard rises,
-                // losing its already-loaded streak and forcing a fresh
-                // Supabase fetch (with a flash of nothing while it
-                // reloads) every single time it goes back down.
-                // `maintainState: true` keeps it alive and loaded the
-                // whole session through, exactly like the streak/memory
-                // pages' own controllers do.
-                Visibility(
-                  visible: showPeek,
-                  maintainState: true,
-                  maintainAnimation: true,
-                  child: const ReadingStreak(),
-                ),
-              ],
+              ),
             ),
           ),
         ),

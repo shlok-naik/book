@@ -30,8 +30,10 @@ class SettingsHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
 
-    return SizedBox(
-      height: _tapTarget,
+    // A minimum, not a fixed height: at a large text size the title grows
+    // the bar rather than being clipped by it.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: _tapTarget),
       child: Row(
         children: [
           Expanded(
