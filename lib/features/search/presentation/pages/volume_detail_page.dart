@@ -244,7 +244,7 @@ class _VolumeDetailPageState extends State<VolumeDetailPage> {
                         if (isbn != null) _AboutRow('isbn', isbn),
                         if (rating != null)
                           _AboutRow(
-                            'google rating',
+                            'rating',
                             '${formatCompactNumber(rating)} / 5'
                                 '${volume.ratingsCount == null ? '' : ' · ${volume.ratingsCount} ratings'}',
                           ),
@@ -252,9 +252,7 @@ class _VolumeDetailPageState extends State<VolumeDetailPage> {
                             volume.categories.isEmpty &&
                             isbn == null &&
                             rating == null)
-                          const _AboutText(
-                            "google books doesn't say much about this one.",
-                          ),
+                          const _AboutText('not much is known about this one.'),
                       ],
                     ),
                   ],

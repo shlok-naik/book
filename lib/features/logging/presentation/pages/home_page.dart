@@ -31,11 +31,6 @@ import '../widgets/currently_reading_card.dart';
 import '../widgets/reading_streak.dart';
 import 'isbn_scanner_page.dart';
 
-/// Marks text as the AI working on it — the "still thinking" shimmer.
-const _aiGradient = LinearGradient(
-  colors: [Color(0xFF2DD4BF), Color(0xFF8B5CF6), Color(0xFFEC4899)],
-);
-
 /// Slides a gradient sideways by a fraction of its own bounds — the
 /// standard recipe for a shimmer effect, paired with a repeating
 /// [LinearGradient.tileMode] so the colors sliding off one edge are
@@ -114,7 +109,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   /// True from the moment a sentence is handed to the AI until it comes
   /// back (however that turns out) — [build] uses this to tint
-  /// [CommandInput]'s still-visible typed text with [_aiGradient]
+  /// [CommandInput]'s still-visible typed text with [AppColors.aiShimmer]
   /// while it's genuinely waiting on a response, never before or after.
   bool _aiThinking = false;
 
@@ -838,7 +833,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         builder: (context, child) => ShaderMask(
           blendMode: BlendMode.srcIn,
           shaderCallback: (bounds) => LinearGradient(
-            colors: _aiGradient.colors,
+            colors: colors.aiShimmer,
             tileMode: TileMode.mirror,
             transform: _SlidingGradientTransform(_thinkingGradient.value),
           ).createShader(bounds),

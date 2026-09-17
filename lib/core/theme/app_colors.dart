@@ -12,7 +12,19 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.accent,
     required this.divider,
     required this.loggedMark,
+    this.aiShimmer = defaultAiShimmer,
   });
+
+  /// The colors the add tab's command line shimmers through while cactus
+  /// pro's AI reads it — the one multicolor flourish in the app, the same
+  /// in either mode and under every accent theme.
+  static const defaultAiShimmer = [
+    Color(0xFF2DD4BF),
+    Color(0xFF8B5CF6),
+    Color(0xFFEC4899),
+  ];
+
+  final List<Color> aiShimmer;
 
   final Color background;
   final Color surface;
@@ -62,6 +74,7 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? accent,
     Color? divider,
     Color? loggedMark,
+    List<Color>? aiShimmer,
   }) {
     return AppColors(
       background: background ?? this.background,
@@ -71,6 +84,7 @@ class AppColors extends ThemeExtension<AppColors> {
       accent: accent ?? this.accent,
       divider: divider ?? this.divider,
       loggedMark: loggedMark ?? this.loggedMark,
+      aiShimmer: aiShimmer ?? this.aiShimmer,
     );
   }
 
@@ -85,6 +99,7 @@ class AppColors extends ThemeExtension<AppColors> {
       accent: Color.lerp(accent, other.accent, t)!,
       divider: Color.lerp(divider, other.divider, t)!,
       loggedMark: Color.lerp(loggedMark, other.loggedMark, t)!,
+      aiShimmer: t < 0.5 ? aiShimmer : other.aiShimmer,
     );
   }
 }

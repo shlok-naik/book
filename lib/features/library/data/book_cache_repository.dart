@@ -41,8 +41,10 @@ class BookCacheRepository {
   /// Cache lookup by ISBN-13 or ISBN-10 — both columns are filled in once a
   /// book's details have been fetched. Returns null on a miss.
   Future<Book?> findByIsbn(String isbn) {
-    final clean = isbn.trim();
-    if (clean.isEmpty) return Future.value(null);
+    // Only digits and a check-digit X: the value is spliced into a
+    // PostgREST `or` filter, where a comma or parenthesis would add terms.
+    final clean = isbn.replaceAll(RegExp('[^0-9Xx]'), '').toUpperCase();
+    if (clean.length != 10 && clean.length != 13) return Future.value(null);
     return runSupabase(() async {
       final rows = await _client
           .from(_table)

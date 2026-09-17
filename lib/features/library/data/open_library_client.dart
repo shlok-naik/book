@@ -117,31 +117,38 @@ class OpenLibraryClient {
   }) async {
     String? url;
     try {
-      final params = <String, String>{
-        if (isbn != null && isbn.isNotEmpty)
-          'isbn': isbn
-        else ...{
-          'title': title,
-          if (author != null && author.isNotEmpty && author != 'Unknown author')
-            'author': author,
-        },
-        'limit': '1',
-        'fields': 'cover_i',
-      };
-      final body = await _getJson(
-        Uri.https('openlibrary.org', '/search.json', params),
-      );
-      final docs = body['docs'];
-      if (docs is List && docs.isNotEmpty && docs.first is Map) {
-        final coverId = (docs.first as Map)['cover_i'];
-        if (coverId is int) url = coverUrl(coverId);
+      if (isbn != null && isbn.isNotEmpty) {
+        url = await _coverFrom({'isbn': isbn});
       }
+      // An ISBN Open Library has no cover for — often a newer printing —
+      // still gets the work's cover by title.
+      url ??= await _coverFrom({
+        'title': title,
+        if (author != null && author.isNotEmpty && author != 'Unknown author')
+          'author': author,
+      });
     } on LibraryException {
       // Don't remember a failure — only an answer.
       return null;
     }
     _covers[key] = url;
     return url;
+  }
+
+  Future<String?> _coverFrom(Map<String, String> query) async {
+    final body = await _getJson(
+      Uri.https('openlibrary.org', '/search.json', {
+        ...query,
+        'limit': '1',
+        'fields': 'cover_i',
+      }),
+    );
+    final docs = body['docs'];
+    if (docs is List && docs.isNotEmpty && docs.first is Map) {
+      final coverId = (docs.first as Map)['cover_i'];
+      if (coverId is int) return coverUrl(coverId);
+    }
+    return null;
   }
 
   /// Google Books query syntax → Open Library search parameters.

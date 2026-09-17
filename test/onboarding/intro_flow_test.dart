@@ -173,7 +173,7 @@ Future<void> tapContinue(WidgetTester tester) => tapPill(tester, 'continue');
 
 /// Emoji ranges — the onboarding carries none, in copy or pictures.
 final _emoji = RegExp(
-  r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]',
+  r'[\u{1F000}-\u{1F2FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]',
   unicode: true,
 );
 

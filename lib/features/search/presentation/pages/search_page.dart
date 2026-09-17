@@ -122,9 +122,9 @@ class _SearchPageState extends State<SearchPage> {
   /// Back to the empty search bar and its recommendations.
   void _reset() {
     _timer?.cancel();
+    FocusManager.instance.primaryFocus?.unfocus();
     if (_text.text.isEmpty) return;
     _text.clear();
-    FocusManager.instance.primaryFocus?.unfocus();
     unawaited(_search?.search(''));
     if (mounted) setState(() {});
   }

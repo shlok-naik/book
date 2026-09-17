@@ -321,10 +321,18 @@ class _CoverImageState extends State<CoverImage> {
   String? _resolved;
   bool _resolving = false;
 
+  /// Bumped whenever the book changes, so a title lookup started for the
+  /// previous book can't land on this one.
+  int _generation = 0;
+
   @override
   void didUpdateWidget(CoverImage old) {
     super.didUpdateWidget(old);
-    if (old.coverUrl != widget.coverUrl || old.isbn != widget.isbn) {
+    if (old.coverUrl != widget.coverUrl ||
+        old.isbn != widget.isbn ||
+        old.title != widget.title ||
+        old.author != widget.author) {
+      _generation++;
       _attempt = 0;
       _resolved = null;
       _resolving = false;
@@ -336,9 +344,12 @@ class _CoverImageState extends State<CoverImage> {
     final title = widget.title;
     if (_resolving || resolver == null || title == null) return;
     _resolving = true;
+    final generation = _generation;
     try {
       final url = await resolver(title: title, author: widget.author);
-      if (mounted && url != null) setState(() => _resolved = url);
+      if (mounted && url != null && generation == _generation) {
+        setState(() => _resolved = url);
+      }
     } on Object {
       // A missing cover is only cosmetic — the placeholder stays.
     }

@@ -254,7 +254,7 @@ class BookLookupService {
     if (alreadyCached != null) return alreadyCached;
 
     // ---- 5. Write back so the next lookup is a cache hit -------------
-    return cache.cache(await _withCover(volume));
+    return _writeBack(volume);
   }
 
   /// Resolves an ISBN to a cached [Book] — the import's first choice, since
@@ -282,7 +282,7 @@ class BookLookupService {
     final volume = results.first;
     final alreadyCached = await _findCachedById(volume.id);
     if (alreadyCached != null) return alreadyCached;
-    return cache.cache(await _withCover(volume));
+    return _writeBack(volume);
   }
 
   /// Every Google Books volume matching [rawQuery], in Google's order —
@@ -312,6 +312,34 @@ class BookLookupService {
   Future<Book> resolveVolume(GoogleBook volume) async {
     final cached = await _findCachedById(volume.id);
     if (cached != null) return cached;
+    return _writeBack(volume);
+  }
+
+  /// Caches [volume] — unless the same book is already cached under another
+  /// source's id. Google Books and Open Library name one book differently
+  /// (`gb…` vs `ol:…`), and two rows for it would split its readers, notes
+  /// and "our readers read" count. Matched by ISBN, and for an Open Library
+  /// work (which names no printing) by exact title and author too.
+  Future<Book> _writeBack(GoogleBook volume) async {
+    for (final isbn in [volume.isbn13, volume.isbn10]) {
+      if (isbn == null) continue;
+      try {
+        final byIsbn = await cache.findByIsbn(isbn);
+        if (byIsbn != null) return byIsbn;
+      } on LibraryException {
+        // A miss, like every other cache read.
+      }
+    }
+    if (OpenLibraryClient.isOpenLibraryId(volume.id)) {
+      final byTitle = await _findCached(
+        volume.title,
+        author: volume.authors.firstOrNull,
+      );
+      if (byTitle != null &&
+          byTitle.title.toLowerCase() == volume.title.toLowerCase()) {
+        return byTitle;
+      }
+    }
     return cache.cache(await _withCover(volume));
   }
 

@@ -51,6 +51,8 @@ Four migrations the client code on this branch depends on (the shelf query embed
 
 `google-books` v1 was deployed through the MCP on 2026-09-15.
 
+`20260923000000_popular_books_other_readers.sql` (`popular_books` counts only readers other than the caller, still needing two) was written 2026-09-17 but **not yet applied** to the hosted project — check `list_migrations` first.
+
 Edge functions live in [supabase/functions/](supabase/functions) and deploy with `supabase functions deploy <name>`; their secrets are set with `supabase secrets set KEY=...`.
 
 ## Architecture
