@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:book/core/theme/app_font_theme.dart';
 import 'package:book/core/theme/bundled_fonts.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -65,6 +66,46 @@ void main() {
       expect(missing, isEmpty);
     },
   );
+
+  test('every listed italic resolves to a bundled file', () {
+    for (final (family, weight) in BundledFonts.italics) {
+      final resolved = GoogleFonts.getFont(
+        family,
+        fontWeight: weight,
+        fontStyle: FontStyle.italic,
+      ).fontFamily!;
+      final file = _fileFor(resolved);
+      expect(
+        File('assets/google_fonts/$file').existsSync(),
+        isTrue,
+        reason: file,
+      );
+    }
+  });
+
+  test('every italic in the app is one of the bundled italics', () {
+    final bundled = {
+      for (final (family, _) in BundledFonts.italics)
+        family.replaceAll(' ', '').toLowerCase(),
+    };
+    final uses = <String>[];
+    for (final file in Directory('lib').listSync(recursive: true)) {
+      if (file is! File || !file.path.endsWith('.dart')) continue;
+      if (file.path.endsWith('bundled_fonts.dart')) continue;
+      final source = file.readAsStringSync();
+      for (final match in 'FontStyle.italic'.allMatches(source)) {
+        final before = source.substring(0, match.start);
+        final call = RegExp(
+          r'GoogleFonts\.(\w+)\(',
+        ).allMatches(before).lastOrNull;
+        final family = call?.group(1)?.toLowerCase();
+        if (family == null || !bundled.contains(family)) {
+          uses.add('${file.path}: ${family ?? 'a reader-chosen font'}');
+        }
+      }
+    }
+    expect(uses, isEmpty);
+  });
 
   test('every bundled family ships its licence', () {
     final dir = Directory('assets/google_fonts');

@@ -34,19 +34,25 @@ abstract final class BundledFonts {
     'Orbitron',
   ];
 
-  /// Every weight and style any screen asks a family for: the app's own
-  /// 400/600/700/800, Material's text theme 500, and the italics onboarding
-  /// and the paywall use. Any font set can land in any role, so every
-  /// family is bundled for all of them.
+  /// Every upright weight any screen asks a family for: the app's own
+  /// 400/600/700/800 and Material's text theme 500. Any font set can land in
+  /// any role, so every family is bundled for all of them.
   static const requestedStyles = [
     (FontWeight.w400, FontStyle.normal),
     (FontWeight.w500, FontStyle.normal),
     (FontWeight.w600, FontStyle.normal),
     (FontWeight.w700, FontStyle.normal),
     (FontWeight.w800, FontStyle.normal),
-    (FontWeight.w400, FontStyle.italic),
-    (FontWeight.w600, FontStyle.italic),
-    (FontWeight.w700, FontStyle.italic),
+  ];
+
+  /// The only italics drawn anywhere — each on a fixed face (onboarding's
+  /// quoted phrases, the paywall's chapter numbers), never a reader-chosen
+  /// role — so only these italic files ship. Italics used to be bundled for
+  /// every family and weight: ~3.5MB nobody saw.
+  /// `test/core/bundled_fonts_test.dart` fails if a new italic isn't listed.
+  static const italics = [
+    ('Inter', FontWeight.w400),
+    ('Libre Baskerville', FontWeight.w400),
   ];
 
   /// Called once from `main`, before the first frame: turns off runtime
