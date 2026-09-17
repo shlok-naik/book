@@ -78,7 +78,23 @@ class _FakeExecutor implements PendingWriteExecutor {
   }
 }
 
+class _FailsFirstReadStore extends MemoryOfflineStore {
+  var failures = 1;
+
+  @override
+  Future<Object?> read(String key) async {
+    if (failures-- > 0) throw const FileSystemException('busy');
+    return super.read(key);
+  }
+}
+
 void main() {
+  test('a queue whose first read failed reads again next time', () async {
+    final queue = PendingWriteQueue(store: _FailsFirstReadStore());
+    await expectLater(queue.snapshot(), throwsA(isA<FileSystemException>()));
+    expect(await queue.snapshot(), isEmpty);
+  });
+
   tearDown(ConnectivityController.reset);
 
   group('PendingWriteQueue', () {

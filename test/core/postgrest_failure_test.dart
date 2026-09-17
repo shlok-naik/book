@@ -40,4 +40,10 @@ void main() {
     expect(isTransientPostgrestError(_error('404')), isFalse);
     expect(isTransientPostgrestError(_error(null)), isFalse);
   });
+
+  test('retryable SQLSTATEs are transient', () {
+    for (final code in ['40001', '40P01', '55P03']) {
+      expect(isTransientPostgrestError(_error(code)), isTrue, reason: code);
+    }
+  });
 }

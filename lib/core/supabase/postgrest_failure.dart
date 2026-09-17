@@ -18,6 +18,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// * a SQLSTATE in a connection-level class — `08` connection exception,
 ///   `53` insufficient resources, `57` operator intervention, `58` system
 ///   error;
+/// * a SQLSTATE that means "try again" — `40001` serialization failure,
+///   `40P01` deadlock, `55P03` lock not available;
 /// * PostgREST's own `PGRST000`–`PGRST003` (database unreachable, internal
 ///   connection error, schema cache not ready, pool timeout).
 ///
@@ -27,6 +29,7 @@ bool isTransientPostgrestError(PostgrestException error) {
   final code = (error.code ?? '').trim().toUpperCase();
   if (RegExp(r'^\d{3}$').hasMatch(code)) return int.parse(code) >= 500;
   if (RegExp(r'^PGRST00[0-3]$').hasMatch(code)) return true;
+  if (const {'40001', '40P01', '55P03'}.contains(code)) return true;
   if (code.length == 5) {
     return const {'08', '53', '57', '58'}.contains(code.substring(0, 2));
   }

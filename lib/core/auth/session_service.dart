@@ -248,24 +248,30 @@ class SessionService {
       await _run(() => _client.auth.setSession(refreshToken));
     }
 
-    if (deviceToken != null) {
-      try {
-        await _client.functions.invoke(
-          'link-account',
-          body: {
-            'anonymous_access_token': deviceToken,
-            'keep': keepDevice ? 'device' : 'account',
-          },
-        );
-      } on FunctionException catch (error) {
-        final details = error.details;
-        final message = details is Map && details['error'] is String
-            ? details['error'] as String
-            : "Couldn't finish linking your email.";
-        throw SessionException(message, cause: error);
-      } on Object catch (error) {
-        await _run<void>(() => Future.error(error));
-      }
+    // Without the anonymous session's token the function can neither
+    // verify nor delete that account, and "done" would quietly strand its
+    // library — e.g. the app restarted after switching sessions.
+    if (deviceToken == null) {
+      throw const SessionException(
+        "Couldn't finish linking. Link your email again.",
+      );
+    }
+    try {
+      await _client.functions.invoke(
+        'link-account',
+        body: {
+          'anonymous_access_token': deviceToken,
+          'keep': keepDevice ? 'device' : 'account',
+        },
+      );
+    } on FunctionException catch (error) {
+      final details = error.details;
+      final message = details is Map && details['error'] is String
+          ? details['error'] as String
+          : "Couldn't finish linking your email.";
+      throw SessionException(message, cause: error);
+    } on Object catch (error) {
+      await _run<void>(() => Future.error(error));
     }
     _pendingDeviceToken = null;
     await account.dispose();
@@ -300,6 +306,10 @@ class SessionService {
       throw SessionException("You're offline.", cause: error);
     } on http.ClientException catch (error) {
       throw SessionException("Can't reach the server.", cause: error);
+    } on SessionException {
+      rethrow;
+    } on Object catch (error) {
+      throw SessionException('Something went wrong.', cause: error);
     }
   }
 }

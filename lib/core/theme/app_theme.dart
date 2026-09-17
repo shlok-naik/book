@@ -74,6 +74,14 @@ abstract final class AppTheme {
         brightness: brightness,
         surface: colors.surface,
         primary: colors.accent,
+        // A light accent (amber, pink) needs dark text on it, a dark one
+        // light text — Material's own widgets read this for what sits on
+        // the accent.
+        onPrimary:
+            ThemeData.estimateBrightnessForColor(colors.accent) ==
+                Brightness.dark
+            ? Colors.white
+            : Colors.black,
         onSurface: colors.primaryText,
       ),
       textTheme: GoogleFonts.getTextTheme(fonts.theme.bodyFamily, textTheme)

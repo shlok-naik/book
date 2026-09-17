@@ -40,9 +40,12 @@ class MarqueeRow extends StatefulWidget {
 class _MarqueeRowState extends State<MarqueeRow>
     with SingleTickerProviderStateMixin {
   /// How many times the child set is repeated in the visible (scrolling)
-  /// row — enough that the row never runs out of content even at the
-  /// widest plausible viewport.
-  static const _repeatCount = 4;
+  /// row: enough to cover [viewport] even after a whole set has scrolled
+  /// off — at least the four sets this always drew.
+  static int repeatCount(double setWidth, double viewport) {
+    if (setWidth <= 0 || !viewport.isFinite) return 4;
+    return ((viewport / setWidth).ceil() + 1).clamp(4, 200);
+  }
 
   final _measureKey = GlobalKey();
   double? _setWidth;
@@ -99,39 +102,48 @@ class _MarqueeRowState extends State<MarqueeRow>
 
     return SizedBox(
       height: widget.height,
-      child: Stack(
-        children: [
-          // Never painted — exists only so its RenderBox can be
-          // measured after the first frame. Given unbounded width (via
-          // OverflowBox) same as the visible row below, since the
-          // ambient constraint here is only ~one screen wide and the
-          // full child set is usually wider than that.
-          OverflowBox(
-            maxWidth: double.infinity,
-            alignment: Alignment.centerLeft,
-            child: Opacity(opacity: 0, child: _set(key: _measureKey)),
-          ),
-          if (setWidth != null)
-            ValueListenableBuilder<double>(
-              valueListenable: _progress,
-              builder: (context, progress, _) {
-                final dx = widget.reverse
-                    ? -(1 - progress) * setWidth
-                    : -progress * setWidth;
-                return OverflowBox(
-                  maxWidth: double.infinity,
-                  alignment: Alignment.centerLeft,
-                  child: Transform.translate(
-                    offset: Offset(dx, 0),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [for (var i = 0; i < _repeatCount; i++) _set()],
-                    ),
-                  ),
-                );
-              },
+      child: LayoutBuilder(
+        builder: (context, constraints) => Stack(
+          children: [
+            // Never painted — exists only so its RenderBox can be
+            // measured after the first frame. Given unbounded width (via
+            // OverflowBox) same as the visible row below, since the
+            // ambient constraint here is only ~one screen wide and the
+            // full child set is usually wider than that.
+            OverflowBox(
+              maxWidth: double.infinity,
+              alignment: Alignment.centerLeft,
+              child: Opacity(opacity: 0, child: _set(key: _measureKey)),
             ),
-        ],
+            if (setWidth != null)
+              ValueListenableBuilder<double>(
+                valueListenable: _progress,
+                builder: (context, progress, _) {
+                  final dx = widget.reverse
+                      ? -(1 - progress) * setWidth
+                      : -progress * setWidth;
+                  return OverflowBox(
+                    maxWidth: double.infinity,
+                    alignment: Alignment.centerLeft,
+                    child: Transform.translate(
+                      offset: Offset(dx, 0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (
+                            var i = 0;
+                            i < repeatCount(setWidth, constraints.maxWidth);
+                            i++
+                          )
+                            _set(),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
       ),
     );
   }

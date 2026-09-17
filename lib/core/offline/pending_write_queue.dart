@@ -29,13 +29,21 @@ class PendingWriteQueue {
 
   /// Reads the persisted queue once. Every other method awaits this, so
   /// callers never need to.
+  ///
+  /// A failed read isn't remembered: the next call tries the store again,
+  /// rather than every queue operation failing for the rest of the session.
   Future<void> load() => _loaded ??= () async {
-    final raw = await store.read(_key);
-    _writes = [
-      if (raw is List)
-        for (final entry in raw) ?PendingWrite.fromJson(entry),
-    ];
-    pendingCount.value = _writes.length;
+    try {
+      final raw = await store.read(_key);
+      _writes = [
+        if (raw is List)
+          for (final entry in raw) ?PendingWrite.fromJson(entry),
+      ];
+      pendingCount.value = _writes.length;
+    } on Object {
+      _loaded = null;
+      rethrow;
+    }
   }();
 
   Future<List<PendingWrite>> snapshot() async {
