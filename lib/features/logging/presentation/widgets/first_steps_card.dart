@@ -85,6 +85,7 @@ class _StepRow extends StatelessWidget {
       checked: done,
       label: step.label,
       excludeSemantics: true,
+      onTap: tap,
       child: InkWell(
         key: ValueKey('first-step-${step.name}'),
         onTap: tap == null

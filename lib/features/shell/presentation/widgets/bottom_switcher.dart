@@ -200,6 +200,7 @@ class _SwitcherItem extends StatelessWidget {
       // The icon underneath carries no text, but excluding its subtree
       // keeps a future decorated child from leaking a second node.
       excludeSemantics: true,
+      onTap: onTap,
       child: InkWell(
         onTap: onTap,
         customBorder: circular ? const CircleBorder() : null,

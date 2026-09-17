@@ -33,6 +33,12 @@ class ReadingTastesPicker extends StatelessWidget {
             selected: selected.contains(taste),
             label: taste.label,
             excludeSemantics: true,
+            onTap: () {
+              AppHaptics.selection();
+              final next = {...selected};
+              if (!next.remove(taste)) next.add(taste);
+              onChanged(next);
+            },
             child: InkWell(
               key: ValueKey('taste-${taste.name}'),
               borderRadius: BorderRadius.circular(AppRadius.pill),

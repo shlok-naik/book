@@ -97,6 +97,7 @@ class _Mark extends StatelessWidget {
       liveRegion: true,
       label: label,
       excludeSemantics: true,
+      onTap: offline ? () => _explain(context) : null,
       child: Tooltip(
         message: offline ? 'offline' : 'syncing',
         child: SizedBox(

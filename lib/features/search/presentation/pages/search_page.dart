@@ -242,6 +242,10 @@ class _SearchPageState extends State<SearchPage> {
                           button: true,
                           label: 'Back',
                           excludeSemantics: true,
+                          onTap: () {
+                            AppHaptics.selection();
+                            _reset();
+                          },
                           child: IconButton(
                             key: const ValueKey('search-back'),
                             onPressed: () {
@@ -438,6 +442,7 @@ class _RecommendationStrip extends StatelessWidget {
             button: true,
             label: '${volume.title} by ${volume.authorLine}',
             excludeSemantics: true,
+            onTap: () => onTap(volume),
             child: InkWell(
               key: ValueKey('recommended-${volume.id}'),
               borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -539,6 +544,7 @@ class _AddButton extends StatelessWidget {
       button: true,
       label: 'Add $title to read',
       excludeSemantics: true,
+      onTap: onTap,
       child: SizedBox(
         width: 44,
         height: 44,

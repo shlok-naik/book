@@ -255,6 +255,7 @@ class _SeriesRow extends StatelessWidget {
                   ? 'Remove from series ${series.name}'
                   : 'Add to series ${series.name}',
               excludeSemantics: true,
+              onTap: busy ? null : onToggle,
               child: InkWell(
                 onTap: busy ? null : onToggle,
                 borderRadius: BorderRadius.circular(AppRadius.sm),

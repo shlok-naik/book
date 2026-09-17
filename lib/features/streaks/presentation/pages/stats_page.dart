@@ -335,6 +335,12 @@ class _YearCardEntry extends StatelessWidget {
           ? 'Your year in books, a shareable card. Cactus pro.'
           : 'Your year in books, a shareable card.',
       excludeSemantics: true,
+      onTap: busy
+          ? null
+          : () {
+              AppHaptics.selection();
+              onTap();
+            },
       child: InkWell(
         key: const ValueKey('year-card-entry'),
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -1570,6 +1576,7 @@ class _LockedInsights extends StatelessWidget {
           'Reading trends, genres and tags, locked. Upgrade to cactus '
           'pro to unlock. Double tap to upgrade.',
       excludeSemantics: true,
+      onTap: busy ? null : onTap,
       child: GestureDetector(
         onTap: busy ? null : onTap,
         behavior: HitTestBehavior.opaque,

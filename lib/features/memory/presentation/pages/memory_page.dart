@@ -280,6 +280,7 @@ class _LockedMemory extends StatelessWidget {
           'Reading memory, locked. Upgrade to cactus pro to unlock. '
           'Double tap to upgrade.',
       excludeSemantics: true,
+      onTap: busy ? null : onTap,
       child: GestureDetector(
         key: const ValueKey('locked-memory'),
         onTap: busy ? null : onTap,

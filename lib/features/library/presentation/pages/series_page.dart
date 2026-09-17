@@ -104,6 +104,7 @@ class _SeriesRow extends StatelessWidget {
           '${position == null ? '' : 'Book ${BookSeries.formatPosition(position)}: '}'
           '${book.title} by ${book.author}. $status.',
       excludeSemantics: true,
+      onTap: () => openBookDetail(context, entry),
       child: InkWell(
         onTap: () => openBookDetail(context, entry),
         child: Row(

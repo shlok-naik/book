@@ -178,6 +178,7 @@ class _SelectableTagChip extends StatelessWidget {
         selected: selected,
         label: selected ? 'Remove tag ${tag.name}' : 'Add tag ${tag.name}',
         excludeSemantics: true,
+        onTap: busy ? null : onTap,
         child: InkWell(
           onTap: busy ? null : onTap,
           borderRadius: BorderRadius.circular(AppRadius.pill),

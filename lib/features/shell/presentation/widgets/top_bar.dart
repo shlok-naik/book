@@ -95,6 +95,7 @@ class _SettingsButton extends StatelessWidget {
       button: true,
       label: 'Settings',
       excludeSemantics: true,
+      onTap: () => _open(context),
       child: SizedBox(
         width: TopBar._tapTarget,
         height: TopBar._tapTarget,

@@ -108,6 +108,7 @@ class BookRow extends StatelessWidget {
             button: true,
             label: semanticsLabel,
             excludeSemantics: true,
+            onTap: onTap,
             child: InkWell(
               borderRadius: BorderRadius.circular(AppRadius.sm),
               onTap: onTap,

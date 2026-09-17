@@ -339,6 +339,12 @@ class _Option extends StatelessWidget {
       label:
           '$heading. $device. $books. started $started. last used $lastUsed.',
       excludeSemantics: true,
+      onTap: onTap == null
+          ? null
+          : () {
+              if (!selected) AppHaptics.selection();
+              onTap!();
+            },
       child: Material(
         color: selected
             ? colors.accent.withValues(alpha: 0.08)

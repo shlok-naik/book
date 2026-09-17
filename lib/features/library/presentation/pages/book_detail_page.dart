@@ -1112,6 +1112,7 @@ class _DateField extends StatelessWidget {
           '$label ${value == null ? 'not set' : format(value)}. '
           'Double tap to change.',
       excludeSemantics: true,
+      onTap: onTap,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -1462,6 +1463,7 @@ class _EditionsRow extends StatelessWidget {
       ].join(', '),
       hint: 'Opens every ebook and physical edition',
       excludeSemantics: true,
+      onTap: onTap,
       child: Material(
         type: MaterialType.transparency,
         child: InkWell(
@@ -1577,6 +1579,7 @@ class _TagChip extends StatelessWidget {
               button: true,
               label: 'Remove tag ${tag.tag}',
               excludeSemantics: true,
+              onTap: onRemove,
               child: InkResponse(
                 onTap: onRemove,
                 radius: 16,
@@ -1631,6 +1634,7 @@ class _RemovableChip extends StatelessWidget {
               button: true,
               label: 'Remove $label',
               excludeSemantics: true,
+              onTap: onRemove,
               child: InkResponse(
                 onTap: onRemove,
                 radius: 16,
@@ -1920,6 +1924,7 @@ class _ValueRow extends StatelessWidget {
       button: true,
       label: value == null ? label : '$label, $value',
       excludeSemantics: true,
+      onTap: onTap,
       child: Material(
         type: MaterialType.transparency,
         child: InkWell(

@@ -178,6 +178,7 @@ class _PresetChip extends StatelessWidget {
       selected: selected,
       label: '$label books',
       excludeSemantics: true,
+      onTap: onTap,
       child: Material(
         color: selected
             ? colors.accent.withValues(alpha: 0.15)

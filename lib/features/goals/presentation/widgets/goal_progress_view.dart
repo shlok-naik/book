@@ -181,6 +181,7 @@ class GoalProgressView extends StatelessWidget {
           'Reading goal: ${progress.summary}, $percent percent, $pace. '
           'Double tap to change it.',
       excludeSemantics: true,
+      onTap: onEdit,
       child: InkWell(
         onTap: onEdit,
         borderRadius: BorderRadius.circular(AppRadius.sm),

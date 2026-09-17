@@ -455,6 +455,7 @@ class _NameChip extends StatelessWidget {
             button: true,
             label: 'Remove $noun $name',
             excludeSemantics: true,
+            onTap: onRemove,
             child: InkResponse(
               onTap: onRemove,
               radius: 18,
@@ -612,6 +613,7 @@ class _BooksTabState extends State<_BooksTab>
                     button: true,
                     label: 'Remove ${entry.book.title} from your library',
                     excludeSemantics: true,
+                    onTap: _removing == null ? () => _remove(entry) : null,
                     child: IconButton(
                       key: ValueKey('remove-book-${entry.id}'),
                       onPressed: _removing == null

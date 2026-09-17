@@ -126,6 +126,7 @@ class _ShelfOption extends StatelessWidget {
       selected: selected,
       label: label,
       excludeSemantics: true,
+      onTap: onTap,
       child: InkWell(
         key: ValueKey('shelf-option-$label'),
         onTap: onTap,

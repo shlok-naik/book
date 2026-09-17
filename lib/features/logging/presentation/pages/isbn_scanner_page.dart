@@ -150,6 +150,7 @@ class _ScannerHeader extends StatelessWidget {
             button: true,
             label: 'Back',
             excludeSemantics: true,
+            onTap: Navigator.of(context).pop,
             child: SizedBox(
               width: _tapTarget,
               height: _tapTarget,

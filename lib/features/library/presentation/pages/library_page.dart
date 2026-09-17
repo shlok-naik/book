@@ -1000,6 +1000,10 @@ class _SeriesGroupTile extends StatelessWidget {
         const CustomSemanticsAction(label: 'Show its books'): onDoubleTap,
       },
       excludeSemantics: true,
+      onTap: () {
+        AppHaptics.selection();
+        unawaited(openSeries(context, group));
+      },
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
         onTap: () {
@@ -1436,6 +1440,7 @@ class _ShelfFolder extends StatelessWidget {
           ? '${shelf.spoken}, loading'
           : '${shelf.spoken}, $count ${count == 1 ? 'book' : 'books'}',
       excludeSemantics: true,
+      onTap: onTap,
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -1828,6 +1833,7 @@ class _HeaderIcon extends StatelessWidget {
       button: true,
       label: label,
       excludeSemantics: true,
+      onTap: onTap,
       child: SizedBox(
         width: 44,
         height: 44,
@@ -1969,6 +1975,7 @@ class _CollapseToggle extends StatelessWidget {
       button: true,
       label: collapsed ? 'Show $spoken' : 'Hide $spoken',
       excludeSemantics: true,
+      onTap: onTap,
       child: SizedBox(
         width: 32,
         height: 32,
@@ -2017,6 +2024,10 @@ class _SeriesRow extends StatelessWidget {
             button: true,
             label: '${group.name} series, ${group.summary}.',
             excludeSemantics: true,
+            onTap: () {
+              AppHaptics.selection();
+              unawaited(openSeries(context, group));
+            },
             child: InkWell(
               key: ValueKey('series-${group.id}'),
               borderRadius: BorderRadius.circular(AppRadius.md),
