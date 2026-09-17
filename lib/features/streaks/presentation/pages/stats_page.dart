@@ -23,6 +23,7 @@ import '../../../paywall/presentation/pro_gate.dart';
 import '../../../shell/presentation/widgets/bottom_switcher.dart';
 import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../domain/reading_heatmap.dart';
+import '../../domain/reading_speed.dart';
 import '../../domain/reading_stats.dart';
 import '../controllers/streaks_controller.dart';
 import 'year_in_books_page.dart';
@@ -276,6 +277,10 @@ class _StatsPageState extends State<StatsPage> with ProGateState<StatsPage> {
                   const SizedBox(height: AppSpacing.md),
                   _PagesChart(stats: stats),
                   const SizedBox(height: AppSpacing.xl),
+                  const _Heading('reading speed'),
+                  const SizedBox(height: AppSpacing.md),
+                  _SpeedTiles(speed: ReadingSpeed.from(library.books)),
+                  const SizedBox(height: AppSpacing.xl),
                   const _Heading('pace'),
                   const SizedBox(height: AppSpacing.md),
                   _PaceChart(
@@ -457,6 +462,61 @@ class _StatGrid extends StatelessWidget {
           value: rating.toStringAsFixed(1),
           detail: 'stars, finished books',
         ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = (constraints.maxWidth - AppSpacing.md) / 2;
+        return Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
+          children: [
+            for (final tile in tiles) SizedBox(width: width, child: tile),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// How fast the reader reads (cactus pro) — [ReadingSpeed] as tiles, in the
+/// same grid as the free numbers above.
+class _SpeedTiles extends StatelessWidget {
+  const _SpeedTiles({required this.speed});
+
+  final ReadingSpeed speed;
+
+  @override
+  Widget build(BuildContext context) {
+    final change = speed.booksThisYear - speed.booksLastYear;
+    final tiles = [
+      if (speed.averageDays case final days?)
+        _Tile(
+          label: 'days per book',
+          value: formatCompactNumber(days),
+          detail:
+              'average, ${speed.timedBooks} '
+              '${speed.timedBooks == 1 ? 'book' : 'books'} with dates',
+        ),
+      if (speed.pagesPerDay case final pages?)
+        _Tile(
+          label: 'pages per day',
+          value: formatCompactNumber(pages),
+          detail: 'while reading a book',
+        ),
+      if (speed.fastest case final fastest?)
+        _Tile(
+          label: 'fastest read',
+          value:
+              '${speed.fastestDays} ${speed.fastestDays == 1 ? 'day' : 'days'}',
+          detail: fastest.displayBook.title,
+        ),
+      _Tile(
+        label: 'vs last year',
+        value: change > 0 ? '+$change' : '$change',
+        detail:
+            '${speed.booksThisYear} in ${speed.year} · '
+            '${speed.booksLastYear} in ${speed.year - 1}',
+      ),
     ];
     return LayoutBuilder(
       builder: (context, constraints) {

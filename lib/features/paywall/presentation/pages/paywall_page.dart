@@ -780,7 +780,7 @@ const _chapters = <_Chapter>[
     title: 'The Art of Expression',
     body:
         'Unlimited shelves, tags and series, so every book sits exactly '
-        'where it belongs. Deeper stats, a card of your reading year to '
+        'where it belongs. Deeper stats and reading speed, a card of your year to '
         'share, and your whole Goodreads library in one import.',
     filler: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.',
   ),
