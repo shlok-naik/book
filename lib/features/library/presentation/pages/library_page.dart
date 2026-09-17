@@ -634,6 +634,22 @@ class _LibraryPageState extends State<LibraryPage> {
       ];
     }
     if (controller.isLoading && controller.isEmpty) {
+      // The library tab already knows its shelves' names: draw the folders
+      // straight away and let the books land in them, rather than a line of
+      // text that the whole page then replaces.
+      if (widget.shelf == null) {
+        return [
+          for (final shelf in _shelvesOf(controller))
+            SliverToBoxAdapter(
+              child: _ShelfFolder(
+                key: ValueKey('shelf-folder-loading-${_shelfKey(shelf.ref)}'),
+                shelf: shelf,
+                entries: const [],
+                loading: true,
+              ),
+            ),
+        ];
+      }
       return const [
         SliverToBoxAdapter(child: _Message(text: 'Loading your library…')),
       ];
@@ -1391,12 +1407,16 @@ class _ShelfFolder extends StatelessWidget {
     super.key,
     required this.shelf,
     required this.entries,
-    required this.onTap,
+    this.onTap,
+    this.loading = false,
   });
 
   final _Shelf shelf;
   final List<LibraryBook> entries;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+
+  /// The shelf before the library has loaded: no count and no tap yet.
+  final bool loading;
 
   static const _coverWidth = 40.0;
   static const _coverOffset = 16.0;
@@ -1412,7 +1432,9 @@ class _ShelfFolder extends StatelessWidget {
 
     return Semantics(
       button: true,
-      label: '${shelf.spoken}, $count ${count == 1 ? 'book' : 'books'}',
+      label: loading
+          ? '${shelf.spoken}, loading'
+          : '${shelf.spoken}, $count ${count == 1 ? 'book' : 'books'}',
       excludeSemantics: true,
       child: InkWell(
         onTap: onTap,
@@ -1475,7 +1497,9 @@ class _ShelfFolder extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '$count ${count == 1 ? 'book' : 'books'}',
+                      loading
+                          ? '···'
+                          : '$count ${count == 1 ? 'book' : 'books'}',
                       style: context.fonts.body(
                         fontSize: 13,
                         color: colors.secondaryText,

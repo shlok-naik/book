@@ -51,6 +51,18 @@ const _noCover = Book(
   pageCount: 300,
 );
 
+class _PendingShelf extends UserBookRepository {
+  _PendingShelf(this.rows);
+
+  final Future<List<LibraryBook>> rows;
+
+  @override
+  Future<List<LibraryBook>> fetchLibrary() => rows;
+
+  @override
+  Future<DateTime?> fetchImportedAt() async => null;
+}
+
 class StubUserBookRepository extends UserBookRepository {
   StubUserBookRepository(this.rows, {this.failure});
 
@@ -232,6 +244,40 @@ void main() {
   }
 
   group('folders', () {
+    testWidgets('while the shelf loads, the folders are already there', (
+      tester,
+    ) async {
+      final pending = Completer<List<LibraryBook>>();
+      final controller = LibraryController(
+        lookup: BookLookupService(
+          cache: UnusedCache(),
+          googleBooks: GoogleBooksApiClient(
+            client: MockClient((_) async => http.Response('{}', 200)),
+          ),
+        ),
+        userBooks: _PendingShelf(pending.future),
+        collections: FakeCollectionsRepository(),
+        series: _StubSeries(),
+      );
+      addTearDown(controller.dispose);
+
+      await pumpPage(tester, controller);
+
+      expect(
+        find.byKey(const ValueKey('shelf-folder-loading-reading')),
+        findsOneWidget,
+      );
+      expect(find.text('···'), findsWidgets);
+
+      pending.complete(const []);
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('shelf-folder-reading')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('the library lists every shelf as a folder with its count', (
       tester,
     ) async {
