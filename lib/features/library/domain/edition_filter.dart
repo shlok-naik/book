@@ -200,10 +200,17 @@ String plainTextFromHtml(String html) {
     '&hellip;': '…',
   };
   entities.forEach((entity, value) => text = text.replaceAll(entity, value));
-  text = text.replaceAllMapped(RegExp(r'&#(\d+);'), (match) {
-    final code = int.tryParse(match.group(1)!);
-    return code == null || code > 0x10FFFF ? '' : String.fromCharCode(code);
-  });
+  text = text.replaceAllMapped(
+    RegExp(r'&#(x[0-9a-f]+|\d+);', caseSensitive: false),
+    (match) {
+      final digits = match.group(1)!;
+      final hex = digits[0] == 'x' || digits[0] == 'X';
+      final code = hex
+          ? int.tryParse(digits.substring(1), radix: 16)
+          : int.tryParse(digits);
+      return code == null || code > 0x10FFFF ? '' : String.fromCharCode(code);
+    },
+  );
   return text
       .replaceAll(RegExp(r'[ \t]+'), ' ')
       .replaceAll(RegExp(r' *\n *'), '\n')

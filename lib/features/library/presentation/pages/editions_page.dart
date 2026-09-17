@@ -235,7 +235,10 @@ class _EditionsPageState extends State<EditionsPage> {
         final width = constraints.maxWidth;
         final columns = (width / _maxTileWidth).ceil().clamp(2, 6);
         final tileWidth = (width - AppSpacing.md * (columns - 1)) / columns;
-        final tileHeight = tileWidth / BookCover.aspectRatio + _captionExtent;
+        // The caption grows with the reader's text size.
+        final tileHeight =
+            tileWidth / BookCover.aspectRatio +
+            MediaQuery.textScalerOf(context).scale(_captionExtent);
 
         return CustomScrollView(
           slivers: [

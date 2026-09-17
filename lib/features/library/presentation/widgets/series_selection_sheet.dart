@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
 import '../../../../core/feedback/app_haptics.dart';
@@ -310,6 +311,12 @@ class _SeriesRow extends StatelessWidget {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                // A pasted "#2" or "two" would otherwise be silently dropped
+                // as no number at all.
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  LengthLimitingTextInputFormatter(6),
+                ],
                 onSubmitted: onSubmitPosition == null
                     ? null
                     : (_) => onSubmitPosition!(),

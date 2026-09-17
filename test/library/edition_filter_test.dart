@@ -188,5 +188,12 @@ void main() {
       expect(plainTextFromHtml('Just text.'), 'Just text.');
       expect(plainTextFromHtml('Bad &#99999999; entity'), 'Bad entity');
     });
+
+    test('decodes hexadecimal entities too', () {
+      expect(
+        plainTextFromHtml('caf&#xE9; &#X2014; na&#xef;ve'),
+        'café — naïve',
+      );
+    });
   });
 }

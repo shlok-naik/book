@@ -125,7 +125,7 @@ class Book {
       id: id,
       googleBooksId: row['google_books_id'] as String? ?? '',
       title: title,
-      author: row['author'] as String? ?? unknownAuthor,
+      author: _nonEmpty(row['author']) ?? unknownAuthor,
       coverUrl: _nonEmpty(row['cover_url']),
       pageCount: (pageCount != null && pageCount > 0) ? pageCount : null,
       description: _nonEmpty(row['description']),
