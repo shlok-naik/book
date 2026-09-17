@@ -12,10 +12,10 @@ import 'purchases_service.dart';
 /// `remember`/`recommend`, the collection caps, the Memory tab, the stats
 /// page's insights, settings' pro rows).
 ///
-/// [isPro] is the *effective* state: the reader's real RevenueCat
-/// [Entitlements.cactusPro] entitlement, OR'd with a debug-only override
-/// for eyeballing both plans without a purchase. Mirrors
-/// `ThemeController`'s shape.
+/// [isPro] is the reader's real RevenueCat [Entitlements.cactusPro]
+/// entitlement. (It was once OR'd with a debug override; nothing reached it
+/// any more, and a switch that grants pro has no business in a release
+/// build.) Tests set [isPro] directly. Mirrors `ThemeController`'s shape.
 ///
 /// It used to be *only* that debug override — nothing ever wrote the real
 /// entitlement into it — so every gate reading it treated a paying
@@ -34,25 +34,17 @@ class PlanController {
   PlanController._();
 
   /// The effective plan. Writable for tests (`isPro.value = true` is the
-  /// long-standing way the suite pretends to be pro); in the app only
-  /// [toggle] and the entitlement updates below write it.
+  /// long-standing way the suite pretends to be pro); in the app only the
+  /// entitlement updates below write it.
   static final ValueNotifier<bool> isPro = ValueNotifier(false);
 
   static bool _entitled = false;
-  static bool _debugOverride = false;
   static StreamSubscription<CustomerInfo>? _subscription;
 
-  /// Whether the real store entitlement is active, ignoring the debug
-  /// override — for UI that must not lie about an actual subscription
-  /// (the membership card's PRO badge, "manage subscription").
+  /// Whether the real store entitlement is active — for UI that must not
+  /// lie about an actual subscription (the membership card's PRO badge,
+  /// "manage subscription"), even while a test has set [isPro].
   static bool get isEntitled => _entitled;
-
-  /// Flips the debug override. Reached only from settings' `kDebugMode`
-  /// debug section.
-  static void toggle() {
-    _debugOverride = !_debugOverride;
-    _publish();
-  }
 
   /// Records a fresh entitlement read. Called by [attach]'s stream, and by
   /// any surface that just fetched [CustomerInfo] itself (settings'
@@ -97,9 +89,8 @@ class PlanController {
     await _subscription?.cancel();
     _subscription = null;
     _entitled = false;
-    _debugOverride = false;
     isPro.value = false;
   }
 
-  static void _publish() => isPro.value = _entitled || _debugOverride;
+  static void _publish() => isPro.value = _entitled;
 }

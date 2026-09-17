@@ -463,7 +463,7 @@ void main() {
   group('PlanController', () {
     tearDown(PlanController.reset);
 
-    test('is pro when entitled or when the debug override is on', () {
+    test('is pro exactly when entitled', () {
       expect(PlanController.isPro.value, isFalse);
 
       PlanController.updateEntitlement(true);
@@ -472,14 +472,7 @@ void main() {
 
       PlanController.updateEntitlement(false);
       expect(PlanController.isPro.value, isFalse);
-
-      PlanController.toggle();
-      expect(PlanController.isPro.value, isTrue);
       expect(PlanController.isEntitled, isFalse);
-
-      // Losing a subscription doesn't switch off the debug override.
-      PlanController.updateEntitlement(false);
-      expect(PlanController.isPro.value, isTrue);
     });
   });
 }
