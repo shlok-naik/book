@@ -434,6 +434,9 @@ abstract final class SmartCommandParser {
 
     // Dates first: "yesterday" must not be mistaken for part of a title.
     final (date, withoutDate) = _takeDate(lower, today);
+    // A day that doesn't exist ("2026-02-31") isn't quietly moved to one
+    // that does: the line runs as typed and is refused for its date.
+    if (identical(date, _invalidDate)) return null;
     lower = withoutDate;
     final dateSuffix = date == null ? '' : ' ${_iso(date)}';
 
@@ -484,6 +487,9 @@ abstract final class SmartCommandParser {
     'sunday',
   ];
 
+  /// What [_takeDate] returns for an ISO date naming no real day.
+  static final _invalidDate = DateTime.utc(0);
+
   static (DateTime?, String) _takeDate(String text, DateTime today) {
     final day = DateTime(today.year, today.month, today.day);
 
@@ -491,10 +497,10 @@ abstract final class SmartCommandParser {
       r'\b(?:on\s+)?(\d{4})-(\d{2})-(\d{2})\b',
     ).firstMatch(text);
     if (iso != null) {
-      final date = DateTime.tryParse(
+      final date = LogCommandParser.parseIsoDate(
         '${iso.group(1)}-${iso.group(2)}-${iso.group(3)}',
       );
-      return (date, text.replaceRange(iso.start, iso.end, ' '));
+      return (date ?? _invalidDate, text.replaceRange(iso.start, iso.end, ' '));
     }
 
     final patterns = <(RegExp, DateTime? Function(RegExpMatch))>[

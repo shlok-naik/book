@@ -70,6 +70,14 @@ void main() {
       ]);
       expect(_commands('finished dune 3 days ago'), ['finish Dune 2026-09-13']);
       expect(_commands('finished dune on monday'), ['finish Dune 2026-09-14']);
+      expect(_commands('finished dune on 2026-09-01'), [
+        'finish Dune 2026-09-01',
+      ]);
+      // A day that doesn't exist is never moved onto one that does.
+      expect(
+        _commands('finished dune on 2026-02-31'),
+        isNot(contains(startsWith('finish Dune 2026-03'))),
+      );
     });
 
     test('ratings, including words and halves', () {

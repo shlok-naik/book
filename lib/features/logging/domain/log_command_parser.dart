@@ -358,7 +358,7 @@ abstract final class LogCommandParser {
     // A dated command whose date doesn't exist is refused outright rather
     // than logged on whatever day the calendar rolls it over to.
     final dated = _invalidDatePattern.firstMatch(text);
-    if (dated != null && _parseDate(dated.group(2)) == null) {
+    if (dated != null && parseIsoDate(dated.group(2)) == null) {
       return ParsedLogCommand(
         message: "${dated.group(2)} isn't a real date.",
         recognized: false,
@@ -390,7 +390,7 @@ abstract final class LogCommandParser {
     if (updatePercent != null) {
       final title = updatePercent.group(1)!.trim();
       final percent = double.tryParse(updatePercent.group(2)!);
-      final date = _parseDate(updatePercent.group(3));
+      final date = parseIsoDate(updatePercent.group(3));
       return ParsedLogCommand(
         message: percent == null
             ? ''
@@ -408,7 +408,7 @@ abstract final class LogCommandParser {
     if (update != null) {
       final title = update.group(1)!.trim();
       final page = update.group(2)!;
-      final date = _parseDate(update.group(3));
+      final date = parseIsoDate(update.group(3));
       return ParsedLogCommand(
         message: 'On page $page of "$title"${_dateSuffix(date)}',
         recognized: true,
@@ -424,7 +424,7 @@ abstract final class LogCommandParser {
     final finish = _finishPattern.firstMatch(text);
     if (finish != null) {
       final title = finish.group(1)!.trim();
-      final date = _parseDate(finish.group(2));
+      final date = parseIsoDate(finish.group(2));
       return ParsedLogCommand(
         message: 'Finished "$title"${_dateSuffix(date)}',
         recognized: true,
@@ -437,7 +437,7 @@ abstract final class LogCommandParser {
     final restart = _restartPattern.firstMatch(text);
     if (restart != null) {
       final title = restart.group(1)!.trim();
-      final date = _parseDate(restart.group(2));
+      final date = parseIsoDate(restart.group(2));
       return ParsedLogCommand(
         message: 'Restarted "$title"${_dateSuffix(date)}',
         recognized: true,
@@ -449,7 +449,7 @@ abstract final class LogCommandParser {
 
     final startIsbn = _startIsbnPattern.firstMatch(text);
     if (startIsbn != null) {
-      final date = _parseDate(startIsbn.group(1));
+      final date = parseIsoDate(startIsbn.group(1));
       return ParsedLogCommand(
         // The book isn't known until the scan resolves one, so the pill
         // uses the library's own message once that happens.
@@ -463,7 +463,7 @@ abstract final class LogCommandParser {
     final start = _startPattern.firstMatch(text);
     if (start != null) {
       final title = start.group(1)!.trim();
-      final date = _parseDate(start.group(2));
+      final date = parseIsoDate(start.group(2));
       return ParsedLogCommand(
         message: 'Started "$title"${_dateSuffix(date)}',
         recognized: true,
@@ -761,7 +761,7 @@ abstract final class LogCommandParser {
   /// out-of-range day, so `2026-02-30` used to become March 2 and log the
   /// command on a date the reader never typed. [parse] refuses such a line
   /// before any command is built (see [_invalidDatePattern]).
-  static DateTime? _parseDate(String? raw) {
+  static DateTime? parseIsoDate(String? raw) {
     if (raw == null) return null;
     final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(raw);
     if (match == null) return null;
