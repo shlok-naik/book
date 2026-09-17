@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../goals/domain/daily_goal.dart';
+import '../../../goals/presentation/daily_goal_controller.dart';
+import '../../../goals/presentation/widgets/daily_goal_prompt.dart';
 import '../../../library/domain/reading_event.dart';
 import '../../../library/presentation/library_scope.dart';
 import '../../../streaks/domain/streak_math.dart';
@@ -17,13 +20,12 @@ import '../../../streaks/domain/streak_math.dart';
 /// plain journals, not boxed cards, so this sits directly on the page
 /// background the same way.
 ///
-/// Read-only, unlike Fable's tappable "I read today" button: this app
-/// has no generic "I read" event to log — every `reading_events` row is
-/// tied to a real command against a real book (`start`/`update <page>`/
-/// `finish`/`rate`), so a button that doesn't correspond to any of those
-/// would be a fake action. Typing a real command in [CommandInput] above
-/// *is* how a reader marks today; this readout just shows what that's
-/// already added up to.
+/// Read-only itself: a day counts either because a command was logged
+/// against a real book that day (`start`/`update <page>`/`finish`/`rate`
+/// — every `reading_events` row is tied to one) **or** because the reader
+/// ticked [DailyGoalPrompt] directly above, which is the one "I read
+/// today" the app does have. The two sets are unioned here so the run is
+/// counted in one place; the prompt says nothing about streaks itself.
 class ReadingStreak extends StatefulWidget {
   const ReadingStreak({super.key});
 
@@ -94,6 +96,14 @@ class _ReadingStreakState extends State<ReadingStreak> {
   Widget build(BuildContext context) {
     final loggedDays = _loggedDays;
     if (loggedDays == null) return const SizedBox.shrink();
+    return ValueListenableBuilder<DailyGoal>(
+      valueListenable: DailyGoalController.goal,
+      builder: (context, goal, _) =>
+          _readout(context, {...loggedDays, ...goal.markedDays}),
+    );
+  }
+
+  Widget _readout(BuildContext context, Set<DateTime> loggedDays) {
     final colors = context.colors;
     final streak = _currentStreak(loggedDays);
     final active = streak > 0;

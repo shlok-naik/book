@@ -32,14 +32,15 @@ void main() {
     await pumpPrompt(tester);
 
     expect(find.text('have you read 10 minutes today?'), findsOneWidget);
-    expect(find.textContaining('in a row'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('daily-goal-done')));
     await tester.pump();
 
     expect(DailyGoalController.goal.value.isDone(today), isTrue);
     expect(find.text('you read 10 minutes today'), findsOneWidget);
-    expect(find.text('1 day in a row'), findsOneWidget);
+    // The run itself is counted by the streak row underneath, not here.
+    expect(find.textContaining('in a row'), findsNothing);
+    expect(find.textContaining('streak'), findsNothing);
   });
 
   testWidgets('tapping it again takes today back', (tester) async {
@@ -69,22 +70,28 @@ void main() {
     expect(find.text('minutes a day'), findsOneWidget);
   });
 
-  testWidgets('a streak reads back from the days already marked', (
+  testWidgets('asks in the number of minutes the reader picked', (
     tester,
   ) async {
     DailyGoalController.reset(
       DailyGoal(
         minutes: 15,
-        doneDays: {
-          DailyGoal.keyOf(DateTime(2026, 9, 16)),
-          DailyGoal.keyOf(DateTime(2026, 9, 15)),
-        },
+        doneDays: {DailyGoal.keyOf(DateTime(2026, 9, 16))},
       ),
     );
     await pumpPrompt(tester);
 
-    // Today is still open, so yesterday's run still counts.
     expect(find.text('have you read 15 minutes today?'), findsOneWidget);
-    expect(find.text('2 days in a row'), findsOneWidget);
+  });
+
+  test('the days ticked are what the streak row reads', () {
+    final goal = DailyGoal(
+      minutes: 10,
+      doneDays: {
+        DailyGoal.keyOf(today),
+        DailyGoal.keyOf(DateTime(2026, 9, 16)),
+      },
+    );
+    expect(goal.markedDays, {today, DateTime(2026, 9, 16)});
   });
 }

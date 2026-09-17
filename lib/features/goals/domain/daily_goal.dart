@@ -50,6 +50,15 @@ class DailyGoal {
     return count;
   }
 
+  /// The days marked done, as plain local dates — what the add tab's
+  /// seven-day streak row unions with the days that carry a logged
+  /// command, so ticking today lights today's dot.
+  Set<DateTime> get markedDays => {
+    for (final key in doneDays)
+      if (DateTime.tryParse(key) case final day?)
+        DateTime(day.year, day.month, day.day),
+  };
+
   /// The longest run of done days on record.
   int get best {
     final days = [for (final key in doneDays) ?DateTime.tryParse(key)]..sort();

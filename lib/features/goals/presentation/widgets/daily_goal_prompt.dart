@@ -18,6 +18,10 @@ import '../daily_goal_controller.dart';
 /// marks today (tapping again unmarks it); tapping the question changes how
 /// many minutes it asks for. The yearly books goal it replaced is still
 /// one tap away on the stats tab, where the rest of the numbers live.
+///
+/// It says nothing about streaks itself: `ReadingStreak`, directly
+/// underneath, counts the days — including the ones ticked here — so the
+/// run is in one place rather than two that could disagree.
 class DailyGoalPrompt extends StatelessWidget {
   const DailyGoalPrompt({super.key, this.now});
 
@@ -33,7 +37,6 @@ class DailyGoalPrompt extends StatelessWidget {
       valueListenable: DailyGoalController.goal,
       builder: (context, goal, _) {
         final done = goal.isDone(today);
-        final streak = goal.streak(today);
 
         void toggle() {
           if (done) {
@@ -63,28 +66,14 @@ class DailyGoalPrompt extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                       vertical: AppSpacing.xs,
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          done
-                              ? 'you read ${goal.minutes} minutes today'
-                              : 'have you read ${goal.minutes} minutes today?',
-                          style: context.fonts.interface(
-                            fontSize: 14,
-                            color: colors.primaryText,
-                          ),
-                        ),
-                        if (streak > 0)
-                          Text(
-                            '$streak ${streak == 1 ? 'day' : 'days'} in a row',
-                            style: context.fonts.body(
-                              fontSize: 12,
-                              color: colors.secondaryText,
-                            ),
-                          ),
-                      ],
+                    child: Text(
+                      done
+                          ? 'you read ${goal.minutes} minutes today'
+                          : 'have you read ${goal.minutes} minutes today?',
+                      style: context.fonts.interface(
+                        fontSize: 14,
+                        color: colors.primaryText,
+                      ),
                     ),
                   ),
                 ),

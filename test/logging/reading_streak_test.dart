@@ -1,4 +1,6 @@
 import 'package:book/core/theme/app_theme.dart';
+import 'package:book/features/goals/domain/daily_goal.dart';
+import 'package:book/features/goals/presentation/daily_goal_controller.dart';
 import 'package:book/features/goals/presentation/goal_scope.dart';
 import 'package:book/features/library/data/book_cache_repository.dart';
 import 'package:book/features/library/data/google_books_api_client.dart';
@@ -20,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_goals.dart';
 
@@ -237,6 +240,38 @@ void main() {
 
       await setKeyboard(tester, up: false);
       expect(find.text('no streak yet'), findsOneWidget);
+    });
+
+    testWidgets('a ticked daily goal counts as a day read', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(DailyGoalController.reset);
+      await pumpHome(tester);
+      expect(find.text('no streak yet'), findsOneWidget);
+
+      // The one "I read today" the app has: no command, no book — the
+      // question above the row, ticked.
+      await tester.tap(find.byKey(const ValueKey('daily-goal-done')));
+      await tester.pump();
+
+      expect(find.text('1 day streak'), findsOneWidget);
+    });
+
+    testWidgets('yesterday ticked keeps the run going', (tester) async {
+      final now = DateTime.now();
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(DailyGoalController.reset);
+      DailyGoalController.reset(
+        DailyGoal(
+          minutes: 10,
+          doneDays: {
+            DailyGoal.keyOf(now.subtract(const Duration(days: 1))),
+            DailyGoal.keyOf(now.subtract(const Duration(days: 2))),
+          },
+        ),
+      );
+      await pumpHome(tester);
+
+      expect(find.text('2 day streak'), findsOneWidget);
     });
 
     testWidgets('counts consecutive days ending today', (tester) async {

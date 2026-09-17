@@ -209,7 +209,7 @@ void main() {
       expect(ReadingTastesController.tastes.value, [ReadingTaste.fantasy]);
     });
 
-    testWidgets('holds the email, memory and year rows', (tester) async {
+    testWidgets('holds the email and memory rows', (tester) async {
       await pumpProfile(
         tester,
         purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
@@ -219,7 +219,6 @@ void main() {
       expect(find.text('profile'), findsOneWidget);
       expect(find.text('link your email'), findsOneWidget);
       expect(find.text('memory'), findsOneWidget);
-      expect(find.text('your year in books'), findsOneWidget);
     });
 
     testWidgets('names and username are set here, and land on the card', (

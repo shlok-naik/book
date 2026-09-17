@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../core/diagnostics/app_logger.dart';
-import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/formatting/numbers.dart';
 import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -26,7 +25,6 @@ import '../../domain/reading_heatmap.dart';
 import '../../domain/reading_speed.dart';
 import '../../domain/reading_stats.dart';
 import '../controllers/streaks_controller.dart';
-import 'year_in_books_page.dart';
 
 /// How many genres get their own row before the rest fold into "other".
 const _topGenres = 5;
@@ -223,16 +221,6 @@ class _StatsPageState extends State<StatsPage> with ProGateState<StatsPage> {
                   _LoadFailure(message: goalError, onRetry: goals.load),
                 const SizedBox(height: AppSpacing.xl),
                 _StatGrid(stats: stats),
-                const SizedBox(height: AppSpacing.lg),
-                _YearCardEntry(
-                  locked: !isProUnlocked,
-                  busy: unlockBusy,
-                  onTap: isProUnlocked
-                      ? () => unawaited(
-                          openYearInBooks(context, purchases: widget.purchases),
-                        )
-                      : unlockPro,
-                ),
                 const SizedBox(height: AppSpacing.xl),
                 // Free on every plan: reading days are the same thing the
                 // add tab's streak already shows, just a whole year of it.
@@ -311,94 +299,6 @@ class _StatsPageState extends State<StatsPage> with ProGateState<StatsPage> {
                   ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The way into "your year in books" — a shareable card of the year.
-/// Shown to every reader; a free reader's tap opens the paywall instead.
-class _YearCardEntry extends StatelessWidget {
-  const _YearCardEntry({
-    required this.locked,
-    required this.busy,
-    required this.onTap,
-  });
-
-  final bool locked;
-  final bool busy;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Semantics(
-      button: true,
-      label: locked
-          ? 'Your year in books, a shareable card. Cactus pro.'
-          : 'Your year in books, a shareable card.',
-      excludeSemantics: true,
-      onTap: busy
-          ? null
-          : () {
-              AppHaptics.selection();
-              onTap();
-            },
-      child: InkWell(
-        key: const ValueKey('year-card-entry'),
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        onTap: busy
-            ? null
-            : () {
-                AppHaptics.selection();
-                onTap();
-              },
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 64),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.sm,
-          ),
-          decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(color: colors.divider),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.auto_awesome_outlined, color: colors.accent),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'your year in books',
-                      style: context.fonts.interface(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: colors.primaryText,
-                      ),
-                    ),
-                    Text(
-                      'a card to share',
-                      style: context.fonts.body(
-                        fontSize: 13,
-                        color: colors.secondaryText,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                locked ? Icons.lock_outline : Icons.chevron_right,
-                size: 20,
-                color: colors.secondaryText,
-              ),
-            ],
           ),
         ),
       ),

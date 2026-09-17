@@ -25,7 +25,6 @@ import '../../../settings/presentation/widgets/membership_card.dart';
 import '../../../settings/presentation/widgets/settings_header.dart';
 import '../../../settings/presentation/widgets/settings_section.dart';
 import '../../../streaks/domain/reading_stats.dart';
-import '../../../streaks/presentation/pages/year_in_books_page.dart';
 import '../../domain/profile_identity.dart';
 import '../profile_identity_controller.dart';
 import '../widgets/edit_profile_sheet.dart';
@@ -228,20 +227,6 @@ class _ProfilePageState extends State<ProfilePage> {
                               AppHaptics.selection();
                               unawaited(
                                 openMemoryPage(
-                                  context,
-                                  purchases: widget.purchases,
-                                ),
-                              );
-                            },
-                          ),
-                          SettingsRow(
-                            key: const ValueKey('profile-year-card'),
-                            icon: Icons.auto_awesome_outlined,
-                            label: 'your year in books',
-                            onTap: () {
-                              AppHaptics.selection();
-                              unawaited(
-                                openYearInBooks(
                                   context,
                                   purchases: widget.purchases,
                                 ),
