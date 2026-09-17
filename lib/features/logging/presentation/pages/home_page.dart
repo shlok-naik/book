@@ -12,10 +12,12 @@ import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_progress_view.dart';
+import '../../../goals/presentation/widgets/goal_sheet.dart';
 import '../../../library/domain/collections.dart';
 import '../../../library/domain/library_exception.dart';
 import '../../../library/presentation/controllers/library_controller.dart';
 import '../../../library/presentation/library_scope.dart';
+import '../../../library/presentation/pages/book_detail_page.dart';
 import '../../../library/presentation/widgets/removal_confirmations.dart';
 import '../../../memory/presentation/memory_scope.dart';
 import '../../../search/presentation/widgets/book_picker_sheet.dart';
@@ -24,10 +26,12 @@ import '../../../shell/presentation/widgets/top_bar.dart';
 import '../../../streaks/domain/reading_stats.dart';
 import '../../domain/log_command_parser.dart';
 import '../../domain/smart_command_parser.dart';
+import '../first_steps_controller.dart';
 import '../parser_mode_controller.dart';
 import '../widgets/command_input.dart';
 import '../widgets/confirmation_pill.dart';
 import '../widgets/currently_reading_card.dart';
+import '../widgets/first_steps_card.dart';
 import '../widgets/reading_streak.dart';
 import 'isbn_scanner_page.dart';
 
@@ -54,7 +58,12 @@ class _SlidingGradientTransform extends GradientTransform {
 /// keeps the input's "never move the text" guarantee from depending on
 /// anything the page does.
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.aiParser, this.onOpenMemory});
+  const HomePage({
+    super.key,
+    this.aiParser,
+    this.onOpenMemory,
+    this.onOpenSearch,
+  });
 
   /// Injection point for tests: a fake wrapping fixed extractions
   /// instead of a real call to the `parse-command` edge function. Null
@@ -66,6 +75,10 @@ class HomePage extends StatefulWidget {
   /// this page alone), where `memory` falls through to the parser like
   /// any other unrecognized word.
   final VoidCallback? onOpenMemory;
+
+  /// Switches the shell to the search tab — where the first steps
+  /// checklist's "add your first book" goes. Null outside `RootShell`.
+  final VoidCallback? onOpenSearch;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -889,6 +902,45 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 // what keeps them legible as separate things now that
                 // none has a fill of its own to do that.
                 if (showPeek) ...[
+                  ValueListenableBuilder<bool>(
+                    valueListenable: FirstStepsController.visible,
+                    builder: (context, visible, _) {
+                      if (!visible || !library.hasLoaded || !goals.isLoaded) {
+                        return const SizedBox.shrink();
+                      }
+                      final done = FirstSteps.done(
+                        books: library.books,
+                        goal: goals.goal,
+                      );
+                      if (done.length == FirstStep.values.length) {
+                        WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => unawaited(FirstStepsController.finish()),
+                        );
+                        return const SizedBox.shrink();
+                      }
+                      final book = currentBook ?? library.books.firstOrNull;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                        child: FirstStepsCard(
+                          done: done,
+                          onDismiss: () =>
+                              unawaited(FirstStepsController.finish()),
+                          onStep: (step) => switch (step) {
+                            FirstStep.addBook => widget.onOpenSearch,
+                            FirstStep.setGoal => () => unawaited(
+                              showGoalSheet(context),
+                            ),
+                            FirstStep.logPage || FirstStep.finishBook =>
+                              book == null
+                                  ? null
+                                  : () => unawaited(
+                                      openBookDetail(context, book),
+                                    ),
+                          },
+                        ),
+                      );
+                    },
+                  ),
                   if (currentBook != null)
                     CurrentlyReadingCard(entry: currentBook)
                   else

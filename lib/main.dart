@@ -47,6 +47,7 @@ import 'features/library/presentation/controllers/library_controller.dart';
 import 'features/library/presentation/library_scope.dart';
 import 'features/library/presentation/series_tile_style_controller.dart';
 import 'features/library/presentation/widgets/book_cover.dart';
+import 'features/logging/presentation/first_steps_controller.dart';
 import 'features/logging/presentation/parser_mode_controller.dart';
 import 'features/memory/presentation/controllers/memory_controller.dart';
 import 'features/memory/presentation/memory_scope.dart';
@@ -260,6 +261,7 @@ Future<void> _bootstrap() async {
     SeriesTileStyleController.initialize(),
     Future.wait([
       StartPageController.initialize(),
+      FirstStepsController.initialize(),
       ParserModeController.initialize(),
       ReadingTastesController.initialize(),
     ]),

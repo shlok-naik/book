@@ -73,6 +73,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
     HomePage(
       onOpenMemory: () =>
           unawaited(openMemoryPage(context, purchases: widget.purchases)),
+      onOpenSearch: () => _selectTab(_searchIndex),
     ),
   ];
 
