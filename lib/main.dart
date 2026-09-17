@@ -29,6 +29,7 @@ import 'core/theme/app_font_theme_controller.dart';
 import 'core/theme/app_scroll_behavior.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/bundled_fonts.dart';
+import 'core/theme/text_size_controller.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/widgets/startup_failure_page.dart';
 import 'features/goals/presentation/controllers/goal_controller.dart';
@@ -261,6 +262,7 @@ Future<void> _bootstrap() async {
     SeriesTileStyleController.initialize(),
     Future.wait([
       StartPageController.initialize(),
+      TextSizeController.initialize(),
       FirstStepsController.initialize(),
       ParserModeController.initialize(),
       ReadingTastesController.initialize(),
@@ -471,13 +473,15 @@ class _BookAppState extends State<BookApp> {
                           // (tests) it reads connectivity alone.
                           builder: (context, child) {
                             final offline = _offline;
-                            if (offline == null || child == null) {
-                              return child ?? const SizedBox.shrink();
-                            }
-                            return SyncScope(
-                              queue: offline.queue,
-                              coordinator: offline.sync,
-                              child: child,
+                            final app = child ?? const SizedBox.shrink();
+                            return ReaderTextScale(
+                              child: offline == null
+                                  ? app
+                                  : SyncScope(
+                                      queue: offline.queue,
+                                      coordinator: offline.sync,
+                                      child: app,
+                                    ),
                             );
                           },
                         ),

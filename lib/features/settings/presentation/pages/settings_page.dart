@@ -13,6 +13,7 @@ import '../../../../core/purchases/purchases_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_fonts.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/text_size_controller.dart';
 import '../../../../core/theme/theme_controller.dart';
 import '../../../goals/presentation/goal_scope.dart';
 import '../../../goals/presentation/widgets/goal_sheet.dart';
@@ -320,6 +321,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: AppSpacing.lg),
                     const _AppearanceSection(),
                     const SizedBox(height: AppSpacing.lg),
+                    const _TextSizeSection(),
+                    const SizedBox(height: AppSpacing.xl),
                     const _StartPageSection(),
                     const SizedBox(height: AppSpacing.lg),
                     _CustomisationSection(
@@ -618,6 +621,43 @@ class _AppearanceSection extends StatelessWidget {
                   if (mode == entry.key) return;
                   AppHaptics.selection();
                   ThemeController.select(entry.key);
+                },
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// How big the app's text is — [TextSizeController], built exactly like
+/// [_AppearanceSection]. Each label is drawn at its own size, so the choice
+/// shows itself.
+class _TextSizeSection extends StatelessWidget {
+  const _TextSizeSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TextSize>(
+      valueListenable: TextSizeController.size,
+      builder: (context, current, _) {
+        return SettingsSection(
+          title: 'text size',
+          rows: [
+            for (final size in TextSize.values)
+              SettingsRow(
+                key: ValueKey('text-size-${size.name}'),
+                icon: Icons.format_size,
+                label: size.label,
+                trailing: _Check(selected: current == size),
+                onTap: () {
+                  if (current == size) return;
+                  AppHaptics.selection();
+                  reportingFailure(
+                    TextSizeController.select(size),
+                    source: 'SettingsPage',
+                    message: 'Could not save the text size.',
+                  );
                 },
               ),
           ],

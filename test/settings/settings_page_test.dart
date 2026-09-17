@@ -7,6 +7,7 @@ import 'package:book/core/platform/app_icon_controller.dart';
 import 'package:book/core/purchases/entitlements.dart';
 import 'package:book/core/purchases/purchases_service.dart';
 import 'package:book/core/theme/app_theme.dart';
+import 'package:book/core/theme/text_size_controller.dart';
 import 'package:book/core/theme/theme_controller.dart';
 import 'package:book/features/goals/presentation/controllers/goal_controller.dart';
 import 'package:book/features/goals/presentation/goal_scope.dart';
@@ -338,6 +339,31 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(StartPageController.page.value, StartPage.search);
+    });
+  });
+
+  group('text size', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(TextSizeController.reset);
+    });
+
+    testWidgets('standard by default, and larger is one tap', (tester) async {
+      await pumpSettings(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
+
+      await scrollTo(tester, find.text('text size'));
+      expect(TextSizeController.size.value, TextSize.standard);
+
+      final largest = find.byKey(const ValueKey('text-size-largest'));
+      await scrollTo(tester, largest);
+      await tester.tap(largest);
+      await tester.pumpAndSettle();
+
+      expect(TextSizeController.size.value, TextSize.largest);
     });
   });
 
