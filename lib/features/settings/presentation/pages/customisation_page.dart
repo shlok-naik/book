@@ -117,7 +117,7 @@ class _CustomisationPageState extends State<CustomisationPage> {
     // system's own confirmation and applies instantly.
     if (defaultTargetPlatform == TargetPlatform.android) {
       final confirmed = await _showRestartSheet(context);
-      if (confirmed != true) return;
+      if (confirmed != true || !mounted) return;
     }
 
     setState(() => _busy = true);
@@ -486,7 +486,8 @@ class _IconTileState extends State<_IconTile> {
     if (onTap == null) return;
     setState(() => _pressed = true);
     await Future<void>.delayed(const Duration(milliseconds: 140));
-    if (mounted) setState(() => _pressed = false);
+    if (!mounted) return;
+    setState(() => _pressed = false);
     onTap();
   }
 
