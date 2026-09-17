@@ -25,3 +25,15 @@ double roundToHalf(double value) {
   final doubled = value * 2;
   return doubled.isFinite ? doubled.round() / 2 : value;
 }
+
+/// "12,480" — a whole count with thousands separated, since page counts
+/// get long.
+String formatThousands(int value) {
+  final digits = value.abs().toString();
+  final buffer = StringBuffer(value < 0 ? '-' : '');
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
+    buffer.write(digits[i]);
+  }
+  return buffer.toString();
+}
