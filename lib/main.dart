@@ -273,6 +273,14 @@ Future<void> _bootstrap() async {
     ]),
   ).wait;
 
+  // After the local name has loaded: adopt the account's name (a new phone)
+  // or push this device's up. Fire-and-forget — it never throws.
+  ProfileIdentityController.attach(
+    repository: const ProfileRepository(),
+    userId: () => Supabase.instance.client.auth.currentUser?.id,
+  );
+  unawaited(ProfileIdentityController.syncWithAccount());
+
   runApp(BookApp(showOnboarding: !introSeen));
 }
 

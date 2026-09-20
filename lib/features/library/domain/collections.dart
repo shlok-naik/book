@@ -14,7 +14,7 @@ import 'user_book.dart';
 // `makeSeries`), which validate through [CollectionNames] before any I/O —
 // so the two entry points can't disagree about what a valid name is.
 //
-// See `supabase/migrations/20260916000000_standalone_collections.sql` for the
+// See `supabase/migrations/20260914160052_standalone_collections.sql` for the
 // storage side.
 
 /// The three kinds of collection a reader makes — the library "+" panel's

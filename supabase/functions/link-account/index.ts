@@ -15,7 +15,7 @@
 // anonymous account is deleted.
 //
 // The email account's user id survives either way — see the
-// `20260915030000_account_linking` migration for why.
+// `20260913165904_account_linking` migration for why.
 //
 // Deploy: supabase functions deploy link-account
 // Uses SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY, which

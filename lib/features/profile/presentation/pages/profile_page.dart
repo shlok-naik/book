@@ -119,6 +119,8 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() {
         if (swapped) _accountVersion++;
       });
+      // A swapped library brings its own name with it.
+      if (swapped) unawaited(ProfileIdentityController.syncWithAccount());
     } on Object catch (error, stackTrace) {
       AppLogger.error(
         'ProfilePage',

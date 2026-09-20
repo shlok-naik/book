@@ -1,5 +1,6 @@
 import 'package:book/features/profile/domain/profile_identity.dart';
 import 'package:book/features/profile/presentation/profile_identity_controller.dart';
+import 'package:book/features/settings/data/profile_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -48,4 +49,71 @@ void main() {
       expect(ProfileIdentityController.identity.value.displayName, 'Ada');
     });
   });
+
+  group('account sync', () {
+    late _FakeProfiles profiles;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      ProfileIdentityController.reset();
+      profiles = _FakeProfiles();
+      ProfileIdentityController.attach(
+        repository: profiles,
+        userId: () => 'user-1',
+      );
+    });
+
+    tearDown(ProfileIdentityController.reset);
+
+    test('a saved name is written to the account too', () async {
+      await ProfileIdentityController.save(displayName: ' Ada ');
+      expect(profiles.name, 'Ada');
+    });
+
+    test("an account's name wins on a new device", () async {
+      profiles.name = 'Grace';
+      await ProfileIdentityController.syncWithAccount();
+      expect(ProfileIdentityController.identity.value.displayName, 'Grace');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('profile.display_name'), 'Grace');
+    });
+
+    test("this device's name fills an account that has none", () async {
+      ProfileIdentityController.identity.value = const ProfileIdentity(
+        displayName: 'Ada',
+      );
+      await ProfileIdentityController.syncWithAccount();
+      expect(profiles.name, 'Ada');
+    });
+
+    test(
+      'an unreachable account keeps the local name and never throws',
+      () async {
+        profiles.fail = true;
+        expect(
+          await ProfileIdentityController.save(displayName: 'Ada'),
+          isNull,
+        );
+        await ProfileIdentityController.syncWithAccount();
+        expect(ProfileIdentityController.identity.value.displayName, 'Ada');
+      },
+    );
+  });
+}
+
+class _FakeProfiles extends ProfileRepository {
+  String? name;
+  bool fail = false;
+
+  @override
+  Future<String?> fetchDisplayName(String userId) async {
+    if (fail) throw StateError('offline');
+    return name;
+  }
+
+  @override
+  Future<void> saveDisplayName(String userId, String value) async {
+    if (fail) throw StateError('offline');
+    name = value;
+  }
 }

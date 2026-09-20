@@ -35,6 +35,28 @@ class ProfileRepository {
     }, friendlyMessage: "Couldn't load your profile.");
   }
 
+  /// The name saved on this account, or null when there is none.
+  Future<String?> fetchDisplayName(String userId) {
+    return _run(() async {
+      final row = await _client
+          .from('profiles')
+          .select('display_name')
+          .eq('id', userId)
+          .maybeSingle();
+      final name = row?['display_name'];
+      return name is String && name.trim().isNotEmpty ? name.trim() : null;
+    }, friendlyMessage: "Couldn't load your name.");
+  }
+
+  Future<void> saveDisplayName(String userId, String name) {
+    return _run<void>(() async {
+      await _client
+          .from('profiles')
+          .update({'display_name': name})
+          .eq('id', userId);
+    }, friendlyMessage: "Couldn't save your name.");
+  }
+
   /// Stamps which device last opened this account and when — what the
   /// library choice shows when an email is linked on a second device.
   Future<void> recordDevice(String userId, {String? deviceName}) {

@@ -101,7 +101,7 @@ class CollectionsRepository {
   /// panel's X. The books on it fall back to their status section (the
   /// composite foreign key's `on delete set null (shelf_id)`), everything
   /// else about them untouched. Needs the delete policy in
-  /// `20260918000000_delete_collections.sql`.
+  /// `20260914174800_delete_collections.sql`.
   Future<void> deleteShelf(String id) {
     return runSupabase<void>(() async {
       await _client.from('shelves').delete().eq('id', id);

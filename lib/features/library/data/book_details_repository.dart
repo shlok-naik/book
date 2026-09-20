@@ -11,7 +11,7 @@ import 'supabase_guard.dart';
 /// `BookCacheRepository` reads and writes `books` itself: plain selects to
 /// read, and a `security definer` function as the only way to write,
 /// because both caches are shared by every reader (see
-/// `20260914000000_book_details_tags_comments.sql`).
+/// `20260913110629_book_details_tags_comments.sql`).
 ///
 /// Like `BookCacheRepository`, this knows nothing about *when* to go to
 /// Google Books; that policy lives in `BookDetailsService`.

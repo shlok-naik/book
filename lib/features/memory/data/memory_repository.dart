@@ -11,7 +11,7 @@ import '../domain/memory_exception.dart';
 /// `remember <book> :: <note>` command that actually took effect. Every
 /// row belongs to the one signed-in reader; `user_id` is never set by
 /// the app itself, RLS and the column default handle it (see
-/// `supabase/migrations/20260901000000_memories.sql`).
+/// `supabase/migrations/20260901151629_memories.sql`).
 class MemoryRepository {
   MemoryRepository({SupabaseClient? client}) : _injectedClient = client;
 

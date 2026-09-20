@@ -42,7 +42,7 @@ class ImportedBook {
 /// flagging every inserted row `imported` and stamping the profile's
 /// `library_imported_at` (the stats baseline) in that same transaction, so
 /// the baseline can never be missing from, or leak past, the import itself
-/// (see `20260921000000_atomic_import_baseline.sql`).
+/// (see `20260915152849_atomic_import_baseline.sql`).
 class LibraryTransferRepository {
   LibraryTransferRepository({SupabaseClient? client})
     : _injectedClient = client;
