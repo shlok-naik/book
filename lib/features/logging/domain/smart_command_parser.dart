@@ -401,7 +401,8 @@ abstract final class SmartCommandParser {
     (
       _Intent.update,
       RegExp(
-        r'\b(page|pg|p\.|percent|halfway|half way|a third|a quarter|three quarters|through)\b|\d+\s*%',
+        r'\b(pages?|pgs?|p\.|percent|halfway|half way|a third|a quarter|'
+        r'three quarters|through)\b|\d+\s*%',
       ),
     ),
     (
@@ -428,9 +429,10 @@ abstract final class SmartCommandParser {
     required DateTime today,
     required String? lastTitle,
   }) {
-    final intent = _intentOf(clause);
+    final spelled = _digits(clause);
+    final intent = _intentOf(spelled);
     if (intent == null) return null;
-    var lower = ' ${clause.toLowerCase()} ';
+    var lower = ' ${spelled.toLowerCase()} ';
 
     // Dates first: "yesterday" must not be mistaken for part of a title.
     final (date, withoutDate) = _takeDate(lower, today);
@@ -473,6 +475,57 @@ abstract final class SmartCommandParser {
       _Title(:final title) => (ResolvedLine(build(title)), title),
       _Ask(:final query) => (NeedsBookLine(build, query: query), null),
     };
+  }
+
+  /// Numbers a reader writes out — "twenty pages", "thirty more pages".
+  /// Only whole tens and their teens: past that ("a hundred and twelve")
+  /// nobody spells it out, and guessing would be worse than asking.
+  static const _spelledPages = {
+    'one': '1',
+    'two': '2',
+    'three': '3',
+    'four': '4',
+    'five': '5',
+    'six': '6',
+    'seven': '7',
+    'eight': '8',
+    'nine': '9',
+    'ten': '10',
+    'eleven': '11',
+    'twelve': '12',
+    'thirteen': '13',
+    'fourteen': '14',
+    'fifteen': '15',
+    'sixteen': '16',
+    'seventeen': '17',
+    'eighteen': '18',
+    'nineteen': '19',
+    'twenty': '20',
+    'thirty': '30',
+    'forty': '40',
+    'fifty': '50',
+    'sixty': '60',
+    'seventy': '70',
+    'eighty': '80',
+    'ninety': '90',
+    'hundred': '100',
+    'a hundred': '100',
+  };
+
+  /// [clause] with any spelled-out number turned into digits, so the page
+  /// patterns below only ever have one form to read. Left alone where it
+  /// would change a title: only a number followed immediately by "pages"
+  /// is rewritten, so "Two Towers" and "four and a half stars" are safe
+  /// ([_takeStars] has its own, smaller list for star words).
+  static String _digits(String clause) {
+    var text = clause;
+    for (final MapEntry(:key, :value) in _spelledPages.entries) {
+      text = text.replaceAllMapped(
+        RegExp('\\b$key\\s+(pages?|pgs?)\\b', caseSensitive: false),
+        (match) => '$value ${match.group(1)}',
+      );
+    }
+    return text;
   }
 
   // ------------------------------------------------------------------ dates
@@ -617,11 +670,32 @@ abstract final class SmartCommandParser {
         return (value, text.replaceRange(match.start, match.end, ' '));
       }
     }
+    // "on page 24", "up to pg 24" — the page they are *on*.
     final page = RegExp(
       r'\b(?:(?:up )?(?:on|at|to|reached|hit|onto)\s+)?(?:page|pg|p\.)\s*(\d+)\b',
     ).firstMatch(text);
     if (page != null) {
       return (page.group(1), text.replaceRange(page.start, page.end, ' '));
+    }
+    // "100 pages in", "100 pages into dune" - how far in they *are*,
+    // so absolute, unlike the "read 100 pages" below it.
+    final into = RegExp(
+      r'\b(\d+)\s*(?:pages?|pgs?)\s+(?:in|into)\b',
+    ).firstMatch(text);
+    if (into != null) {
+      return (into.group(1), text.replaceRange(into.start, into.end, ' '));
+    }
+    // "read 24 pages", "another 30 pages", "24 more pages" — pages read
+    // since last time, which is not the same thing, so it keeps the
+    // grammar's `+` and the controller adds it to where the book was left.
+    final more = RegExp(
+      r'\b(?:another\s+)?(\d+)\s*(?:more\s+)?(?:pages?|pgs?)\b',
+    ).firstMatch(text);
+    if (more != null) {
+      return (
+        '+${more.group(1)}',
+        text.replaceRange(more.start, more.end, ' '),
+      );
     }
     return (null, text);
   }
@@ -637,6 +711,7 @@ abstract final class SmartCommandParser {
     r'reading|read|re-?reading|re-?read|re-?started|re-?starting|restart|again|'
     r'finished|finishing|finish|done with|done reading|done|completed|complete|'
     r'read the whole thing|read the entire book|reached the end of|reached the end|'
+    r'got through|gotten through|made it through|got to|up to|another|more|'
     r'gave up on|gave up|give up on|giving up on|dnf|dnfed|abandoned|stopped reading|quit|'
     r"couldn'?t finish|did not finish|didn'?t finish|"
     r'want to read|wanna read|add(?:ed)?|to my|to the|my|to read list|reading list|tbr|to-read|list|queue|queued|'

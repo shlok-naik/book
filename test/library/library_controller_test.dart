@@ -1879,6 +1879,56 @@ void main() {
     });
   });
 
+  group('advanceProgress', () {
+    test('adds the pages to the page already saved', () async {
+      final controller = controllerWith([_entry(_dune, page: 100)]);
+      await controller.load();
+
+      final result = await controller.advanceProgress('dune', 24);
+
+      expect(result.success, isTrue);
+      expect(result.message, 'On page 124 of "Dune"');
+      expect(controller.inProgress.single.currentPage, 124);
+    });
+
+    test(
+      'reading past the end finishes the book rather than failing',
+      () async {
+        final controller = controllerWith([_entry(_dune, page: 390)]);
+        await controller.load();
+
+        final result = await controller.advanceProgress('dune', 40);
+
+        expect(result.success, isTrue);
+        expect(result.message, 'Finished "Dune"');
+        expect(
+          controller.section(ReadingStatus.finished).single.currentPage,
+          400,
+        );
+      },
+    );
+
+    test('a book not on the shelf starts from page 0', () async {
+      final controller = controllerWith(const []);
+      await controller.load();
+
+      final result = await controller.advanceProgress('dune', 24);
+
+      expect(result.success, isTrue);
+      expect(controller.inProgress.single.currentPage, 24);
+    });
+
+    test('no pages at all is refused', () async {
+      final controller = controllerWith([_entry(_dune, page: 100)]);
+      await controller.load();
+
+      final result = await controller.advanceProgress('dune', 0);
+
+      expect(result.success, isFalse);
+      expect(controller.inProgress.single.currentPage, 100);
+    });
+  });
+
   group('updateProgress', () {
     test('applies the new page and reports it', () async {
       final controller = controllerWith([_entry(_dune, page: 10)]);

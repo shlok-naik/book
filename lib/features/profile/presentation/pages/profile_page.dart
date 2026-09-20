@@ -50,7 +50,7 @@ Future<void> openProfilePage(
   );
 }
 
-/// Who the reader is: the account card, their name and `@username`, the
+/// Who the reader is: the account card, their name, the
 /// email that backs the shelf up, their reading tastes, their memory and
 /// their year — and one row into [SettingsPage] for everything that isn't
 /// about them.
@@ -179,8 +179,8 @@ class _ProfilePageState extends State<ProfilePage> {
                           SettingsRow(
                             key: const ValueKey('profile-edit'),
                             icon: Icons.badge_outlined,
-                            label: 'name and username',
-                            value: identity.handle ?? 'not set',
+                            label: 'name',
+                            value: identity.displayName ?? 'not set',
                             onTap: () {
                               AppHaptics.selection();
                               unawaited(showEditProfileSheet(context));

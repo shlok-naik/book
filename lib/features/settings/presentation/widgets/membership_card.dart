@@ -66,8 +66,7 @@ class MembershipCard extends StatefulWidget {
   final SessionService session;
   final bool isPro;
 
-  /// The reader's name and `@username`, shown over the join date once they
-  /// have set either. Empty by default — the card works without one.
+  /// The reader's name, shown over the join date once they have set it. Empty by default — the card works without one.
   final ProfileIdentity identity;
 
   /// Injection point for tests: a fake wrapping a fake Supabase call
@@ -231,16 +230,6 @@ class _MembershipCardState extends State<MembershipCard> {
                             fontSize: 18,
                             fontWeight: FontWeight.w600,
                             color: onPanel,
-                          ),
-                        ),
-                      if (widget.identity.handle case final handle?)
-                        Text(
-                          handle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: context.fonts.body(
-                            fontSize: 13,
-                            color: onPanel.withValues(alpha: 0.75),
                           ),
                         ),
                       if (!widget.identity.isEmpty)

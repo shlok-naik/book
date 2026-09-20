@@ -63,6 +63,23 @@ void main() {
       expect(_commands('halfway through dune'), ['update Dune 50%']);
     });
 
+    test('pages read since last time, which is not the page reached', () {
+      // How most readers say it — and the reason the grammar needs a
+      // relative form at all: this is 24 pages *more*, not page 24.
+      expect(_commands('i read 24 pages of dune'), ['update Dune +24']);
+      expect(_commands('read 30 more pages of dune'), ['update Dune +30']);
+      expect(_commands('another 12 pages of dune'), ['update Dune +12']);
+      expect(_commands('i read 24 pgs of dune yesterday'), [
+        'update Dune +24 2026-09-15',
+      ]);
+      // Still absolute when they name the page they are on.
+      expect(_commands('up to page 24 of dune'), ['update Dune 24']);
+    });
+
+    test('pages read with no book named asks which one', () {
+      expect(_commands('i read 24 pages'), ['ASK()']);
+    });
+
     test('finish, with a date', () {
       expect(_commands('finished dune yesterday'), ['finish Dune 2026-09-15']);
       expect(_commands('done with Dune last night'), [

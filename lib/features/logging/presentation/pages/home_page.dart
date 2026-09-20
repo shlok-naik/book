@@ -686,6 +686,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             loggedAt: command.date,
           );
         }
+        if (command.pagesRead case final pages?) {
+          return library.advanceProgress(title, pages, loggedAt: command.date);
+        }
         final page = command.page;
         if (page == null) {
           return Future.value(

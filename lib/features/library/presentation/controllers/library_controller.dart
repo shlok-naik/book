@@ -1066,6 +1066,29 @@ class LibraryController extends ChangeNotifier {
     return _markAdded(result, added: resolved.added);
   }
 
+  /// `update <book> +<pages>` — pages read *since last time*. Resolved
+  /// here rather than in the parser, which has no way of knowing what page
+  /// the book was left on; a book that isn't on the shelf yet starts from
+  /// page 0, so "I read 24 pages of The Shining" adds it at page 24.
+  ///
+  /// Everything else — validation, the last-page finish, the journal line,
+  /// rollback — is [updateProgress]'s own path.
+  Future<LibraryActionResult> advanceProgress(
+    String title,
+    int pages, {
+    DateTime? loggedAt,
+  }) {
+    if (pages <= 0) {
+      return Future.value(const LibraryActionResult.failure('How many pages?'));
+    }
+    final existing = _findByTitle(title);
+    final from = existing?.currentPage ?? 0;
+    final total = existing?.pageCount;
+    // Reading past the end just means finished, not a refused command.
+    final page = total == null ? from + pages : (from + pages).clamp(0, total);
+    return updateProgress(title, page, loggedAt: loggedAt);
+  }
+
   /// The detail page's progress fields — [updateProgress] for a row
   /// already identified by id, so two books with similar titles can never
   /// be confused the way a typed title could.

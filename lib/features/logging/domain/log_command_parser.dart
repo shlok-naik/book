@@ -122,6 +122,7 @@ class ParsedLogCommand {
     this.type = LogCommandType.unknown,
     this.title,
     this.page,
+    this.pagesRead,
     this.rating,
     this.note,
     this.date,
@@ -150,6 +151,11 @@ class ParsedLogCommand {
   /// the pattern only matches digits, so no sign or decimal can get in.
   /// Null when `update` was given a [percent] instead of a raw page.
   final int? page;
+
+  /// `update <book> +<n>` — pages read since last time, to be added to the
+  /// page already saved. Null for every other command, including a plain
+  /// `update <book> <page>`, which names an absolute page instead.
+  final int? pagesRead;
 
   /// The `<percent>` in `update <book> <percent>%` — an alternative to
   /// [page] for a reader who thinks in "74%" rather than a raw page
@@ -234,6 +240,17 @@ abstract final class LogCommandParser {
   );
   static final _updatePattern = RegExp(
     r'^update\s+(.+?)\s+(\d+)(?:\s+(\d{4}-\d{2}-\d{2}))?$',
+    caseSensitive: false,
+  );
+
+  /// `update <book> +24` — pages read *since last time*, rather than the
+  /// page the reader is on. "I read 24 pages of The Shining" is how most
+  /// readers say it, and it means something different from "I'm on page
+  /// 24": the parser can't resolve one into the other (it doesn't know
+  /// where the book was left), so the `+` survives to the controller,
+  /// which adds it to the page already saved.
+  static final _updateMorePattern = RegExp(
+    r'^update\s+(.+?)\s+\+(\d+)(?:\s+(\d{4}-\d{2}-\d{2}))?$',
     caseSensitive: false,
   );
   // Same shape as `_updatePattern`, but the number is followed by a
@@ -400,6 +417,24 @@ abstract final class LogCommandParser {
         type: LogCommandType.update,
         title: title,
         percent: percent,
+        date: date,
+      );
+    }
+
+    final updateMore = _updateMorePattern.firstMatch(text);
+    if (updateMore != null) {
+      final title = updateMore.group(1)!.trim();
+      final pages = int.tryParse(updateMore.group(2)!);
+      final date = parseIsoDate(updateMore.group(3));
+      return ParsedLogCommand(
+        message: pages == null
+            ? ''
+            : 'Read $pages ${pages == 1 ? 'page' : 'pages'} of "$title"'
+                  '${_dateSuffix(date)}',
+        recognized: true,
+        type: LogCommandType.update,
+        title: title,
+        pagesRead: pages,
         date: date,
       );
     }

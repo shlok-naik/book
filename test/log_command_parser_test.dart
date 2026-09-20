@@ -2,6 +2,33 @@ import 'package:book/features/logging/domain/log_command_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  group('update <book> +<pages>', () {
+    test('reads as pages since last time, not a page number', () {
+      final parsed = LogCommandParser.parse('update Dune +24');
+
+      expect(parsed.recognized, isTrue);
+      expect(parsed.type, LogCommandType.update);
+      expect(parsed.title, 'Dune');
+      expect(parsed.pagesRead, 24);
+      expect(parsed.page, isNull);
+      expect(parsed.message, 'Read 24 pages of "Dune"');
+    });
+
+    test('takes a date, and says one page in the singular', () {
+      final parsed = LogCommandParser.parse('update Dune +1 2026-08-31');
+
+      expect(parsed.pagesRead, 1);
+      expect(parsed.message, 'Read 1 page of "Dune" on Aug 31');
+    });
+
+    test('a plain page number is still absolute', () {
+      final parsed = LogCommandParser.parse('update Dune 24');
+
+      expect(parsed.page, 24);
+      expect(parsed.pagesRead, isNull);
+    });
+  });
+
   group('LogCommandParser', () {
     test('recognizes all five commands', () {
       expect(LogCommandParser.parse('start Dune').recognized, isTrue);

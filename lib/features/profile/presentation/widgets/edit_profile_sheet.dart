@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../../core/feedback/app_haptics.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -9,10 +8,8 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../domain/profile_identity.dart';
 import '../profile_identity_controller.dart';
 
-/// Asks for the reader's `@username` and display name — the profile tab's
-/// "edit profile", and the same fields onboarding offers. Both are
-/// optional: a reader who wants to be nobody in particular stays nobody in
-/// particular, and the shelf works either way.
+/// Asks for the reader's name — the profile screen's "edit name". A name is
+/// required; the field is the same one onboarding opens with.
 Future<void> showEditProfileSheet(BuildContext context) {
   final colors = context.colors;
   return showModalBottomSheet<void>(
@@ -35,9 +32,6 @@ class _EditProfileSheet extends StatefulWidget {
 }
 
 class _EditProfileSheetState extends State<_EditProfileSheet> {
-  late final _username = TextEditingController(
-    text: ProfileIdentityController.identity.value.username ?? '',
-  );
   late final _displayName = TextEditingController(
     text: ProfileIdentityController.identity.value.displayName ?? '',
   );
@@ -47,7 +41,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
 
   @override
   void dispose() {
-    _username.dispose();
     _displayName.dispose();
     super.dispose();
   }
@@ -56,7 +49,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     if (_saving) return;
     setState(() => _saving = true);
     final error = await ProfileIdentityController.save(
-      username: _username.text,
       displayName: _displayName.text,
     );
     if (!mounted) return;
@@ -97,11 +89,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
-              ProfileNameFields(
-                username: _username,
-                displayName: _displayName,
-                onSubmit: _save,
-              ),
+              ProfileNameField(controller: _displayName, onSubmit: _save),
               if (_error case final error?) ...[
                 const SizedBox(height: AppSpacing.sm),
                 Text(
@@ -134,71 +122,38 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   }
 }
 
-/// The two name fields, shared by this sheet and onboarding's account
-/// screen so the two ask for the same things in the same way.
-class ProfileNameFields extends StatelessWidget {
-  const ProfileNameFields({
-    super.key,
-    required this.username,
-    required this.displayName,
-    this.onSubmit,
-  });
+/// The name field, shared by this sheet and onboarding's first question so
+/// the two ask in the same way.
+class ProfileNameField extends StatelessWidget {
+  const ProfileNameField({super.key, required this.controller, this.onSubmit});
 
-  final TextEditingController username;
-  final TextEditingController displayName;
+  final TextEditingController controller;
   final VoidCallback? onSubmit;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final style = context.fonts.interface(
-      fontSize: 16,
-      color: colors.primaryText,
-    );
 
-    InputDecoration decoration(String label, {String? prefix}) =>
-        InputDecoration(
-          labelText: label,
-          prefixText: prefix,
-          prefixStyle: style,
-          labelStyle: context.fonts.interface(
-            fontSize: 13,
-            color: colors.secondaryText,
-          ),
-          filled: true,
-          fillColor: colors.background,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-          ),
-        );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextField(
-          key: const ValueKey('profile-display-name-field'),
-          controller: displayName,
-          textCapitalization: TextCapitalization.words,
-          textInputAction: TextInputAction.next,
-          maxLength: ProfileNames.displayNameMax,
-          style: style,
-          decoration: decoration('your name'),
+    return TextField(
+      key: const ValueKey('profile-display-name-field'),
+      controller: controller,
+      textCapitalization: TextCapitalization.words,
+      textInputAction: TextInputAction.done,
+      maxLength: ProfileNames.displayNameMax,
+      style: context.fonts.interface(fontSize: 16, color: colors.primaryText),
+      onSubmitted: onSubmit == null ? null : (_) => onSubmit!(),
+      decoration: InputDecoration(
+        labelText: 'your name',
+        labelStyle: context.fonts.interface(
+          fontSize: 13,
+          color: colors.secondaryText,
         ),
-        const SizedBox(height: AppSpacing.sm),
-        TextField(
-          key: const ValueKey('profile-username-field'),
-          controller: username,
-          autocorrect: false,
-          textInputAction: TextInputAction.done,
-          maxLength: ProfileNames.usernameMax,
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9_.@]')),
-          ],
-          style: style,
-          onSubmitted: onSubmit == null ? null : (_) => onSubmit!(),
-          decoration: decoration('username', prefix: '@'),
+        filled: true,
+        fillColor: colors.background,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
         ),
-      ],
+      ),
     );
   }
 }

@@ -55,6 +55,7 @@ const BASE_SYSTEM_PROMPT =
 
 start <book title> [date]
 update <book title> <page number> [date]
+update <book title> +<pages read since last time> [date]
 update <book title> <percent>% [date]
 finish <book title> [date]
 rate <book title> <stars, 0-5, .5 allowed>
@@ -74,6 +75,7 @@ remember <book title> :: <note>
 recommend <book title> :: <reason>
 
 Rules:
+- "I read 24 pages of X" / "another 30 pages" is `update X +24` — pages read since last time, not the page they are on. "I'm on page 24" / "up to page 24" is `update X 24`.
 - Extract every distinct action the sentence describes, in the order mentioned. A single sentence can produce more than one line — e.g. "finished Dune, loved the ending" is both a finish line and a remember line.
 - Use the book title as written (fix obvious capitalization only).
 - If a sentence mentions no page number or star rating, don't guess one — drop that action instead of inventing a number.

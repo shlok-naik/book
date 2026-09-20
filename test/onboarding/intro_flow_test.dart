@@ -29,6 +29,7 @@ import 'package:book/features/onboarding/presentation/pages/goodreads_prompt_pag
 import 'package:book/features/onboarding/presentation/pages/one_more_thing_page.dart';
 import 'package:book/features/onboarding/presentation/pages/reading_goal_page.dart';
 import 'package:book/features/onboarding/presentation/pages/reading_tastes_page.dart';
+import 'package:book/features/onboarding/presentation/pages/secure_library_page.dart';
 import 'package:book/features/onboarding/presentation/pages/speak_freely_page.dart';
 import 'package:book/features/onboarding/presentation/pages/speed_up_prompt_page.dart';
 import 'package:book/features/onboarding/presentation/pages/theme_preference_page.dart';
@@ -172,12 +173,25 @@ Future<void> start(WidgetTester tester) async {
   await skipProfile(tester);
 }
 
-/// Walks past the account screen — the first thing after the welcome, and
-/// the only screen in the flow that asks for anything — without filling
-/// anything in.
+/// Walks past the two account screens — the first things after the welcome,
+/// and the only ones that ask for anything: a name (required), then an
+/// optional email that "skip" passes over.
 Future<void> skipProfile(WidgetTester tester) async {
   expect(find.byType(CreateProfilePage), findsOneWidget);
-  final skip = find.byKey(const ValueKey('onboarding-profile-skip'));
+  expect(find.text("what's your name?"), findsOneWidget);
+  // A name is required: continuing with none stays put.
+  await tapContinue(tester);
+  expect(find.byType(CreateProfilePage), findsOneWidget);
+  expect(find.text('Enter your name.'), findsOneWidget);
+  await tester.enterText(
+    find.byKey(const ValueKey('profile-display-name-field')),
+    'Ada',
+  );
+  await tapContinue(tester);
+
+  expect(find.byType(SecureLibraryPage), findsOneWidget);
+  expect(find.text('want to secure your library?'), findsOneWidget);
+  final skip = find.byKey(const ValueKey('onboarding-email-skip'));
   await tester.ensureVisible(skip);
   await settle(tester);
   await tester.tap(skip);

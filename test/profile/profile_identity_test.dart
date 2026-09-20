@@ -5,17 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('ProfileNames', () {
-    test('normalizes a username', () {
-      expect(ProfileNames.normalizeUsername('  @Book_Worm '), 'book_worm');
-    });
-
-    test('checks a username', () {
-      expect(ProfileNames.usernameError(''), isNull);
-      expect(ProfileNames.usernameError('@reader.one'), isNull);
-      expect(ProfileNames.usernameError('ab'), isNotNull);
-      expect(ProfileNames.usernameError('has space'), isNotNull);
-      expect(ProfileNames.usernameError('.dot'), isNotNull);
-      expect(ProfileNames.usernameError('a' * 21), isNotNull);
+    test('requires a name', () {
+      expect(ProfileNames.displayNameError(''), isNotNull);
+      expect(ProfileNames.displayNameError('   '), isNotNull);
     });
 
     test('checks a display name', () {
@@ -30,27 +22,30 @@ void main() {
       ProfileIdentityController.reset();
     });
 
-    test('saves normalized names and reads them back', () async {
+    test('saves a trimmed name and reads it back', () async {
       expect(
-        await ProfileIdentityController.save(
-          username: '@Ada',
-          displayName: ' Ada L. ',
-        ),
+        await ProfileIdentityController.save(displayName: ' Ada L. '),
         isNull,
       );
       ProfileIdentityController.reset();
       await ProfileIdentityController.initialize();
-      final identity = ProfileIdentityController.identity.value;
-      expect(identity.handle, '@ada');
-      expect(identity.displayName, 'Ada L.');
+      expect(ProfileIdentityController.identity.value.displayName, 'Ada L.');
     });
 
-    test('refuses an invalid username without saving', () async {
-      expect(
-        await ProfileIdentityController.save(username: 'a b', displayName: ''),
-        isNotNull,
-      );
+    test('refuses an empty name without saving', () async {
+      expect(await ProfileIdentityController.save(displayName: ' '), isNotNull);
       expect(ProfileIdentityController.identity.value.isEmpty, isTrue);
+    });
+
+    test('drops a username an earlier build stored', () async {
+      SharedPreferences.setMockInitialValues({
+        'profile.username': 'ada',
+        'profile.display_name': 'Ada',
+      });
+      await ProfileIdentityController.initialize();
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('profile.username'), isFalse);
+      expect(ProfileIdentityController.identity.value.displayName, 'Ada');
     });
   });
 }

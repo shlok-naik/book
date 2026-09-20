@@ -221,9 +221,7 @@ void main() {
       expect(find.text('memory'), findsOneWidget);
     });
 
-    testWidgets('names and username are set here, and land on the card', (
-      tester,
-    ) async {
+    testWidgets('the name is set here, and lands on the card', (tester) async {
       SharedPreferences.setMockInitialValues({});
       addTearDown(ProfileIdentityController.reset);
       await pumpProfile(
@@ -239,20 +237,33 @@ void main() {
         find.byKey(const ValueKey('profile-display-name-field')),
         'Ada',
       );
-      await tester.enterText(
-        find.byKey(const ValueKey('profile-username-field')),
-        '@Ada_L',
-      );
       await tester.tap(find.byKey(const ValueKey('edit-profile-save')));
       await tester.pumpAndSettle();
 
       expect(
         ProfileIdentityController.identity.value,
-        const ProfileIdentity(username: 'ada_l', displayName: 'Ada'),
+        const ProfileIdentity(displayName: 'Ada'),
       );
       // On the card itself, over the join date.
       expect(find.text('Ada'), findsWidgets);
-      expect(find.text('@ada_l'), findsWidgets);
+    });
+
+    testWidgets('a name is required', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(ProfileIdentityController.reset);
+      await pumpProfile(
+        tester,
+        purchases: _FakePurchasesService(info: _customerInfo(pro: false)),
+        session: _FakeSession(),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('profile-edit')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('edit-profile-save')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enter your name.'), findsOneWidget);
+      expect(ProfileIdentityController.identity.value.isEmpty, isTrue);
     });
 
     testWidgets('one row leads to the settings screen', (tester) async {

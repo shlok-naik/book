@@ -87,6 +87,15 @@ abstract final class CommandCatalog {
       category: CommandCategory.classicActions,
     ),
     CommandReference(
+      keyword: 'update',
+      syntax: 'update <book> +<pages> [date]',
+      description:
+          'logs pages read since last time, added to where you were — '
+          '"i read 24 pages of dune" says it this way.',
+      example: 'update Dune +24',
+      category: CommandCategory.classicActions,
+    ),
+    CommandReference(
       keyword: 'finish',
       syntax: 'finish <book> [date]',
       description: 'marks a book finished and fills its progress to 100%.',
