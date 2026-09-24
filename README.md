@@ -1,14 +1,68 @@
 # cactus
 
-A minimalist reading tracker. You log your reading by typing what you did
-— `start Dune`, `update Dune 240`, `finish Dune`, `rate Dune 4.5` — and on
-*cactus pro*, by typing it as a plain sentence and letting a model split
-it into those same commands.
+**A reading tracker you talk to.** Type what you did — `started dune`,
+`on page 240`, `finished it, four and a half stars` — and cactus files it:
+the shelf, the progress, the streak, the stats. No forms, no screens to
+tap through.
 
-Flutter app, Supabase backend (Postgres + Auth + Edge Functions), Google
-Books for volume lookup, RevenueCat for purchases.
+Built for the **RevenueCat Shipathon 2026 — Next Gen track**.
+
+Flutter · Supabase (Postgres, Auth, Edge Functions) · RevenueCat ·
+Google Books + Open Library.
 
 ---
+
+## What it does
+
+- **Log by typing.** A classic command grammar (`start`, `update`,
+  `finish`, `rate`, `move`, `make shelf|tag|series`, `add tag|series|comment`,
+  `remove`, `delete`) for everyone, plus a free on-device **beta parser**
+  that understands everyday sentences, forgives typos and matches titles
+  against your shelf. On *cactus pro*, an LLM splits whole rambling
+  messages ("finished dune, loved it, and started circe yesterday") into
+  those same commands.
+- **Shelves as folders.** Currently reading up top, custom shelves, drag
+  a book to reorder, move it, or drop it in the bin. Series, tags,
+  comments, owned editions, re-read stickers.
+- **Search and discover.** Google Books with an automatic Open Library
+  fallback, plus recommendation rows built from your shelf and tastes —
+  no AI needed.
+- **Stats.** Yearly goal, reading-days heatmap, pace, genres, tags.
+- **Offline first.** Shelf changes queue on the device and sync in order
+  when the connection returns.
+- **Yours.** Anonymous account from the first launch (no sign-up wall),
+  optional verified email link to secure the library across devices,
+  Goodreads import and CSV export.
+- **Customisation.** Accent themes, font sets and sixteen launcher icons.
+
+## How RevenueCat is used
+
+cactus is free at its core and sells **cactus pro**, a subscription with a
+monthly and a yearly plan.
+
+- `PurchasesService` wraps the RevenueCat SDK; the reader is identified by
+  their Supabase user id so the entitlement survives an email link.
+- `PlanController.isPro` follows the live entitlement (`customerInfoStream`),
+  and every gate reads it: natural-language AI, memory and recommendations,
+  the pro stats, collection limits on the free plan, themes/fonts/icons and
+  the Goodreads import. Every check **fails closed**.
+- The paywall (`showPaywallPopup`) is always dismissible, opens on the
+  chapter matching the feature that was tapped (`PaywallFeature`), and shows
+  the store's own localized prices.
+- RevenueCat's Customer Center and restore are in settings.
+- Purchase outcomes (cancelled / store error / entitlement inactive) are
+  tracked separately; no reader-authored content is ever sent.
+
+## Architecture at a glance
+
+One composition root (`lib/main.dart`), feature-first folders, controllers
+as the single mutation point, optimistic updates with rollback, Supabase RLS
+for per-reader isolation, secrets only on the server (the LLM and Google
+Books keys live in edge functions). Full guide: [CLAUDE.md](CLAUDE.md).
+
+---
+
+# Developer guide
 
 ## Getting started
 
@@ -112,7 +166,11 @@ supabase secrets set GROQ_API_KEY=...
 supabase functions deploy parse-command
 ```
 
-It requires a valid JWT, and charges each call against the caller's own
+The [`google-books`](supabase/functions/google-books/index.ts) proxy keeps the
+Google Books key server-side, and `link-account` merges a device library into
+an email account. All three need a valid JWT.
+
+`parse-command` charges each call against the caller's own
 hourly allowance (`claim_ai_request()`), so an extracted request is worth
 no more than that reader's remaining quota.
 
@@ -120,10 +178,11 @@ no more than that reader's remaining quota.
 
 | Table | Ownership |
 | --- | --- |
-| `books` | Shared cache of Google Books volumes. Readable by any signed-in reader; **not** writable — the one write path is the `cache_book()` function. |
-| `user_books` | One row per book per reader. Private via RLS. |
-| `reading_events` | One row per shelf command that took effect; the streaks grid groups these by local day. Private via RLS. |
-| `profiles` | Onboarding answers. Created by trigger on sign-up, so the app only ever `UPDATE`s. Private via RLS. |
+| `books`, `book_editions` | Shared catalogue cache. Readable by any signed-in reader; **not** writable — only the `cache_book*()` security-definer functions write. |
+| `user_books` | One row per book per reader: status, progress, rating, shelf, series, owned edition. Private via RLS. |
+| `shelves`, `tags`, `series`, `book_tags`, `book_comments` | The reader's own collections and notes. Private via RLS. |
+| `reading_events` | One row per shelf command that took effect; feeds the heatmap and streak. Private via RLS. |
+| `profiles`, `memories` | Name, goal, saved notes. Private via RLS. |
 | `ai_requests` | The AI rate-limit ledger. RLS on with **no policies at all** — reachable only through `claim_ai_request()`. |
 
 `user_id` columns default to `auth.uid()` at the database level and are
